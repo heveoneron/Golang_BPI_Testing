@@ -54,6 +54,29 @@ psql -U postgres -d bpi_middleware_db -f database/schema.sql
 
 ---
 
+## 📖 Dokumentasi & Testing Interaktif via Swagger UI
+
+Service telah terintegrasi dengan **Swagger UI** interaktif:
+- **URL Swagger UI**: [http://localhost:8085/swagger/index.html](http://localhost:8085/swagger/index.html)
+- **URL Shortcut**: Akses langsung ke `http://localhost:8085/` atau `http://localhost:8085/swagger` akan otomatis dialihkan (redirect) ke Swagger UI.
+- Semua endpoint dilengkapi contoh payload Maximo PO dan skema DTO yang siap diuji langsung lewat tombol **"Try it out"**.
+
+Untuk memperbarui dokumentasi swagger jika ada perubahan anotasi:
+```bash
+swag init -g cmd/server/main.go -o ./docs --parseDependency --parseInternal
+```
+
+---
+
+## 🧪 Menjalankan Automated Unit Tests
+
+Jalankan test suite seluruh modul (client, controller, router, service):
+```bash
+go test -v ./...
+```
+
+---
+
 ## 🧪 Contoh Testing Ingest Manual via cURL
 
 Kirim contoh dokumen PO Maximo ke service lokal:

@@ -22,6 +22,13 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 )
 
+// @title           BPI Maximo to SAP Grow Middleware Engine API
+// @version         1.0
+// @description     Middleware integrasi enterprise: IBM Maximo <-> PostgreSQL Staging & State Machine <-> SAP Grow S/4HANA Cloud OData.
+// @contact.name    BPI Middleware Development Team
+// @host            localhost:8085
+// @BasePath        /api/v1
+// @schemes         http https
 func main() {
 	_ = godotenv.Load()
 

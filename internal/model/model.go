@@ -79,28 +79,28 @@ type SchedulerConfig struct {
 
 // Payload Struktur Maximo (Contoh PO)
 type MaximoPOHeader struct {
-	PONum        string         `json:"PONUM"`
-	Vendor       string         `json:"VENDOR"`
-	OrderDate    string         `json:"ORDERDATE"`
-	CurrencyCode string         `json:"CURRENCYCODE"`
-	Status       string         `json:"STATUS"`
-	RevisionNum  int            `json:"REVISIONNUM"`
+	PONum        string         `json:"PONUM" example:"PO-BPI-2026-001"`
+	Vendor       string         `json:"VENDOR" example:"VEND-PLTU-01"`
+	OrderDate    string         `json:"ORDERDATE" example:"2026-10-12"`
+	CurrencyCode string         `json:"CURRENCYCODE" example:"IDR"`
+	Status       string         `json:"STATUS" example:"APPR"`
+	RevisionNum  int            `json:"REVISIONNUM" example:"0"`
 	Lines        []MaximoPOLine `json:"LINES"`
 }
 
 type MaximoPOLine struct {
-	POLineNum    int     `json:"POLINENUM"`
-	PRNum        string  `json:"PRNUM"`
-	PRLineNum    int     `json:"PRLINENUM"`
-	LineType     string  `json:"LINETYPE"`
-	ItemNum      string  `json:"ITEMNUM"`
-	OrderUnit    string  `json:"ORDERUNIT"`
-	OrderQty     float64 `json:"QTY"`
-	UnitCost     float64 `json:"UNITCOST"`
-	BudgetCode   string  `json:"BUDGETCODE"`
-	CostCenter   string  `json:"DEPARTMENT"`
-	MainAccount  string  `json:"MAINACCOUNT"`
-	TaxCodePPN   string  `json:"TAXCODE1"`
+	POLineNum    int     `json:"POLINENUM" example:"1"`
+	PRNum        string  `json:"PRNUM,omitempty" example:"PR-2026-001"`
+	PRLineNum    int     `json:"PRLINENUM,omitempty" example:"1"`
+	LineType     string  `json:"LINETYPE,omitempty" example:"ITEM"`
+	ItemNum      string  `json:"ITEMNUM" example:"BEARING-TURBINE-6204"`
+	OrderUnit    string  `json:"ORDERUNIT" example:"PCS"`
+	OrderQty     float64 `json:"QTY" example:"5"`
+	UnitCost     float64 `json:"UNITCOST" example:"150000"`
+	BudgetCode   string  `json:"BUDGETCODE" example:"10081"`
+	CostCenter   string  `json:"DEPARTMENT" example:"3000"`
+	MainAccount  string  `json:"MAINACCOUNT" example:"513043"`
+	TaxCodePPN   string  `json:"TAXCODE1,omitempty" example:"V1"`
 }
 
 // Payload Struktur Target SAP Grow OData
