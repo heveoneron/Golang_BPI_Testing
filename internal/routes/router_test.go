@@ -21,7 +21,7 @@ func TestRouter_SwaggerRedirect(t *testing.T) {
 	ctrl := controller.NewWebController(nil, nil)
 	r := SetupRouter(ctrl)
 
-	// Test 1: GET / should redirect to /swagger/index.html
+	// Test 1: GET / should redirect to /panel
 	reqRoot, _ := http.NewRequest("GET", "/", nil)
 	wRoot := httptest.NewRecorder()
 	r.ServeHTTP(wRoot, reqRoot)
@@ -29,8 +29,8 @@ func TestRouter_SwaggerRedirect(t *testing.T) {
 	if wRoot.Code != http.StatusMovedPermanently {
 		t.Errorf("GET /: expected %d, got %d", http.StatusMovedPermanently, wRoot.Code)
 	}
-	if loc := wRoot.Header().Get("Location"); loc != "/swagger/index.html" {
-		t.Errorf("GET /: expected redirect to '/swagger/index.html', got %q", loc)
+	if loc := wRoot.Header().Get("Location"); loc != "/panel" {
+		t.Errorf("GET /: expected redirect to '/panel', got %q", loc)
 	}
 
 	// Test 2: GET /swagger should redirect to /swagger/index.html

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Tracking - BPI Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css" rel="stylesheet">    
+    
+    <style>
+        :root {
+            --bg-body: #F1F5F9;
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 6px 18px rgba(15,23,42,.04);
+            --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+        }
+
+        body { 
+            background-color: var(--bg-body); 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+            color: var(--text-main); 
+            min-height: 100vh;
+        }
+
+        .main-content {
+            margin-left: 260px;
+            padding: 24px 32px;
+            transition: all 0.3s ease;
+        }
+
+        .top-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .top-nav-title h3 {
+            font-weight: 800;
+            margin: 0;
+            font-size: 24px;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: #ffffff;
+            padding: 16px 20px;
+            border-radius: 16px;
+            border: 1px solid var(--border-soft);
+            box-shadow: var(--shadow-card);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .metric-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .icon-blue { background: #EFF6FF; color: #2563EB; }
+        .icon-green { background: #F0FDF4; color: #166534; }
+        .icon-amber { background: #FFFBEB; color: #D97706; }
+        .icon-red { background: #FEF2F2; color: #DC2626; }
+
+        .metric-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-value {
+            font-size: 26px;
+            font-weight: 800;
+            line-height: 1.2;
+            color: var(--text-main);
+        }
+
+        .main-card {
+            background-color: #ffffff;
+            border-radius: 18px;
+            box-shadow: var(--shadow-card);
+            border: 1px solid var(--border-soft);
+            overflow: hidden;
+        }
+
+        .control-bar {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-soft);
+            background-color: #F8FAFC;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            position: relative;
+            max-width: 320px;
+            width: 100%;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+        }
+
+        .search-input {
+            padding-left: 36px;
+            border-radius: 10px;
+            border: 1px solid var(--border-soft);
+            font-size: 13.5px;
+        }
+
+        .badge-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .badge-pending { background-color: #FEF3C7; color: #92400E; }
+        .badge-processing { background-color: #E0E7FF; color: #3730A3; }
+        .badge-success { background-color: #DEF7EC; color: #03543F; }
+        .badge-error { background-color: #FDE8E8; color: #9B1C1C; }
+
+        .btn-action {
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 13px;
+            padding: 8px 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .payload-viewer {
+            background-color: #0F172A;
+            color: #E2E8F0;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 12px;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <div class="main-content">
+        <!-- Top Nav -->
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-diagram-3-fill text-primary"></i> Integration Tracking Hub</h3>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-primary btn-action" data-bs-toggle="modal" data-bs-target="#ingestModal">
+                    <i class="bi bi-plus-circle"></i> Ingest Test PO
+                </button>
+                <button type="button" class="btn btn-primary btn-action" onclick="triggerPush()">
+                    <i class="bi bi-cloud-arrow-up-fill"></i> Trigger Push to SAP
+                </button>
+            </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-icon icon-blue">
+                    <i class="bi bi-files"></i>
+                </div>
+                <div class="metric-info">
+                    <span class="metric-label">Total Documents</span>
+                    <span class="metric-value">{{ .TotalData }}</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon icon-green">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+                <div class="metric-info">
+                    <span class="metric-label">SAP Success</span>
+                    <span class="metric-value">{{ .SuccessCount }}</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon icon-amber">
+                    <i class="bi bi-hourglass-split"></i>
+                </div>
+                <div class="metric-info">
+                    <span class="metric-label">Pending / Queue</span>
+                    <span class="metric-value">{{ .PendingCount }}</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon icon-red">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <div class="metric-info">
+                    <span class="metric-label">Failed / Error</span>
+                    <span class="metric-value">{{ .FailedCount }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Table Card -->
+        <div class="main-card">
+            <div class="control-bar">
+                <form method="GET" action="/panel" class="d-flex align-items-center gap-2 w-100 justify-content-between">
+                    <div class="d-flex gap-2 align-items-center">
+                        <div class="search-box">
+                            <i class="bi bi-search"></i>
+                            <input type="text" name="search" class="form-control search-input" placeholder="Cari Dokumen / Group ID..." value="{{ .Search }}">
+                        </div>
+                        <select name="status" class="form-select" style="width: 160px; font-size: 13px; border-radius: 10px;" onchange="this.form.submit()">
+                            <option value="">Semua Status</option>
+                            <option value="pending" {{ if eq .Status "pending" }}selected{{ end }}>Pending</option>
+                            <option value="processing" {{ if eq .Status "processing" }}selected{{ end }}>Processing</option>
+                            <option value="success" {{ if eq .Status "success" }}selected{{ end }}>Success</option>
+                            <option value="error_conn" {{ if eq .Status "error_conn" }}selected{{ end }}>Error Connection</option>
+                            <option value="error_data" {{ if eq .Status "error_data" }}selected{{ end }}>Error Data</option>
+                        </select>
+                    </div>
+                    <div>
+                        <a href="/panel" class="btn btn-outline-secondary btn-action">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </a>
+                    </div>
+                </form>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 140px;">Doc Type</th>
+                            <th>Document No</th>
+                            <th>Group ID</th>
+                            <th>SAP Doc No</th>
+                            <th>Status</th>
+                            <th>Retry</th>
+                            <th>Created At</th>
+                            <th class="text-end" style="width: 120px;">Payload</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ if .Documents }}
+                            {{ range .Documents }}
+                            <tr>
+                                <td><span class="badge bg-secondary">{{ .DocType }}</span></td>
+                                <td class="fw-bold">{{ .DocumentNo }}</td>
+                                <td class="text-muted"><small>{{ .GroupID }}</small></td>
+                                <td>
+                                    {{ if .SAPDocumentNo }}
+                                        <span class="badge bg-success">{{ .SAPDocumentNo }}</span>
+                                    {{ else }}
+                                        <span class="text-muted">-</span>
+                                    {{ end }}
+                                </td>
+                                <td>
+                                    {{ if eq .Status "success" }}
+                                        <span class="badge-status badge-success">Success</span>
+                                    {{ else if eq .Status "pending" }}
+                                        <span class="badge-status badge-pending">Pending</span>
+                                    {{ else if eq .Status "processing" }}
+                                        <span class="badge-status badge-processing">Processing</span>
+                                    {{ else }}
+                                        <span class="badge-status badge-error">{{ .Status }}</span>
+                                    {{ end }}
+                                </td>
+                                <td>{{ .RetryCount }}</td>
+                                <td><small class="text-muted">{{ .CreatedAt }}</small></td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-dark" onclick="viewPayload('{{ .ID }}')">
+                                        <i class="bi bi-code-square"></i> JSON
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ else }}
+                            <tr>
+                                <td colspan="8" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox" style="font-size: 32px;"></i>
+                                    <p class="mt-2 mb-0">Belum ada data dokumen di tabel `documents`.</p>
+                                    <small>Gunakan tombol "Ingest Test PO" di atas untuk membuat sample data.</small>
+                                </td>
+                            </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Ingest PO -->
+    <div class="modal fade" id="ingestModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content" style="border-radius: 16px;">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-plus text-primary"></i> Ingest Test PO Maximo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Kirim payload Maximo PO untuk diolah ke staging lalu dipromote ke core documents:</p>
+                    <textarea id="poJsonInput" class="form-control font-monospace" rows="12" style="font-size: 13px;">{
+  "PONUM": "PO-BPI-TEST-001",
+  "VENDOR": "VEND-PLTU-01",
+  "ORDERDATE": "2026-10-12",
+  "CURRENCYCODE": "IDR",
+  "STATUS": "APPR",
+  "REVISIONNUM": 0,
+  "LINES": [
+    {
+      "POLINENUM": 1,
+      "ITEMNUM": "BEARING-TURBINE-6204",
+      "ORDERUNIT": "PCS",
+      "QTY": 5,
+      "UNITCOST": 150000,
+      "BUDGETCODE": "10081",
+      "DEPARTMENT": "3000",
+      "MAINACCOUNT": "513043"
+    }
+  ]
+}</textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-primary" onclick="submitIngest()">Ingest Dokumen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal View Payload -->
+    <div class="modal fade" id="payloadModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content" style="border-radius: 16px;">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-braces text-primary"></i> Payload Inspector</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <h6 class="fw-bold mb-2">Raw Payload (Maximo Ingested)</h6>
+                    <pre id="rawPayloadPre" class="payload-viewer"></pre>
+
+                    <h6 class="fw-bold mt-3 mb-2">SAP Payload (OData Grow Prepared)</h6>
+                    <pre id="sapPayloadPre" class="payload-viewer"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const documentsMap = {
+            {{ range .Documents }}
+                "{{ .ID }}": {
+                    "raw": {{ .RawPayload }},
+                    "sap": {{ .SAPPayload }}
+                },
+            {{ end }}
+        };
+
+        function viewPayload(id) {
+            const data = documentsMap[id];
+            if (data) {
+                document.getElementById('rawPayloadPre').innerText = JSON.stringify(data.raw, null, 2);
+                document.getElementById('sapPayloadPre').innerText = JSON.stringify(data.sap, null, 2);
+                new bootstrap.Modal(document.getElementById('payloadModal')).show();
+            }
+        }
+
+        async function submitIngest() {
+            try {
+                const bodyStr = document.getElementById('poJsonInput').value;
+                const parsed = JSON.parse(bodyStr);
+                const resp = await fetch('/api/v1/ingest/po', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(parsed)
+                });
+                const resJson = await resp.json();
+                if (resp.ok) {
+                    alert('Sukses ingest PO: ' + resJson.document_no);
+                    location.reload();
+                } else {
+                    alert('Error: ' + (resJson.error || 'Gagal ingest'));
+                }
+            } catch (err) {
+                alert('JSON tidak valid: ' + err.message);
+            }
+        }
+
+        async function triggerPush() {
+            if (!confirm('Eksekusi trigger push ke SAP Grow sekarang?')) return;
+            try {
+                const resp = await fetch('/api/v1/trigger/push', { method: 'POST' });
+                const resJson = await resp.json();
+                alert(resJson.message + ' (Pushed: ' + resJson.pushed_count + ')');
+                location.reload();
+            } catch (err) {
+                alert('Push error: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>

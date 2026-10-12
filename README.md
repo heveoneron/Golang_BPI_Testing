@@ -24,6 +24,33 @@
    - `POST /api/v1/ingest/po`: Ingestion payload PO Maximo secara manual untuk testing lokal.
    - `POST /api/v1/trigger/push`: Trigger manual pengiriman dokumen ke SAP Grow.
 
+5. **Web Panel & Swagger OpenAPI**:
+   - **Integration Tracking Hub**: Akses di `http://localhost:8085/panel` (atau `http://localhost:8085/`) untuk memonitor status dokumen, metric cards (Success, Pending, Failed), filter data, dan inspect isi JSON payload raw Maximo vs SAP OData secara visual.
+   - **Swagger OpenAPI UI**: Akses di `http://localhost:8085/swagger/index.html` untuk mencoba dan mengeksplorasi API endpoint secara interaktif.
+
+---
+
+## 🗄️ Koneksi ke Database SQL Server 2019 / 2012 (Lokal)
+
+Middleware menggunakan driver `github.com/microsoft/go-mssqldb`. Format URL koneksinya:
+
+```env
+# Format URL:
+SQL_CONN_STRING=sqlserver://<username>:<password>@<host>:<port>?database=<dbname>&encrypt=disable
+
+# Contoh SQL Server 2019 di lokal (port default 1433):
+SQL_CONN_STRING=sqlserver://sa:YourPassword123!@localhost:1433?database=MAXIMO_STAGING&encrypt=disable
+
+# Jika menggunakan Named Instance (misal SQLEXPRESS):
+SQL_CONN_STRING=sqlserver://sa:YourPassword123!@localhost:1433?database=MAXIMO_STAGING&instance=SQLEXPRESS&encrypt=disable
+```
+
+> **Catatan Penting untuk SQL Server 2019:**
+> 1. Pastikan **TCP/IP** sudah di-enable di **SQL Server Configuration Manager** -> *SQL Server Network Configuration* -> *Protocols for MSSQLSERVER*.
+> 2. Pastikan port TCP diset ke `1433`.
+> 3. Mode autentikasi diatur ke **SQL Server and Windows Authentication mode** (Mixed Mode).
+> 4. Parameter `encrypt=disable` disarankan untuk pengujian di lokal jika instance SQL Server belum dipasangi SSL certificate valid.
+
 ---
 
 ## 🗄️ Inisialisasi Database PostgreSQL
