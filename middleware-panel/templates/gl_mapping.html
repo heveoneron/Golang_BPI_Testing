@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GL Mapping - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); }
+
+        /* TOP NAV & MAIN CARD */
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .logout-btn-cancel { background:#F1F5F9; color:#334155; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; cursor:pointer; transition: background .2s ease; }
+        .logout-btn-cancel:hover { background:#E2E8F0; color:#334155; }
+        .logout-btn-confirm { background:#DC2626; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; display:inline-block; transition: background .2s ease; }
+        .logout-btn-confirm:hover { background:#B91C1C; color:#fff; }
+        .profile-btn { background: #fff; border: 1px solid var(--border-soft); border-radius: 50rem; padding: 6px 16px 6px 6px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .profile-btn:hover { border-color: #CBD5E1; box-shadow: 0 4px 6px rgba(0,0,0,0.04); transform: translateY(-1px); }
+        .profile-avatar { width: 32px; height: 32px; background-color: #EFF6FF; color: #2563EB; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        /* Table Styles */
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 16px 20px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 16px 20px; font-size: 14px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); transition: background-color 0.2s ease;}
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+        .table-custom tr:last-child td { border-bottom: none; }
+        
+        .identifier-badge { background-color: #F1F5F9; color: #334155; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #E2E8F0;}
+        .gl-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE;}
+
+        /* Ghost Action Buttons */
+        .btn-ghost-primary { color: #64748B; background: transparent; border: none; font-weight: 600; font-size: 13.5px; transition: all 0.2s ease; padding: 6px 12px; border-radius: 6px; }
+        .btn-ghost-primary:hover { color: #2563EB; background: #EFF6FF; }
+        .btn-ghost-danger { color: #64748B; background: transparent; border: none; font-weight: 600; font-size: 13.5px; transition: all 0.2s ease; padding: 6px 12px; border-radius: 6px; }
+        .btn-ghost-danger:hover { color: #EF4444; background: #FEF2F2; }
+        
+        /* Status Badges */
+        .badge-status { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-active { background-color: #DCFCE7; color: #166534; border: 1px solid #BBF7D0;}
+        .badge-inactive { background-color: #FEE2E2; color: #991B1B; border: 1px solid #FECACA;}
+
+        /* FORM MODAL */
+        .form-label { font-size: 13px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.05em; color: #64748B;}
+        .form-control { border: 1px solid var(--border-soft); border-radius: 8px; font-size: 14px; font-weight: 500; padding: 10px 14px; background-color: #F8FAFC; color: var(--text-main); transition: all 0.2s; }
+        .form-control:focus { border-color: #3B82F6; background-color: #ffffff; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); outline: none; }
+        
+        /* Spinner */
+        .spinner-custom { width: 1.2rem; height: 1.2rem; border-width: 0.15em; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-medium" id="toastMessage" style="font-size: 14px;">
+                    </div>
+                <button type="button" class="btn-close btn-close-white me-3 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+    
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-5" style="height: 100vh; overflow-y: auto;">
+        
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-journal-bookmark-fill text-primary"></i> Material GL Mapping</h3>
+            </div>
+            <div class="dropdown">
+                <div class="profile-btn" data-bs-toggle="dropdown">
+                    <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
+                    <span style="font-weight: 600; font-size: 14px; color: #0F172A;">{{ .Username }}</span>
+                    <i class="bi bi-chevron-down text-muted" style="font-size: 12px;"></i>
+                </div>
+                <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 p-2 mt-2" style="border-radius: 12px;">
+                    <li><h6 class="dropdown-header fw-bold">Signed in as</h6></li>
+                    <li><span class="dropdown-item-text small text-muted">{{ .Username }}</span></li>
+                    <li><hr class="dropdown-divider my-2"></li>
+                    <li><a class="dropdown-item text-danger fw-bold rounded-3 py-2" href="javascript:void(0)" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right me-2"></i> Sign Out</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="main-card">
+            <div class="d-flex justify-content-between align-items-center p-4 border-bottom bg-white">
+                <div>
+                    <h5 class="fw-bold mb-1">Mapping Rules</h5>
+                    <span class="text-muted small">Manage dynamic GL Account mapping rules for SAP Integration.</span>
+                </div>
+                <button class="btn btn-primary fw-bold rounded-2 px-3 shadow-sm" onclick="openModal()" style="font-size: 13.5px;">
+                    <i class="bi bi-plus-lg me-1"></i> Add New Mapping
+                </button>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom m-0">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%;">ID</th>
+                            <th style="width: 20%;">CTG ITEM</th>
+                            <th style="width: 15%;">GL ACCOUNT</th>
+                            <th style="width: 25%;">DESCRIPTION</th>
+                            <th style="width: 12%;">STATUS</th>
+                            <th style="width: 20%; text-align: right;">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Mappings }}
+                        <tr>
+                            <td class="text-muted fw-bold" style="font-size: 12px;">#{{ .ID }}</td>
+                            <td><span class="identifier-badge">{{ .CtgItem }}</span></td>
+                            <td><span class="gl-badge">{{ .GlAccount }}</span></td>
+                            <td><span class="text-muted">{{ .Description }}</span></td>
+                            <td>
+                                {{ if .IsActive }}
+                                    <span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size: 8px;"></i> Active</span>
+                                {{ else }}
+                                    <span class="badge-status badge-inactive"><i class="bi bi-circle-fill" style="font-size: 8px;"></i> Inactive</span>
+                                {{ end }}
+                            </td>
+                            <td class="text-end">
+                                <button class="btn-ghost-primary" title="Edit Data" 
+                                    data-id="{{ .ID }}" data-ctg="{{ .CtgItem }}" 
+                                    data-gl="{{ .GlAccount }}" data-desc="{{ .Description }}" 
+                                    data-active="{{ .IsActive }}" onclick="editData(this)">
+                                    <i class="bi bi-pencil-square me-1"></i> Edit
+                                </button>
+                                <button class="btn-ghost-danger" title="Delete Data" 
+                                    data-id="{{ .ID }}" onclick="deleteData(this)">
+                                    <i class="bi bi-trash3 me-1"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                        {{ end }}
+                        {{ if not .Mappings }}
+                        <tr>
+                            <td colspan="6" class="text-center py-5">
+                                <div class="fs-1 mb-2" style="color: #E2E8F0;"><i class="bi bi-inbox"></i></div>
+                                <h6 class="fw-bold text-muted">No mapping rules found.</h6>
+                                <p class="text-muted small mb-0">Click "Add New Mapping" to create your first rule.</p>
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="formModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header pt-4 px-4 border-bottom-0">
+                    <h5 class="modal-title fw-bold" id="modalTitle">Add New Mapping</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <input type="hidden" id="mappingId" value="0">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Category Item</label>
+                        <input type="text" id="ctgItem" class="form-control" placeholder="e.g. CS.MDV" autocomplete="off">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Target GL Account</label>
+                        <input type="text" id="glAccount" class="form-control" placeholder="e.g. 101142" autocomplete="off">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label">Description</label>
+                        <input type="text" id="description" class="form-control" placeholder="e.g. A/R NON TRADE - DOMESTIC" autocomplete="off">
+                    </div>
+                    
+                    <div class="form-check form-switch mt-2 p-3 bg-light rounded-3 border">
+                        <input class="form-check-input ms-0 mt-1" type="checkbox" role="switch" id="isActive" checked style="width: 2.5em; height: 1.25em; cursor: pointer;">
+                        <label class="form-check-label ms-3" style="font-weight: 600; color: var(--text-main); cursor: pointer;" for="isActive">Set as Active Rule</label>
+                    </div>
+                </div>
+                <div class="modal-footer p-4 border-top-0">
+                    <button type="button" class="btn btn-light fw-medium px-4 rounded-2" data-bs-dismiss="modal">Cancel</button>
+                    <button id="btnSave" type="button" class="btn btn-primary fw-bold px-4 rounded-2 d-flex align-items-center" onclick="saveData()">
+                        <span class="spinner-border spinner-custom me-2 d-none" id="spinnerSave" role="status"></span>
+                        <span id="textSave">Save Mapping</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>   
+    <script>
+        const formModal = new bootstrap.Modal(document.getElementById('formModal'));
+
+        // --- UI UTILITIES (TOAST & LOADING) ---
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            const bgClass = type === 'success' ? 'bg-success' : 'bg-danger';
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${bgClass}`;
+            
+            toastBody.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}-fill me-2"></i> ${message}`;
+            
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            toast.show();
+        }
+
+        function toggleLoading(isLoading) {
+            const btn = document.getElementById('btnSave');
+            const spinner = document.getElementById('spinnerSave');
+            const text = document.getElementById('textSave');
+            
+            if (isLoading) {
+                btn.setAttribute('disabled', 'true');
+                spinner.classList.remove('d-none');
+                text.innerText = "Saving...";
+            } else {
+                btn.removeAttribute('disabled');
+                spinner.classList.add('d-none');
+                text.innerText = "Save Mapping";
+            }
+        }
+
+        // --- MODAL CONTROLS ---
+        function openModal() {
+            document.getElementById('modalTitle').innerText = 'Add New Mapping';
+            document.getElementById('mappingId').value = 0;
+            document.getElementById('ctgItem').value = '';
+            document.getElementById('glAccount').value = '';
+            document.getElementById('description').value = '';
+            document.getElementById('isActive').checked = true;
+            formModal.show();
+        }
+
+        function editData(btn) {
+            document.getElementById('modalTitle').innerText = 'Edit Mapping Data';
+            document.getElementById('mappingId').value = btn.getAttribute('data-id');
+            document.getElementById('ctgItem').value = btn.getAttribute('data-ctg');
+            document.getElementById('glAccount').value = btn.getAttribute('data-gl');
+            document.getElementById('description').value = btn.getAttribute('data-desc');
+            document.getElementById('isActive').checked = btn.getAttribute('data-active') === 'true';
+            formModal.show();
+        }
+
+        // --- API CALLERS ---
+        function saveData() {
+            // Validation
+            const ctgItem = document.getElementById('ctgItem').value.trim();
+            const glAccount = document.getElementById('glAccount').value.trim();
+            
+            if (!ctgItem || !glAccount) {
+                showToast("Category Item and Target GL Account are required.", "danger");
+                return;
+            }
+
+            toggleLoading(true);
+
+            const payload = {
+                id: parseInt(document.getElementById('mappingId').value),
+                ctg_item: ctgItem,
+                gl_account: glAccount,
+                description: document.getElementById('description').value,
+                is_active: document.getElementById('isActive').checked
+            };
+
+            fetch('/api/gl-mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast("Mapping saved successfully!", "success");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showToast('Error: ' + data.message, "danger");
+                    toggleLoading(false);
+                }
+            })
+            .catch(err => {
+                showToast('Connection error. Please try again.', "danger");
+                toggleLoading(false);
+            });
+        }
+
+        function deleteData(btn) {
+            const id = btn.getAttribute('data-id');
+            if (confirm('Are you sure you want to delete this mapping rule? This action cannot be undone.')) {
+                
+                // Optional UI feedback on the button being clicked
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = `<span class="spinner-border spinner-custom me-1" role="status" aria-hidden="true"></span> Deleting...`;
+                btn.disabled = true;
+
+                fetch('/api/gl-mapping/' + id, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showToast("Mapping deleted successfully!", "success");
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        showToast('Error: ' + data.message, "danger");
+                        btn.innerHTML = originalHtml;
+                        btn.disabled = false;
+                    }
+                })
+                .catch(err => {
+                    showToast('Connection error.', "danger");
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                });
+            }
+        }
+    </script>
+    <div class="modal fade" id="logoutConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="text-center pt-5 pb-4 px-4">
+                    <div style="width: 56px; height: 56px; background: #FEF2F2; color: #DC2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 18px auto;">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2" style="color: #0F172A; font-size: 17px; letter-spacing: -0.01em;">Are you sure you want to sign out?</h5>
+                    <p class="text-muted mb-0" style="font-size: 13px; line-height: 1.5;">You will need to sign in again to access the Integration Tracking Panel.</p>
+                </div>
+                <div class="d-flex px-4 pb-4" style="gap: 10px;">
+                    <button type="button" class="flex-fill fw-semibold logout-btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/logout" class="flex-fill fw-semibold text-center logout-btn-confirm">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

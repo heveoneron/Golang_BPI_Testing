@@ -1,4 +1,5 @@
 {{ define "sidebar" }}
+<!-- ANTI-BLINK SCRIPT: Dieksekusi instan sebelum browser menggambar layar -->
 <script>
     if (localStorage.getItem('sidebarTheme') === 'dark') {
         document.body.classList.add('dark-sidebar');
@@ -8,10 +9,13 @@
 <div class="sidebar">
     <div class="sidebar-header">
         <div class="brand-logo-wrapper">
-            <i class="bi bi-cpu-fill text-primary" style="font-size: 28px;"></i>
+            <!-- putih -->
+            <!-- <img src="/static/img/soltius_nobg.png" alt="Soltius"> -->
+            <!-- hitam -->
+            <img src="/static/img/soltius_nobg.png" alt="Soltius">
         </div>
         <div class="brand-typography">
-            <span class="brand-title">BPI Hub</span>
+            <span class="brand-title">BPI Panel</span>
             <span class="brand-subtitle">Maximo $\leftrightarrow$ SAP Grow</span>
         </div>
     </div>
@@ -19,21 +23,47 @@
     <div class="sidebar-section">Monitoring</div>
     <ul class="nav flex-column mb-auto">
         <li class="nav-item">
-            <a href="/panel" class="nav-link {{ if eq .ActiveMenu "dashboard" }}active{{ end }}">
-                <i class="bi bi-grid-1x2-fill"></i> Integration Tracking
+            <a href="/dashboard" class="nav-link {{ if eq .ActiveMenu "dashboard" }}active{{ end }}">
+                <i class="bi bi-grid-1x2-fill"></i> Tracking Data
             </a>
         </li>
-    </ul>
-
-    <div class="sidebar-section">Testing Tools</div>
-    <ul class="nav flex-column mb-auto">
         <li class="nav-item">
-            <a href="/swagger/index.html" target="_blank" class="nav-link">
+            <a href="http://localhost:8085/swagger/index.html" target="_blank" class="nav-link">
                 <i class="bi bi-code-slash"></i> Swagger OpenAPI
             </a>
         </li>
     </ul>
+    
+    <!-- HIDING GL MAPPING MENU TEMPORARILY
+    <div class="sidebar-section">Master Data</div>
+    <ul class="nav flex-column mb-auto">
+        <li class="nav-item">
+            <a href="/gl-mapping" class="nav-link {{ if eq .ActiveMenu "gl_mapping" }}active{{ end }}">
+                <i class="bi bi-diagram-3-fill"></i> GL Mapping
+            </a>
+        </li>
+    </ul>
+    -->
+    <div class="sidebar-section">Configuration</div>
+    <ul class="nav flex-column mb-auto">
+        <li class="nav-item">
+            <a href="/config" class="nav-link {{ if eq .ActiveMenu "config" }}active{{ end }}">
+                <i class="bi bi-sliders"></i> System
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/scheduler-config" class="nav-link {{ if eq .ActiveMenu "scheduler" }}active{{ end }}">
+                <i class="bi bi-clock-history"></i> Scheduler
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/backup-config" class="nav-link {{ if eq .ActiveMenu "backup" }}active{{ end }}">
+                <i class="bi bi-database-check"></i> Backup
+            </a>
+        </li>
+    </ul>
 
+    <!-- TOMBOL TOGGLE DI FOOTER SIDEBAR -->
     <div class="sidebar-footer p-3 mt-auto d-flex justify-content-center">
         <button type="button" id="sidebarFooterToggleBtn" class="btn theme-toggle-btn d-flex align-items-center justify-content-center shadow-sm" style="width: 36px; height: 36px; border-radius: 50%; padding: 0;" title="Toggle Sidebar Theme">
             <i class="bi bi-moon-stars-fill" id="sidebarToggleIcon" style="font-size: 15px;"></i>
@@ -41,31 +71,41 @@
     </div>
 </div>
 
+<!-- SCRIPT UNTUK INTERAKSI TOMBOL DAN IKON (Berjalan di latar belakang) -->
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const body = document.body;
         const toggleIcon = document.getElementById('sidebarToggleIcon');
+        const toggleText = document.getElementById('sidebarToggleText');
         const savedTheme = localStorage.getItem('sidebarTheme') || 'light';
         
+        // Hanya bertugas merender ikon dan teks, karena warna background sudah diurus script atas
         function updateUI(theme) {
             if (theme === 'dark') {
                 if(toggleIcon) toggleIcon.className = 'bi bi-sun-fill text-warning';
+                if(toggleText) toggleText.innerText = 'Light Sidebar';
             } else {
                 if(toggleIcon) toggleIcon.className = 'bi bi-moon-stars-fill text-secondary';
+                if(toggleText) toggleText.innerText = 'Dark Sidebar';
             }
         }
+
+        // Terapkan UI ikon saat halaman dimuat
         updateUI(savedTheme);
 
+        // Targetkan ID unik tombol
         const toggleBtn = document.getElementById('sidebarFooterToggleBtn');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', function() {
                 const isDark = body.classList.contains('dark-sidebar');
                 const newTheme = isDark ? 'light' : 'dark';
+                
                 if (newTheme === 'dark') {
                     body.classList.add('dark-sidebar');
                 } else {
                     body.classList.remove('dark-sidebar');
                 }
+                
                 updateUI(newTheme);
                 localStorage.setItem('sidebarTheme', newTheme);
             });

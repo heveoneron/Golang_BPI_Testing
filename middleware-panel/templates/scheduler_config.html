@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scheduler Config - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --primary-hover: #1D4ED8;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+            --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+        }
+        
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .logout-btn-cancel { background:#F1F5F9; color:#334155; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; cursor:pointer; transition: background .2s ease; }
+        .logout-btn-cancel:hover { background:#E2E8F0; color:#334155; }
+        .logout-btn-confirm { background:#DC2626; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; display:inline-block; transition: background .2s ease; }
+        .logout-btn-confirm:hover { background:#B91C1C; color:#fff; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .profile-btn { background: #fff; border: 1px solid var(--border-soft); border-radius: 50rem; padding: 6px 16px 6px 6px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .profile-btn:hover { border-color: #CBD5E1; box-shadow: 0 4px 6px rgba(0,0,0,0.04); transform: translateY(-1px); }
+        .profile-avatar { width: 32px; height: 32px; background-color: #EFF6FF; color: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+
+        /* FORM & CARD STYLING */
+        .main-card { background-color: #ffffff; border-radius: 16px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; padding: 32px; width: 100%; transition: all 0.3s ease; }
+        .form-label { font-size: 12.5px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.03em; }
+        .form-control, .form-select { border: 1px solid var(--border-soft); border-radius: 10px; font-size: 14px; font-weight: 500; padding: 10px 16px; background-color: #F8FAFC; color: var(--text-main); transition: all 0.2s; }
+        .form-control:focus, .form-select:focus { border-color: var(--primary); background-color: #fff; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); outline: none; }
+        
+        .btn-primary-custom { background-color: var(--primary); color: white; border: none; font-weight: 600; border-radius: 10px; padding: 12px 16px; font-size: 14px; width: 100%; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 4px rgba(37,99,235,0.1);}
+        .btn-primary-custom:hover { background-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(37,99,235,0.2); }
+        .btn-primary-custom:disabled { opacity: 0.8; transform: none; cursor: not-allowed; }
+
+        .scheduler-grid-box { border: 1px solid var(--border-soft); border-radius: 12px; background-color: #F8FAFC; padding: 24px; min-height: 250px; }
+        .radio-group-vertical { display: flex; flex-direction: column; gap: 16px; }
+        
+        .custom-radio-container { position: relative; display: flex; align-items: center; cursor: pointer; padding: 12px 16px; border-radius: 10px; border: 1.5px solid transparent; transition: all 0.2s ease; margin-bottom: 0; }
+        .custom-radio-container:hover { background-color: #f1f5f9; border-color: #cbd5e1; }
+        .custom-radio-container input[type="radio"] { position: absolute; opacity: 0; cursor: pointer; height: 0; width: 0; }
+        
+        /* FIX RADIO BOX GEOMETRY */
+        .custom-radio-mark { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; min-width: 20px; flex-shrink: 0; border: 2px solid #94a3b8; border-radius: 50%; margin-right: 12px; transition: all 0.2s ease; }
+        .custom-radio-container input:checked ~ .custom-radio-mark { border-color: var(--primary); background-color: #eff6ff; }
+        .custom-radio-container input:checked ~ .custom-radio-mark::after { content: ""; display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+        .custom-radio-container input:checked ~ .radio-text { color: var(--primary); font-weight: 700; }
+        
+        /* FIX RADIO TEXT GEOMETRY */
+        .radio-text { font-size: 14px; font-weight: 600; color: var(--text-main); transition: all 0.2s ease; white-space: nowrap; }
+        
+        .custom-radio-container.active { background-color: #eff6ff; border-color: #bfdbfe; box-shadow: 0 2px 4px rgba(59,130,246,0.05); }
+
+        .smart-option-group { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+        .smart-option-card { position: relative; display: inline-flex; cursor: pointer; margin: 0; }
+        .smart-option-card input { position: absolute; opacity: 0; cursor: pointer; }
+        .smart-option-label { border: 1.5px solid var(--border-soft); background-color: #fff; border-radius: 8px; padding: 8px 16px; font-size: 13.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px; margin: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+        .smart-option-card:hover .smart-option-label { border-color: #cbd5e1; color: var(--text-main); background-color: #f8fafc; }
+        .smart-option-card input:checked + .smart-option-label { border-color: var(--primary); background-color: #eff6ff; color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+
+        .advanced-settings-box { border: 1px solid var(--border-soft); border-radius: 12px; padding: 24px; background-color: #ffffff; margin-top: 24px; }
+        
+        .disabled-scheduler-panel { opacity: 0.5; pointer-events: none; filter: grayscale(20%); transition: all 0.3s ease; }
+        .disabled-sub-panel { opacity: 0.65; pointer-events: none; transition: all 0.2s ease; }
+        
+        .smart-pill-input { display: none; }
+        .smart-pill-label { border: 1.5px solid var(--border-soft); background-color: #fff; border-radius: 8px; padding: 8px 14px; font-size: 13.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.2s; text-align: center; flex-grow: 1; margin: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+        .smart-pill-label:hover { border-color: #CBD5E1; background-color: #F8FAFC; color: var(--text-main); }
+        .smart-pill-input:checked + .smart-pill-label { background-color: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); transform: translateY(-1px); }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+        .calendar-day-input { display: none; }
+        .calendar-day-label { border: 1px solid var(--border-soft); background-color: #fff; border-radius: 6px; padding: 8px 0; font-size: 13px; font-weight: 600; color: var(--text-main); cursor: pointer; text-align: center; transition: all 0.2s; margin: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+        .calendar-day-label:hover { border-color: #CBD5E1; background-color: #F8FAFC; }
+        .calendar-day-input:checked + .calendar-day-label { background-color: var(--primary); border-color: var(--primary); color: white; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); }
+        
+        .label-last-day { background-color: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+        .calendar-day-input:checked + .label-last-day { background-color: var(--primary); border-color: var(--primary); color: white; }
+
+        .preview-box { background-color: #F8FAFC; border: 1px solid var(--border-soft); border-left: 4px solid var(--primary); border-radius: 12px; padding: 20px 24px; margin-top: 24px; transition: all 0.3s ease; }
+        .preview-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .preview-text { font-size: 14.5px; font-weight: 500; line-height: 1.6; color: var(--text-main); }
+        .highlight-text { color: var(--primary); font-weight: 700; background-color: #EFF6FF; padding: 2px 6px; border-radius: 6px; }
+
+        .pattern-builder-select { border: 1.5px solid var(--border-soft); border-radius: 10px; font-size: 14px; font-weight: 600; padding: 10px 16px; background-color: #fff; color: var(--text-main); transition: all 0.2s; width: 100%; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.02); appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2364748B' class='bi bi-chevron-down' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 1rem center; background-size: 16px 12px; }
+        .pattern-builder-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); outline: none; }
+
+        .input-wrap-anim { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Spinner Custom */
+        .spinner-custom { width: 1.2rem; height: 1.2rem; border-width: 0.15em; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-medium" id="toastMessage" style="font-size: 14px;"></div>
+                <button type="button" class="btn-close btn-close-white me-3 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-5" style="height: 100vh; overflow-y: auto; overscroll-behavior: none;">        
+        <!-- WRAPPER TAMBAHAN AGAR CENTERED & MAX-WIDTH -->
+        <div class="mx-auto w-100" style="max-width: 1440px;">
+
+            <div class="top-nav">
+                <div class="top-nav-title">
+                    <h3><i class="bi bi-clock-history text-primary"></i> Scheduler Configuration</h3>
+                </div>
+                <div class="dropdown">
+                    <div class="profile-btn" data-bs-toggle="dropdown">
+                        <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
+                        <span style="font-weight: 600; font-size: 14px; color: #0F172A;">{{ .Username }}</span>
+                        <i class="bi bi-chevron-down text-muted" style="font-size: 12px;"></i>
+                    </div>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 p-2 mt-2" style="border-radius: 12px;">
+                        <li><h6 class="dropdown-header fw-bold">Signed in as</h6></li>
+                        <li><span class="dropdown-item-text small text-muted">{{ .Username }}</span></li>
+                        <li><hr class="dropdown-divider my-2"></li>
+                        <li><a class="dropdown-item text-danger fw-bold rounded-3 py-2" href="javascript:void(0)" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right me-2"></i> Sign Out</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            {{ if .Success }}
+            <script>
+                document.addEventListener("DOMContentLoaded", function() { showToast("{{ .Success }}", "success"); });
+            </script>
+            {{ end }}
+            {{ if .Error }}
+            <script>
+                document.addEventListener("DOMContentLoaded", function() { showToast("{{ .Error }}", "danger"); });
+            </script>
+            {{ end }}
+
+            <div class="main-card">
+                <form action="/scheduler-config" method="POST" id="schedulerForm">
+                    <div class="row">
+                        <div class="col-lg-8 pe-lg-5">
+                            <div class="d-flex align-items-center mb-4 pb-2">
+                                <div class="form-check form-switch m-0 d-flex align-items-center p-3 bg-light rounded-3 border">
+                                    <input class="form-check-input ms-0 me-3 mt-0" type="checkbox" id="isActiveToggle" name="is_active" {{ if .SchedConfig.IsActive }}checked{{ end }} style="width: 3rem; height: 1.5rem; cursor: pointer;">
+                                    <label class="form-check-label fw-bold text-dark fs-5" for="isActiveToggle" style="cursor: pointer;">Automation Enabled</label>
+                                </div>
+                            </div>
+
+                            <div id="masterSchedulerPanel" class="{{ if not .SchedConfig.IsActive }}disabled-scheduler-panel{{ end }}">
+                                <h6 class="form-label text-muted mb-3">Trigger Settings</h6>
+                                
+                                <!-- GRID LAYOUT FIX: align-items-stretch agar kotak presisi saat di-zoom -->
+                                <div class="row g-3 align-items-stretch">
+                                    
+                                    <!-- KOLOM KIRI: Ambil spasi sesuai isinya -->
+                                    <div class="col-12 col-md-auto">
+                                        <div class="scheduler-grid-box radio-group-vertical p-3 shadow-sm border-0 h-100" style="min-width: 170px;">
+                                            <label class="custom-radio-container" id="cont_freqRealtime">
+                                                <input type="radio" name="frequency" id="freqRealtime" value="realtime" onchange="syncUI()" {{ if eq .SchedConfig.Frequency "realtime" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text text-success">Real Time</span>
+                                            </label>
+                                            <hr class="my-0 opacity-25">
+                                            
+                                            <label class="custom-radio-container" id="cont_freqOneTime">
+                                                <input type="radio" name="frequency" id="freqOneTime" value="one_time" onchange="syncUI()" {{ if eq .SchedConfig.Frequency "one_time" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">One time</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_freqDaily">
+                                                <input type="radio" name="frequency" id="freqDaily" value="daily" onchange="syncUI()" {{ if eq .SchedConfig.Frequency "daily" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Daily</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_freqWeekly">
+                                                <input type="radio" name="frequency" id="freqWeekly" value="weekly" onchange="syncUI()" {{ if eq .SchedConfig.Frequency "weekly" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Weekly</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_freqMonthly">
+                                                <input type="radio" name="frequency" id="freqMonthly" value="monthly" onchange="syncUI()" {{ if eq .SchedConfig.Frequency "monthly" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Monthly</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- KOLOM KANAN: Otomatis mengisi sisanya -->
+                                    <div class="col-12 col-md">
+                                        <div class="scheduler-grid-box d-flex flex-column p-4 shadow-sm border-0 h-100" style="background-color: #ffffff;">
+                                            <div class="row mb-4 pb-4 border-bottom" id="dateTimeRow">
+                                                <div class="col-sm-6">
+                                                    <label class="form-label text-muted" style="font-size: 11px;">Start Date</label>
+                                                    <input type="date" class="form-control" name="start_date" id="startDateInput" value="{{ .SchedConfig.StartDate }}" onchange="syncUI()" required>
+                                                </div>
+                                                <div class="col-sm-6">
+                                                    <label class="form-label text-muted" style="font-size: 11px;">Start Time</label>
+                                                    <input type="time" class="form-control" name="start_time" id="startTimeInput" value="{{ .SchedConfig.StartTime }}" onchange="syncUI()" required>
+                                                </div>
+                                            </div>
+                                            
+                                            <div id="dynamicContentArea">
+                                                <div id="panelRealtime" class="input-wrap-anim" style="display: none;">
+                                                    <div class="alert alert-light border border-success" style="background-color: #F0FDF4; border-radius: 12px; padding: 20px;">
+                                                        <h6 class="text-success fw-bold mb-2"><i class="bi bi-lightning-charge-fill me-2"></i>Real-Time Engine Active</h6>
+                                                        <span class="text-muted" style="font-size: 13.5px; line-height: 1.5; display: block;">The automation will loop continuously without waiting for a specific schedule.</span>
+                                                    </div>
+                                                </div>
+
+                                                <div id="panelOneTime" class="input-wrap-anim" style="display: none;">
+                                                    <div class="alert alert-light border border-info" style="background-color: #EFF6FF;"><i class="bi bi-info-circle-fill text-primary me-2"></i> Task will execute exactly once.</div>
+                                                </div>
+                                                <div id="panelDaily" class="input-wrap-anim" style="display: none;">
+                                                    <div class="d-flex align-items-center mt-2 p-3 bg-light rounded-3 border">
+                                                        <span class="fw-bold me-3 text-dark">Recur every:</span>
+                                                        <input type="number" class="form-control text-center mx-2 shadow-sm" name="recur_daily" id="recurDailyInput" value="{{ .SchedConfig.RecurEvery }}" style="width: 90px; font-weight: 700;" min="1" onchange="syncUI()">
+                                                        <span class="fw-bold ms-2 text-dark">days</span>
+                                                    </div>
+                                                </div>
+                                                <div id="panelWeekly" class="input-wrap-anim" style="display: none;">
+                                                    <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-3 border">
+                                                        <span class="fw-bold me-3 text-dark">Recur every:</span>
+                                                        <input type="number" class="form-control text-center mx-2 shadow-sm" name="recur_weekly" id="recurWeeklyInput" value="{{ .SchedConfig.RecurEvery }}" style="width: 90px; font-weight: 700;" min="1" onchange="syncUI()">
+                                                        <span class="fw-bold ms-2 text-dark">weeks on:</span>
+                                                    </div>
+                                                    <div class="d-flex flex-wrap gap-2 px-1">
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="MON" id="wdMON" onchange="syncUI()"> <label class="smart-pill-label" for="wdMON">Mon</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="TUE" id="wdTUE" onchange="syncUI()"> <label class="smart-pill-label" for="wdTUE">Tue</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="WED" id="wdWED" onchange="syncUI()"> <label class="smart-pill-label" for="wdWED">Wed</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="THU" id="wdTHU" onchange="syncUI()"> <label class="smart-pill-label" for="wdTHU">Thu</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="FRI" id="wdFRI" onchange="syncUI()"> <label class="smart-pill-label" for="wdFRI">Fri</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="SAT" id="wdSAT" onchange="syncUI()"> <label class="smart-pill-label" for="wdSAT">Sat</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="SUN" id="wdSUN" onchange="syncUI()"> <label class="smart-pill-label" for="wdSUN">Sun</label>
+                                                    </div>
+                                                </div>
+                                                <div id="panelMonthly" class="input-wrap-anim" style="display: none;">
+                                                    <div class="mb-4">
+                                                        <label class="form-label">Months</label>
+                                                        <div class="dropdown">
+                                                            <button class="pattern-builder-select text-start d-flex justify-content-between align-items-center" type="button" id="monthDropdown" data-bs-toggle="dropdown" aria-expanded="false" data-bs-auto-close="outside">
+                                                                <span>Select active months...</span>
+                                                            </button>
+                                                            <div class="dropdown-menu p-3 shadow-lg border-0" style="width: 100%; border-radius: 12px; max-height: 250px; overflow-y: auto;">
+                                                                <div class="row g-2">
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="JAN" id="mmJAN" onchange="syncUI()"><label class="form-check-label" for="mmJAN">January</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="FEB" id="mmFEB" onchange="syncUI()"><label class="form-check-label" for="mmFEB">February</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="MAR" id="mmMAR" onchange="syncUI()"><label class="form-check-label" for="mmMAR">March</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="APR" id="mmAPR" onchange="syncUI()"><label class="form-check-label" for="mmAPR">April</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="MAY" id="mmMAY" onchange="syncUI()"><label class="form-check-label" for="mmMAY">May</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="JUN" id="mmJUN" onchange="syncUI()"><label class="form-check-label" for="mmJUN">June</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="JUL" id="mmJUL" onchange="syncUI()"><label class="form-check-label" for="mmJUL">July</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="AUG" id="mmAUG" onchange="syncUI()"><label class="form-check-label" for="mmAUG">August</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="SEP" id="mmSEP" onchange="syncUI()"><label class="form-check-label" for="mmSEP">September</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="OCT" id="mmOCT" onchange="syncUI()"><label class="form-check-label" for="mmOCT">October</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="NOV" id="mmNOV" onchange="syncUI()"><label class="form-check-label" for="mmNOV">November</label></div></div>
+                                                                    <div class="col-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="monthly_months[]" value="DEC" id="mmDEC" onchange="syncUI()"><label class="form-check-label" for="mmDEC">December</label></div></div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-4">
+                                                        <label class="form-label">Run on</label>
+                                                        <div class="smart-option-group">
+                                                            <label class="smart-option-card">
+                                                                <input type="radio" name="monthly_logic" value="specific_day" id="logicSpecific" onchange="toggleMonthlyLogic()" checked>
+                                                                <span class="smart-option-label"><i class="bi bi-calendar-day me-2"></i> Specific Day</span>
+                                                            </label>
+                                                            <label class="smart-option-card">
+                                                                <input type="radio" name="monthly_logic" value="last_day" id="logicLast" onchange="toggleMonthlyLogic()">
+                                                                <span class="smart-option-label"><i class="bi bi-calendar-x me-2"></i> Last day of month</span>
+                                                            </label>
+                                                            <label class="smart-option-card">
+                                                                <input type="radio" name="monthly_logic" value="multiple_days" id="logicMultiple" onchange="toggleMonthlyLogic()">
+                                                                <span class="smart-option-label"><i class="bi bi-calendar-plus me-2"></i> Multiple Days</span>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                    <div id="monthlySpecificArea" class="input-wrap-anim">
+                                                        <label class="form-label text-muted" style="font-size: 11px;">Day</label>
+                                                        <select class="pattern-builder-select" id="singleDaySelect" onchange="syncUI()" style="width: 150px;"></select>
+                                                    </div>
+                                                    <div id="monthlyMultipleArea" class="input-wrap-anim" style="display: none;">
+                                                        <label class="form-label text-muted" style="font-size: 11px;">Select Dates</label>
+                                                        <div class="calendar-grid bg-light p-3 rounded-3 border" id="calendarGridContainer"></div>
+                                                    </div>
+                                                    <div id="hiddenFallbackInput" style="display: none;"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="preview-box shadow-sm">
+                                    <div class="preview-title"><i class="bi bi-magic text-primary"></i> Live Preview</div>
+                                    <div class="preview-text" id="previewText">
+                                        Loading preview...
+                                    </div>
+                                </div>
+
+                                <div class="advanced-settings-box shadow-sm border-0" id="advancedSettingsBox">
+                                    <label class="form-label text-muted mb-3" style="font-size: 11px;">Advanced settings</label>
+                                    <div class="form-check d-flex align-items-center mb-3">
+                                        <input class="form-check-input m-0" type="checkbox" id="repeatCheckbox" name="is_repeat_enabled" {{ if .SchedConfig.IsRepeatEnabled }}checked{{ end }} onchange="syncRepeatUI()" style="width: 1.5rem; height: 1.5rem; cursor: pointer;">
+                                        <label class="form-check-label fw-bold text-dark ms-3" for="repeatCheckbox" style="cursor: pointer;">Repeat task every:</label>
+                                    </div>
+                                    <div id="repeatSubPanel" class="row align-items-center ms-5 mt-2 {{ if not .SchedConfig.IsRepeatEnabled }}disabled-sub-panel{{ end }}">
+                                        <div class="col-auto">
+                                            <input type="number" class="form-control text-center shadow-sm fw-bold border-primary text-primary" name="repeat_interval_mins" id="repeatIntervalInput" value="{{ .SchedConfig.RepeatIntervalMins }}" style="width: 100px; background-color: #EFF6FF;" min="1" onchange="syncUI()" {{ if not .SchedConfig.IsRepeatEnabled }}disabled{{ end }}>
+                                        </div>
+                                        <div class="col-auto">
+                                            <span class="text-muted fw-bold small text-uppercase">Minutes</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <div class="col-lg-4 border-start ps-lg-4 d-flex flex-column justify-content-between">
+                            <div>
+                                <button id="btnSaveScheduler" type="submit" class="btn-primary-custom mb-4 py-3 shadow-sm d-flex align-items-center justify-content-center">
+                                    <span class="spinner-border spinner-custom me-2 d-none" id="spinnerSave" role="status"></span>
+                                    <i class="bi bi-floppy-fill fs-5 me-2" id="iconSave"></i>
+                                    <span id="textSave" class="fs-6">Save Configuration</span>
+                                </button>
+                                
+                                <div class="alert alert-light border shadow-sm" style="font-size: 13.5px; line-height: 1.6; color: var(--text-main); border-radius: 16px;">
+                                    <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-info-circle-fill text-primary me-2"></i> Logic Guide</h6>
+                                    <ul class="ps-3 mb-0 text-muted">
+                                        <li class="mb-2"><b class="text-success">Real Time:</b> Continuous loop polling.</li>
+                                        <li class="mb-2"><b class="text-dark">One Time:</b> Run once only.</li>
+                                        <li class="mb-2"><b class="text-dark">Daily:</b> Repeat every day.</li>
+                                        <li class="mb-2"><b class="text-dark">Weekly:</b> Run on specific weekdays.</li>
+                                        <li class="mb-0"><b class="text-dark">Monthly:</b> Run on selected dates.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+            
+        </div>
+    </div>
+
+    <div id="dbData" 
+        data-weekly="{{ .SchedConfig.WeeklyDays }}" 
+        data-months="{{ .SchedConfig.MonthlyMonths }}" 
+        data-days="{{ .SchedConfig.MonthlyDays }}" style="display: none;"></div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            const bgClass = type === 'success' ? 'bg-success' : 'bg-danger';
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${bgClass}`;
+            
+            toastBody.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}-fill me-2"></i> ${message}`;
+            
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            toast.show();
+        }
+
+        function setupDynamicDOM() {
+            const select = document.getElementById('singleDaySelect');
+            let opts = "";
+            for(let i=1; i<=31; i++) opts += `<option value="${i}">${i}</option>`;
+            select.innerHTML = opts;
+
+            const grid = document.getElementById('calendarGridContainer');
+            let gridHTML = "";
+            for(let i=1; i<=31; i++) {
+                gridHTML += `<input type="checkbox" class="calendar-day-input" name="monthly_days[]" value="${i}" id="md${i}" onchange="syncUI()"><label class="calendar-day-label" for="md${i}">${i}</label>`;
+            }
+            gridHTML += `<input type="checkbox" class="calendar-day-input" name="monthly_days[]" value="L" id="mdL" onchange="syncUI()"><label class="calendar-day-label label-last-day fw-bold" for="mdL" title="Last day of the month">Last</label>`;
+            grid.innerHTML = gridHTML;
+        }
+
+        function initData() {
+            const dbData = document.getElementById('dbData');
+            const wRaw = dbData.getAttribute('data-weekly') || "";
+            if (wRaw) wRaw.split(',').forEach(val => { const cb = document.getElementById('wd'+val); if(cb) cb.checked = true; });
+            const mRaw = dbData.getAttribute('data-months') || "";
+            if (mRaw) mRaw.split(',').forEach(val => { const cb = document.getElementById('mm'+val); if(cb) cb.checked = true; });
+            const dRaw = dbData.getAttribute('data-days') || "";
+            if (dRaw) {
+                const daysArr = dRaw.split(',');
+                if (daysArr.length === 1 && daysArr[0] === 'L') {
+                    document.getElementById('logicLast').checked = true;
+                } else if (daysArr.length === 1 && daysArr[0] !== '') {
+                    document.getElementById('logicSpecific').checked = true;
+                    document.getElementById('singleDaySelect').value = daysArr[0];
+                } else if (daysArr.length > 1) {
+                    document.getElementById('logicMultiple').checked = true;
+                    daysArr.forEach(val => { const cb = document.getElementById('md'+val); if(cb) cb.checked = true; });
+                }
+            }
+            
+            toggleMonthlyLogic(false);
+            syncFrequencyUI(); 
+            syncUI();          
+        }
+
+        function toggleMonthlyLogic(clearOldData = true) {
+            const logicEl = document.querySelector('input[name="monthly_logic"]:checked');
+            if(!logicEl) return;
+            
+            const logic = logicEl.value;
+            const specificArea = document.getElementById('monthlySpecificArea');
+            const multipleArea = document.getElementById('monthlyMultipleArea');
+            const fallback = document.getElementById('hiddenFallbackInput');
+            fallback.innerHTML = ''; 
+            
+            if (clearOldData) {
+                document.querySelectorAll('.calendar-day-input').forEach(cb => cb.checked = false);
+            }
+
+            if (logic === 'specific_day') {
+                specificArea.style.display = 'block';
+                multipleArea.style.display = 'none';
+            } else if (logic === 'last_day') {
+                specificArea.style.display = 'none';
+                multipleArea.style.display = 'none';
+            } else if (logic === 'multiple_days') {
+                specificArea.style.display = 'none';
+                multipleArea.style.display = 'block';
+            }
+            syncUI();
+        }
+
+        function syncFrequencyUI() {
+            const freqEl = document.querySelector('input[name="frequency"]:checked');
+            if(!freqEl) return;
+            const freq = freqEl.value;
+            
+            // Sembunyikan semua panel terlebih dahulu
+            ['panelOneTime', 'panelDaily', 'panelWeekly', 'panelMonthly', 'panelRealtime'].forEach(id => {
+                document.getElementById(id).style.display = 'none';
+            });
+            
+            const repeatCb = document.getElementById('repeatCheckbox');
+            const startDate = document.getElementById('startDateInput');
+            const startTime = document.getElementById('startTimeInput');
+            const dateRow = document.getElementById('dateTimeRow');
+            const advancedBox = document.getElementById('advancedSettingsBox');
+            
+            if (freq === 'realtime') {
+                document.getElementById('panelRealtime').style.display = 'block';
+                if(dateRow) dateRow.style.display = 'none';
+                if(advancedBox) advancedBox.style.display = 'none';
+                repeatCb.disabled = true;
+                
+                // Matikan required karena input disembunyikan
+                startDate.required = false;
+                startTime.required = false;
+            } else {
+                if(dateRow) dateRow.style.display = 'flex';
+                if(advancedBox) advancedBox.style.display = 'block';
+                
+                // Nyalakan required kembali
+                startDate.required = true;
+                startTime.required = true;
+
+                if (freq === 'one_time') {
+                    document.getElementById('panelOneTime').style.display = 'block';
+                    repeatCb.checked = false;
+                    repeatCb.disabled = true;
+                    syncRepeatUI();
+                } else {
+                    repeatCb.disabled = false;
+                    if (freq === 'daily') document.getElementById('panelDaily').style.display = 'block';
+                    else if (freq === 'weekly') document.getElementById('panelWeekly').style.display = 'block';
+                    else if (freq === 'monthly') document.getElementById('panelMonthly').style.display = 'block';
+                }
+            }
+        }
+
+        function syncRepeatUI() {
+            const isChecked = document.getElementById('repeatCheckbox').checked;
+            const subPanel = document.getElementById('repeatSubPanel');
+            const input = document.getElementById('repeatIntervalInput');
+
+            if (isChecked) {
+                subPanel.classList.remove('disabled-sub-panel');
+                input.disabled = false;
+                if(input.value == "0" || input.value === "") input.value = "60";
+            } else {
+                subPanel.classList.add('disabled-sub-panel');
+                input.disabled = true;
+            }
+            syncUI();
+        }
+
+        function syncUI() {
+            const freqEl = document.querySelector('input[name="frequency"]:checked');
+            if(!freqEl) return;
+            
+            const freq = freqEl.value;
+            const sDate = document.getElementById('startDateInput').value;
+            const sTime = document.getElementById('startTimeInput').value;
+            
+            ['freqOneTime', 'freqDaily', 'freqWeekly', 'freqMonthly', 'freqRealtime'].forEach(id => {
+                const el = document.getElementById('cont_' + id);
+                if(document.getElementById(id).checked) el.classList.add('active');
+                else el.classList.remove('active');
+            });
+            
+            let previewHTML = `<span class="highlight-text">At ${sTime || '[Time]'}</span> `;
+
+            if (freq === 'realtime') {
+                previewHTML = `<div class="d-flex align-items-center text-success fw-bold"><i class="bi bi-arrow-repeat me-2 fs-5"></i> Automation will run continuously in Real-Time loop.</div>`;
+            }
+            else if (freq === 'one_time') {
+                previewHTML += `on <span class="highlight-text">${sDate || '[Date]'}</span>. It will not repeat.`;
+            } 
+            else {
+                if (freq === 'daily') {
+                    document.getElementById('recurDailyInput').name = "recur_every";
+                    document.getElementById('recurWeeklyInput').name = ""; 
+                    
+                    const recurD = document.getElementById('recurDailyInput').value;
+                    if(recurD == 1) previewHTML += `every day.`;
+                    else previewHTML += `every <span class="highlight-text">${recurD}</span> days.`;
+                } 
+                else if (freq === 'weekly') {
+                    document.getElementById('recurDailyInput').name = "";
+                    document.getElementById('recurWeeklyInput').name = "recur_every";
+                    
+                    const recurW = document.getElementById('recurWeeklyInput').value;
+                    const checkedDays = Array.from(document.querySelectorAll('input[name="weekly_days[]"]:checked')).map(cb => cb.nextElementSibling.innerText);
+                    
+                    let dayStr = checkedDays.length > 0 ? `<span class="highlight-text">${checkedDays.join(', ')}</span>` : '<span class="text-danger">[Select days]</span>';
+                    
+                    if(recurW == 1) previewHTML += `every week on ${dayStr}.`;
+                    else previewHTML += `every <span class="highlight-text">${recurW}</span> weeks on ${dayStr}.`;
+                } 
+                else if (freq === 'monthly') {
+                    document.getElementById('recurDailyInput').name = "";
+                    document.getElementById('recurWeeklyInput').name = "";
+
+                    const checkedMonths = Array.from(document.querySelectorAll('input[name="monthly_months[]"]:checked')).map(cb => cb.nextElementSibling.innerText);
+                    const monthBtn = document.getElementById('monthDropdown').querySelector('span');
+                    if(checkedMonths.length === 0) monthBtn.innerText = "Select active months...";
+                    else if(checkedMonths.length <= 3) monthBtn.innerText = checkedMonths.join(', ');
+                    else monthBtn.innerText = `${checkedMonths.length} months selected`;
+
+                    let monthStr = checkedMonths.length > 0 ? `<span class="highlight-text">${checkedMonths.join(', ')}</span>` : '<span class="text-danger">[Select month]</span>';
+                    const logicEl = document.querySelector('input[name="monthly_logic"]:checked');
+                    const fallback = document.getElementById('hiddenFallbackInput');
+                    let dayStr = "";
+                    if (logicEl) {
+                        const logic = logicEl.value;
+                        if(logic === 'specific_day') {
+                            const d = document.getElementById('singleDaySelect').value;
+                            fallback.innerHTML = `<input type="hidden" name="monthly_days[]" value="${d}">`;
+                            dayStr = `day <span class="highlight-text">${d}</span>`;
+                        } else if(logic === 'last_day') {
+                            fallback.innerHTML = `<input type="hidden" name="monthly_days[]" value="L">`;
+                            dayStr = `<span class="highlight-text">the last day</span>`;
+                        } else if(logic === 'multiple_days') {
+                            const checkedDates = Array.from(document.querySelectorAll('.calendar-day-input:checked')).map(cb => cb.nextElementSibling.innerText);
+                            if(checkedDates.length === 0) dayStr = `<span class="text-danger">[Select dates]</span>`;
+                            else dayStr = `days <span class="highlight-text">${checkedDates.join(', ')}</span>`;
+                        }
+                    }
+
+                    previewHTML += `on ${dayStr} of ${monthStr}.`;
+                }
+
+                if (document.getElementById('repeatCheckbox').checked) {
+                    const rm = document.getElementById('repeatIntervalInput').value;
+                    previewHTML += `<div class="mt-3 pt-3 border-top" style="border-color: rgba(0,0,0,0.05) !important;">
+                        <i class="bi bi-arrow-repeat text-primary me-1"></i> 
+                        <span class="text-muted">After triggering, task will repeat</span> 
+                        every <span class="highlight-text">${rm}</span> minutes.
+                    </div>`;
+                }
+            }
+            
+            document.getElementById('previewText').innerHTML = previewHTML;
+        }
+
+        document.getElementById('isActiveToggle').addEventListener('change', function() {
+            const masterPanel = document.getElementById('masterSchedulerPanel');
+            if (this.checked) masterPanel.classList.remove('disabled-scheduler-panel');
+            else masterPanel.classList.add('disabled-scheduler-panel');
+        });
+
+        document.querySelectorAll('input[name="frequency"]').forEach(radio => {
+            radio.addEventListener('change', () => { syncFrequencyUI(); syncUI(); });
+        });
+
+        document.getElementById('schedulerForm').addEventListener('submit', function(e) {
+            document.getElementById('repeatIntervalInput').disabled = false;
+            
+            const btn = document.getElementById('btnSaveScheduler');
+            const spinner = document.getElementById('spinnerSave');
+            const icon = document.getElementById('iconSave');
+            const text = document.getElementById('textSave');
+            
+            btn.setAttribute('disabled', 'true');
+            spinner.classList.remove('d-none');
+            icon.classList.add('d-none');
+            text.innerText = "Saving...";
+        });
+
+        document.addEventListener("DOMContentLoaded", function() {
+            setupDynamicDOM();
+            initData();
+        });
+    </script>
+    <div class="modal fade" id="logoutConfirmModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="text-center pt-5 pb-4 px-4">
+                    <div style="width: 56px; height: 56px; background: #FEF2F2; color: #DC2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 18px auto;">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2" style="color: #0F172A; font-size: 17px; letter-spacing: -0.01em;">Are you sure you want to sign out?</h5>
+                    <p class="text-muted mb-0" style="font-size: 13px; line-height: 1.5;">You will need to sign in again to access the Integration Tracking Panel.</p>
+                </div>
+                <div class="d-flex px-4 pb-4" style="gap: 10px;">
+                    <button type="button" class="flex-fill fw-semibold logout-btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/logout" class="flex-fill fw-semibold text-center logout-btn-confirm">Sign Out</a>
+                </div>
+            </div>
+    </div>
+</body>
+</html>

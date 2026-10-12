@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Config - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        /* TOP NAV & MAIN CARD */
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .logout-btn-cancel { background:#F1F5F9; color:#334155; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; cursor:pointer; transition: background .2s ease; }
+        .logout-btn-cancel:hover { background:#E2E8F0; color:#334155; }
+        .logout-btn-confirm { background:#DC2626; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; display:inline-block; transition: background .2s ease; }
+        .logout-btn-confirm:hover { background:#B91C1C; color:#fff; }
+        .profile-btn { background: #fff; border: 1px solid var(--border-soft); border-radius: 50rem; padding: 6px 16px 6px 6px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .profile-btn:hover { border-color: #CBD5E1; box-shadow: 0 4px 6px rgba(0,0,0,0.04); transform: translateY(-1px); }
+        .profile-avatar { width: 32px; height: 32px; background-color: #EFF6FF; color: #2563EB; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        /* Table Styles */
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 16px 20px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 16px 20px; font-size: 14px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); transition: background-color 0.15s ease;}
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+        .table-custom tr:last-child td { border-bottom: none; }
+        
+        .key-badge { background-color: #F1F5F9; color: #334155; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; padding: 6px 12px; border-radius: 6px; font-size: 13px; border: 1px solid #E2E8F0;}
+        .value-badge { font-family: 'SFMono-Regular', Consolas, monospace; color: #334155; font-size: 13.5px; }
+
+        /* Ghost Action Buttons (Match GL Mapping) */
+        .btn-ghost-primary { color: #64748B; background: transparent; border: none; font-weight: 600; font-size: 13.5px; transition: all 0.2s ease; padding: 6px 12px; border-radius: 6px; }
+        .btn-ghost-primary:hover { color: #2563EB; background: #EFF6FF; }
+        .btn-ghost-danger { color: #64748B; background: transparent; border: none; font-weight: 600; font-size: 13.5px; transition: all 0.2s ease; padding: 6px 12px; border-radius: 6px; }
+        .btn-ghost-danger:hover { color: #EF4444; background: #FEF2F2; }
+
+        /* Custom Spinner */
+        .spinner-custom { width: 1.2rem; height: 1.2rem; border-width: 0.15em; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-medium" id="toastMessage" style="font-size: 14px;">
+                    </div>
+                <button type="button" class="btn-close btn-close-white me-3 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+    
+    <div class="flex-grow-1 p-5" style="height: 100vh; overflow-y: auto; overscroll-behavior: none;">        
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-gear-wide-connected text-primary"></i> Target Integration Configuration</h3>
+            </div>
+            <div class="dropdown">
+                <div class="profile-btn" data-bs-toggle="dropdown">
+                    <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
+                    <span style="font-weight: 600; font-size: 14px; color: #0F172A;">{{ .Username }}</span>
+                    <i class="bi bi-chevron-down text-muted" style="font-size: 12px;"></i>
+                </div>
+                <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 p-2 mt-2" style="border-radius: 12px;">
+                    <li><h6 class="dropdown-header fw-bold">Signed in as</h6></li>
+                    <li><span class="dropdown-item-text small text-muted">{{ .Username }}</span></li>
+                    <li><hr class="dropdown-divider my-2"></li>
+                    <li><a class="dropdown-item text-danger fw-bold rounded-3 py-2" href="javascript:void(0)" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right me-2"></i> Sign Out</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="main-card">
+            <div class="p-4 border-bottom bg-white">
+                <h5 class="fw-bold mb-1">Global Endpoints</h5>
+                <span class="text-muted small">Base URL configurations for the Bot system.</span>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-custom mb-0">
+                    <thead>
+                        <tr>
+                            <th width="20%">Config Key</th>
+                            <th width="45%">Current Value</th>
+                            <th width="20%">Description</th>
+                            <th width="15%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Configs }}
+                            {{ if and (ne .Key "doc_type_bot_mapping") (ne .Key "prefix_bot_mapping") (ne .Key "sap_username") (ne .Key "sap_password") (ne .Key "sap_base_url") (ne .Key "erp_callback_url") }}
+                            <tr>
+                                <td><span class="key-badge">{{ .Key }}</span></td>
+                                <td>
+                                    <div class="text-truncate value-badge" style="max-width: 400px;">
+                                        {{ .Value }}
+                                    </div>
+                                </td>
+                                <td><span class="text-muted" style="font-size: 13px;">{{ .Description }}</span></td>
+                                <td class="text-end">
+                                    <textarea id="raw-val-{{ .Key }}" style="display:none;">{{ .Value }}</textarea>
+                                    <button class="btn-ghost-primary" onclick="handleTextEdit('{{ .Key }}', '{{ .Description }}')">
+                                        <i class="bi bi-pencil-square me-1"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="main-card mt-4">
+            <div class="p-4 border-bottom bg-white">
+                <h5 class="fw-bold mb-1">SAP Direct Connection & ERP Callback</h5>
+                <span class="text-muted small">Basic Auth credentials for SAP S/4HANA and the callback URL for document status to S-ERP.</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom mb-0">
+                    <thead>
+                        <tr>
+                            <th width="20%">Config Key</th>
+                            <th width="45%">Current Value</th>
+                            <th width="20%">Description</th>
+                            <th width="15%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Configs }}
+                            {{ if eq .Key "sap_username" }}
+                            <tr>
+                                <td><span class="key-badge">{{ .Key }}</span></td>
+                                <td>
+                                    <textarea id="raw-val-{{ .Key }}" style="display:none;">{{ .Value }}</textarea>
+                                    <div class="text-truncate value-badge" style="max-width: 400px;">
+                                        {{ if .Value }}{{ .Value }}{{ else }}<span class="text-muted fst-italic">- not set -</span>{{ end }}
+                                    </div>
+                                </td>
+                                <td><span class="text-muted" style="font-size: 13px;">{{ .Description }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn-ghost-primary" onclick="handleTextEdit('{{ .Key }}', '{{ .Description }}')">
+                                        <i class="bi bi-pencil-square me-1"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ end }}
+                        {{ range .Configs }}
+                            {{ if eq .Key "sap_password" }}
+                            <tr>
+                                <td><span class="key-badge">{{ .Key }}</span></td>
+                                <td>
+                                    <textarea id="raw-val-{{ .Key }}" style="display:none;">{{ .Value }}</textarea>
+                                    <div class="d-flex align-items-center value-badge" style="gap: 8px;">
+                                        <span id="mask-{{ .Key }}" class="text-truncate" data-masked="true" style="max-width: 350px;">••••••••••••</span>
+                                        <button type="button" class="btn btn-sm btn-link p-0" style="color:#64748B; text-decoration:none;" onclick="togglePasswordVisibility('{{ .Key }}')" id="toggle-icon-{{ .Key }}">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                                <td><span class="text-muted" style="font-size: 13px;">{{ .Description }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn-ghost-primary" onclick="handleTextEdit('{{ .Key }}', '{{ .Description }}')">
+                                        <i class="bi bi-pencil-square me-1"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ end }}
+                        {{ range .Configs }}
+                            {{ if eq .Key "sap_base_url" }}
+                            <tr>
+                                <td><span class="key-badge">{{ .Key }}</span></td>
+                                <td>
+                                    <textarea id="raw-val-{{ .Key }}" style="display:none;">{{ .Value }}</textarea>
+                                    <div class="text-truncate value-badge" style="max-width: 400px;">
+                                        {{ if .Value }}{{ .Value }}{{ else }}<span class="text-muted fst-italic">- not set -</span>{{ end }}
+                                    </div>
+                                </td>
+                                <td><span class="text-muted" style="font-size: 13px;">{{ .Description }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn-ghost-primary" onclick="handleTextEdit('{{ .Key }}', '{{ .Description }}')">
+                                        <i class="bi bi-pencil-square me-1"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ end }}
+                        {{ range .Configs }}
+                            {{ if eq .Key "erp_callback_url" }}
+                            <tr>
+                                <td><span class="key-badge">{{ .Key }}</span></td>
+                                <td>
+                                    <textarea id="raw-val-{{ .Key }}" style="display:none;">{{ .Value }}</textarea>
+                                    <div class="text-truncate value-badge" style="max-width: 400px;">
+                                        {{ if .Value }}{{ .Value }}{{ else }}<span class="text-muted fst-italic">- not set -</span>{{ end }}
+                                    </div>
+                                </td>
+                                <td><span class="text-muted" style="font-size: 13px;">{{ .Description }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn-ghost-primary" onclick="handleTextEdit('{{ .Key }}', '{{ .Description }}')">
+                                        <i class="bi bi-pencil-square me-1"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- <div class="main-card mt-4">
+            <div class="d-flex justify-content-between align-items-center p-4 border-bottom bg-white">
+                <div>
+                    <h5 class="fw-bold mb-1">Workflow Routing Map</h5>
+                    <span class="text-muted small">Mapping of SAP Document Types to BPA Workflow Definition IDs.</span>
+                </div>
+                <button class="btn btn-primary fw-bold rounded-2 px-3 shadow-sm" onclick="openRoutingModal('add')" style="font-size: 13.5px;">
+                    <i class="bi bi-plus-lg me-1"></i> Add Rule
+                </button>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-custom mb-0">
+                    <thead>
+                        <tr>
+                            <th width="30%">Document Type (Key)</th>
+                            <th width="50%">Workflow BPA ID (Value)</th>
+                            <th width="20%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="routingTableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div> -->
+        <div class="main-card mt-4">
+            <div class="d-flex justify-content-between align-items-center p-4 border-bottom bg-white">
+                <div>
+                    <h5 class="fw-bold mb-1">Prefix Bot Mapping</h5>
+                    <span class="text-muted small">Mapping of prefixes to BPA Workflow Definition IDs.</span>
+                </div>
+                <button class="btn btn-primary fw-bold rounded-2 px-3 shadow-sm" onclick="openPrefixModal('add')" style="font-size: 13.5px;">
+                    <i class="bi bi-plus-lg me-1"></i> Add Rule
+                </button>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-custom mb-0">
+                    <thead>
+                        <tr>
+                            <th width="20%">Prefix (Key)</th>
+                            <th width="60%">Trigger ID</th>
+                            <th width="20%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="prefixTableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+        {{ range .Configs }}
+            {{ if eq .Key "doc_type_bot_mapping" }}
+                <textarea id="raw-json-data" style="display:none;">{{ .Value }}</textarea>
+                <input type="hidden" id="jsonDesc" value="{{ .Description }}">
+            {{ else if eq .Key "prefix_bot_mapping" }}
+                <textarea id="raw-prefix-json-data" style="display:none;">{{ .Value }}</textarea>
+                <input type="hidden" id="prefixJsonDesc" value="{{ .Description }}">
+            {{ end }}
+        {{ end }}
+    </div>
+
+    <div class="modal fade" id="textModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom-0 pb-0 pt-4 px-4">
+                    <h5 class="modal-title fw-bold">Edit Configuration Value</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <input type="hidden" id="textKey">
+                    <input type="hidden" id="textDesc">
+                    <div class="mb-3">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;" id="textKeyLabel">Key</label>
+                        <textarea id="textValue" class="form-control fw-medium" rows="4" style="font-family: monospace; font-size: 14px;" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light fw-medium rounded-2 px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button id="btnSaveText" type="button" class="btn btn-primary fw-bold rounded-2 px-4 d-flex align-items-center" onclick="saveConfigText()">
+                        <span class="spinner-border spinner-custom me-2 d-none" id="spinnerText" role="status"></span>
+                        <span id="textBtnText">Save Changes</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="routingModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom-0 pb-0 pt-4 px-4">
+                    <h5 class="modal-title fw-bold" id="routingModalTitle">Add/Edit Routing Rule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <input type="hidden" id="routingOldKey">
+                    
+                    <div class="mb-4">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;">Document Type (Key)</label>
+                        <input type="text" id="routingKey" class="form-control fw-medium" style="font-family: monospace;" placeholder="e.g. SDMCustomerC" autocomplete="off" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;">Workflow BPA ID (Value)</label>
+                        <input type="text" id="routingValue" class="form-control fw-medium" style="font-family: monospace;" placeholder="e.g. jp10.sli-int-dev0301.bpamasterdata01.workflowProcess" autocomplete="off" required>
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light fw-medium rounded-2 px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button id="btnSaveRouting" type="button" class="btn btn-primary fw-bold rounded-2 px-4 d-flex align-items-center" onclick="saveRoutingRule()">
+                        <span class="spinner-border spinner-custom me-2 d-none" id="spinnerRouting" role="status"></span>
+                        <span id="textRoutingBtn">Save Rule</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="prefixModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom-0 pb-0 pt-4 px-4">
+                    <h5 class="modal-title fw-bold" id="prefixModalTitle">Add/Edit Prefix Mapping</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <input type="hidden" id="prefixOldKey">
+                    
+                    <div class="mb-4">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;">Prefix (Key)</label>
+                        <input type="text" id="prefixKey" class="form-control fw-medium" style="font-family: monospace;" placeholder="e.g. 1100" autocomplete="off" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;">Trigger ID</label>
+                        <input type="text" id="prefixTriggerId" class="form-control fw-medium" style="font-family: monospace;" placeholder="e.g. 496f0cdf-54a0..." autocomplete="off" required>
+                    </div>
+
+                    <div class="mb-3 d-none">
+                        <label class="form-label text-muted text-uppercase fw-bold" style="font-size: 11px; letter-spacing: 0.05em;">Base URL</label>
+                        <input type="text" id="prefixBaseUrl" class="form-control fw-medium" style="font-family: monospace;" placeholder="(Optional) e.g. https://eu10.sap.com" autocomplete="off">
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light fw-medium rounded-2 px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button id="btnSavePrefix" type="button" class="btn btn-primary fw-bold rounded-2 px-4 d-flex align-items-center" onclick="savePrefixRule()">
+                        <span class="spinner-border spinner-custom me-2 d-none" id="spinnerPrefix" role="status"></span>
+                        <span id="textPrefixBtn">Save Rule</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/js/bootstrap.bundle.min.js"></script>   
+    <script>
+        const textModal = new bootstrap.Modal(document.getElementById('textModal'));
+        const routingModal = new bootstrap.Modal(document.getElementById('routingModal'));
+        const prefixModal = new bootstrap.Modal(document.getElementById('prefixModal'));
+
+        // State holder for the JSON object
+        let currentRoutingMap = {};
+        let currentPrefixMap = {};
+
+        // --- UI UTILITIES (TOAST & LOADING) ---
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            const bgClass = type === 'success' ? 'bg-success' : 'bg-danger';
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${bgClass}`;
+            toastBody.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}-fill me-2"></i> ${message}`;
+            
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            toast.show();
+        }
+
+        function toggleLoading(buttonId, spinnerId, textId, originalText, isLoading) {
+            const btn = document.getElementById(buttonId);
+            const spinner = document.getElementById(spinnerId);
+            const textEl = document.getElementById(textId);
+            
+            if (isLoading) {
+                btn.setAttribute('disabled', 'true');
+                spinner.classList.remove('d-none');
+                textEl.innerText = "Saving...";
+            } else {
+                btn.removeAttribute('disabled');
+                spinner.classList.add('d-none');
+                textEl.innerText = originalText;
+            }
+        }
+
+// --- INITIALIZATION ---
+        document.addEventListener("DOMContentLoaded", function() {
+            const rawJsonElement = document.getElementById('raw-json-data');
+            const tbody = document.getElementById('routingTableBody');
+            
+            // KUNCI PERBAIKAN: Tambahkan pengecekan 'if (tbody)' agar tidak crash saat di-comment
+            if (rawJsonElement) {
+                try {
+                    currentRoutingMap = JSON.parse(rawJsonElement.value);
+                    if (tbody) renderRoutingTable(); 
+                } catch (e) {
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-4">Invalid JSON format in database.</td></tr>';
+                }
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Routing map data not found.</td></tr>';
+            }
+
+            const rawPrefixJsonElement = document.getElementById('raw-prefix-json-data');
+            const tbodyPrefix = document.getElementById('prefixTableBody');
+            
+            if (rawPrefixJsonElement) {
+                try {
+                    currentPrefixMap = JSON.parse(rawPrefixJsonElement.value);
+                    if (tbodyPrefix) renderPrefixTable();
+                } catch (e) {
+                    if (tbodyPrefix) tbodyPrefix.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-4">Invalid JSON format in database.</td></tr>';
+                }
+            } else {
+                if (tbodyPrefix) tbodyPrefix.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Prefix map data not found.</td></tr>';
+            }
+        });
+
+        // --- ROUTING MAP (JSON) LOGIC ---
+        function renderRoutingTable() {
+            const tbody = document.getElementById('routingTableBody');
+            if (!tbody) return; // KUNCI PERBAIKAN: Hentikan fungsi jika elemen HTML disembunyikan
+            
+            tbody.innerHTML = '';
+            
+            const keys = Object.keys(currentRoutingMap);
+            
+            if (keys.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-5"><i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i> No routing rules found. Click 'Add Rule' to create one.</td></tr>`;
+                return;
+            }
+
+            for (const [k, v] of Object.entries(currentRoutingMap)) {
+                // Escape quotes for safe HTML injection
+                const safeKey = k.replace(/'/g, "\\'");
+                const safeVal = v.replace(/'/g, "\\'");
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span class="key-badge">${k}</span></td>
+                        <td><div class="text-truncate value-badge" style="max-width: 400px;" title="${v}">${v}</div></td>
+                        <td class="text-end">
+                            <button class="btn-ghost-primary" onclick="openRoutingModal('edit', '${safeKey}', '${safeVal}')">
+                                <i class="bi bi-pencil-square me-1"></i> Edit
+                            </button>
+                            <button class="btn-ghost-danger" onclick="deleteRoutingRule('${safeKey}')">
+                                <i class="bi bi-trash3 me-1"></i> Delete
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function openRoutingModal(mode, key = '', value = '') {
+            if (mode === 'add') {
+                document.getElementById('routingModalTitle').innerText = 'Add New Routing Rule';
+                document.getElementById('routingOldKey').value = '';
+                document.getElementById('routingKey').value = '';
+                document.getElementById('routingValue').value = '';
+            } else {
+                document.getElementById('routingModalTitle').innerText = 'Edit Routing Rule';
+                document.getElementById('routingOldKey').value = key;
+                document.getElementById('routingKey').value = key;
+                document.getElementById('routingValue').value = value;
+            }
+            routingModal.show();
+        }
+
+        function saveRoutingRule() {
+            const oldKey = document.getElementById('routingOldKey').value.trim();
+            const newKey = document.getElementById('routingKey').value.trim();
+            const newValue = document.getElementById('routingValue').value.trim();
+
+            if (!newKey || !newValue) {
+                showToast("Document Type and BPA ID are required.", "danger");
+                return;
+            }
+
+            toggleLoading('btnSaveRouting', 'spinnerRouting', 'textRoutingBtn', 'Save Rule', true);
+
+            // Update JSON Map in Memory
+            if (oldKey && oldKey !== newKey) {
+                // Key was renamed, delete the old one
+                delete currentRoutingMap[oldKey];
+            }
+            currentRoutingMap[newKey] = newValue;
+
+            // Trigger Backend Save
+            commitJsonToBackend((success) => {
+                toggleLoading('btnSaveRouting', 'spinnerRouting', 'textRoutingBtn', 'Save Rule', false);
+                if (success) {
+                    routingModal.hide();
+                    renderRoutingTable();
+                }
+            });
+        }
+
+        function deleteRoutingRule(key) {
+            if (confirm(`Are you sure you want to delete the routing rule for '${key}'?`)) {
+                const oldVal = currentRoutingMap[key];
+                delete currentRoutingMap[key];
+                commitJsonToBackend((success) => {
+                    if (success) {
+                        renderRoutingTable();
+                    } else {
+                        // Revert on fail
+                        currentRoutingMap[key] = oldVal;
+                    }
+                });
+            }
+        }
+
+        function commitJsonToBackend(callback) {
+            const descEl = document.getElementById('jsonDesc');
+            const desc = descEl ? descEl.value : "Mapping of doc_type to BPA definitionId";
+            const stringifiedJson = JSON.stringify(currentRoutingMap, null, 4);
+            
+            executeSave('doc_type_bot_mapping', stringifiedJson, desc, callback);
+        }
+
+// --- PREFIX MAP (JSON) LOGIC ---
+        function renderPrefixTable() {
+            const tbody = document.getElementById('prefixTableBody');
+            tbody.innerHTML = '';
+            
+            const keys = Object.keys(currentPrefixMap);
+            
+            if (keys.length === 0) {
+                // Diubah menjadi colspan="3" menyesuaikan jumlah header
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-5"><i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i> No prefix mapping rules found. Click 'Add Rule' to create one.</td></tr>`;
+                return;
+            }
+
+            for (const [k, obj] of Object.entries(currentPrefixMap)) {
+                const safeKey = k.replace(/'/g, "\\'");
+                const tId = obj.trigger_id || "";
+                const bUrl = obj.base_url || "";
+                
+                const safeTId = tId.replace(/'/g, "\\'");
+                const safeBUrl = bUrl.replace(/'/g, "\\'");
+                
+                // PERBAIKAN: Menghapus kolom <td> ekstra untuk bUrl dan melebarkan max-width Trigger ID
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span class="key-badge">${k}</span></td>
+                        <td><div class="text-truncate value-badge" style="max-width: 450px;" title="${tId}">${tId}</div></td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-ghost-primary" onclick="openPrefixModal('edit', '${safeKey}', '${safeTId}', '${safeBUrl}')">
+                                <i class="bi bi-pencil-square me-1"></i> Edit
+                            </button>
+                            <button class="btn-ghost-danger" onclick="deletePrefixRule('${safeKey}')">
+                                <i class="bi bi-trash3 me-1"></i> Delete
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function openPrefixModal(mode, key = '', triggerId = '', baseUrl = '') {
+            if (mode === 'add') {
+                document.getElementById('prefixModalTitle').innerText = 'Add New Prefix Rule';
+                document.getElementById('prefixOldKey').value = '';
+                document.getElementById('prefixKey').value = '';
+                document.getElementById('prefixTriggerId').value = '';
+                document.getElementById('prefixBaseUrl').value = '';
+            } else {
+                document.getElementById('prefixModalTitle').innerText = 'Edit Prefix Rule';
+                document.getElementById('prefixOldKey').value = key;
+                document.getElementById('prefixKey').value = key;
+                document.getElementById('prefixTriggerId').value = triggerId;
+                document.getElementById('prefixBaseUrl').value = baseUrl;
+            }
+            prefixModal.show();
+        }
+
+        function savePrefixRule() {
+            const oldKey = document.getElementById('prefixOldKey').value.trim();
+            const newKey = document.getElementById('prefixKey').value.trim();
+            const triggerId = document.getElementById('prefixTriggerId').value.trim();
+            const baseUrl = document.getElementById('prefixBaseUrl').value.trim();
+
+            if (!newKey || !triggerId) {
+                showToast("Prefix and Trigger ID are required.", "danger");
+                return;
+            }
+
+            toggleLoading('btnSavePrefix', 'spinnerPrefix', 'textPrefixBtn', 'Save Rule', true);
+
+            if (oldKey && oldKey !== newKey) {
+                delete currentPrefixMap[oldKey];
+            }
+            currentPrefixMap[newKey] = {
+                trigger_id: triggerId,
+                base_url: baseUrl
+            };
+
+            commitPrefixJsonToBackend((success) => {
+                toggleLoading('btnSavePrefix', 'spinnerPrefix', 'textPrefixBtn', 'Save Rule', false);
+                if (success) {
+                    prefixModal.hide();
+                    renderPrefixTable();
+                }
+            });
+        }
+
+        function deletePrefixRule(key) {
+            if (confirm(`Are you sure you want to delete the prefix rule for '${key}'?`)) {
+                const oldVal = currentPrefixMap[key];
+                delete currentPrefixMap[key];
+                commitPrefixJsonToBackend((success) => {
+                    if (success) {
+                        renderPrefixTable();
+                    } else {
+                        currentPrefixMap[key] = oldVal;
+                    }
+                });
+            }
+        }
+
+        function commitPrefixJsonToBackend(callback) {
+            const descEl = document.getElementById('prefixJsonDesc');
+            const desc = descEl ? descEl.value : "Mapping of prefix to BPA definitionId";
+            const stringifiedJson = JSON.stringify(currentPrefixMap, null, 4);
+            
+            executeSave('prefix_bot_mapping', stringifiedJson, desc, callback);
+        }
+
+        // --- SAP PASSWORD MASK TOGGLE ---
+        function togglePasswordVisibility(key) {
+            const maskEl = document.getElementById('mask-' + key);
+            const rawEl = document.getElementById('raw-val-' + key);
+            const iconEl = document.querySelector('#toggle-icon-' + key + ' i');
+
+            const isMasked = maskEl.dataset.masked !== 'false';
+
+            if (isMasked) {
+                maskEl.innerText = rawEl.value ? rawEl.value : '(empty)';
+                maskEl.dataset.masked = 'false';
+                iconEl.className = 'bi bi-eye-slash';
+            } else {
+                maskEl.innerText = '••••••••••••';
+                maskEl.dataset.masked = 'true';
+                iconEl.className = 'bi bi-eye';
+            }
+        }
+
+        // --- GLOBAL ENDPOINTS (TEXT) LOGIC ---
+        function handleTextEdit(key, desc) {
+            const rawValue = document.getElementById('raw-val-' + key).value;
+            document.getElementById('textKey').value = key;
+            document.getElementById('textDesc').value = desc;
+            document.getElementById('textKeyLabel').innerText = "VALUE FOR: " + key;
+            document.getElementById('textValue').value = rawValue;
+            textModal.show();
+        }
+
+        function saveConfigText() {
+            toggleLoading('btnSaveText', 'spinnerText', 'textBtnText', 'Save Changes', true);
+
+            const key = document.getElementById('textKey').value;
+            const val = document.getElementById('textValue').value;
+            const desc = document.getElementById('textDesc').value;
+            
+            executeSave(key, val, desc, (success) => {
+                toggleLoading('btnSaveText', 'spinnerText', 'textBtnText', 'Save Changes', false);
+                if (success) {
+                    textModal.hide();
+                    
+                    // Update raw value
+                    const rawEl = document.getElementById('raw-val-' + key);
+                    if (rawEl) rawEl.value = val;
+
+                    // Update UI badge
+                    const maskEl = document.getElementById('mask-' + key);
+                    if (maskEl) {
+                        // It's a password field
+                        if (maskEl.dataset.masked === 'false') {
+                            maskEl.innerText = val ? val : '(empty)';
+                        }
+                    } else {
+                        // For standard text fields, update the text inside the value badge
+                        // We find the parent td containing the button and update the value-badge sibling
+                        const tr = document.querySelector(`button[onclick*="handleTextEdit('${key}'"]`)?.closest('tr');
+                        if (tr) {
+                            const badge = tr.querySelector('.value-badge');
+                            if (badge) {
+                                badge.innerHTML = val ? val : '<span class="text-muted fst-italic">- not set -</span>';
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- CORE API CALLER (AJAX POST) ---
+        function executeSave(key, value, description, callback) {
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: key, value: value, description: description })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (callback) callback(data.status === 'success');
+                
+                if (data.status === 'success') {
+                    showToast("Configuration saved successfully!", "success");
+                } else {
+                    showToast("Failed to save: " + data.message, "danger");
+                }
+            })
+            .catch(error => {
+                if (callback) callback();
+                showToast("Network error. Please try again.", "danger");
+            });
+        }
+    </script>
+    <div class="modal fade" id="logoutConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="text-center pt-5 pb-4 px-4">
+                    <div style="width: 56px; height: 56px; background: #FEF2F2; color: #DC2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 18px auto;">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2" style="color: #0F172A; font-size: 17px; letter-spacing: -0.01em;">Are you sure you want to sign out?</h5>
+                    <p class="text-muted mb-0" style="font-size: 13px; line-height: 1.5;">You will need to sign in again to access the Integration Tracking Panel.</p>
+                </div>
+                <div class="d-flex px-4 pb-4" style="gap: 10px;">
+                    <button type="button" class="flex-fill fw-semibold logout-btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/logout" class="flex-fill fw-semibold text-center logout-btn-confirm">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

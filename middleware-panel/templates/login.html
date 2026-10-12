@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --primary-hover: #1D4ED8;
+            --shadow-card: 0 10px 40px -10px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+        }
+
+        body { 
+            background: linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        /* Animasi Fade In */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .login-wrapper {
+            animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+        }
+
+        .login-card {
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: var(--shadow-card);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 32px;
+        }
+        
+        .brand-logo img {
+            height: 24px;
+            object-fit: contain;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .login-title { 
+            font-weight: 800; 
+            color: var(--text-main); 
+            font-size: 24px; 
+            letter-spacing: -0.02em;
+            margin-bottom: 6px; 
+        }
+
+        .login-subtitle { 
+            font-size: 13.5px; 
+            color: var(--text-muted); 
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+            background: #F8FAFC;
+            border: 1px solid var(--border-soft);
+            border-radius: 12px;
+            padding: 0 16px;
+            transition: all 0.2s ease;
+            margin-bottom: 16px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+        }
+        
+        .input-wrapper:focus-within {
+            background: #ffffff;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15), inset 0 1px 2px rgba(0,0,0,0.02);
+        }
+
+        .input-wrapper i.input-icon { color: #94A3B8; font-size: 18px; }
+        
+        .input-wrapper input {
+            border: none;
+            outline: none;
+            background: transparent;
+            padding: 14px 12px;
+            width: 100%;
+            font-size: 14.5px;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+        
+        .input-wrapper input::placeholder { color: #94A3B8; font-weight: 500; }
+
+        input[type="password"]::-ms-reveal,
+        input[type="password"]::-ms-clear { display: none; }
+        input[type="password"]::-webkit-contacts-auto-fill-button,
+        input[type="password"]::-webkit-credentials-auto-fill-button { display: none !important; }
+
+        .toggle-password {
+            cursor: pointer;
+            padding: 10px 0 10px 10px;
+            color: #94A3B8;
+            transition: color 0.2s;
+        }
+        .toggle-password:hover { color: var(--text-main); }
+
+        .btn-login {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 15px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+        }
+        .btn-login:hover:not(:disabled) {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+        }
+        .btn-login:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+        .btn-login:disabled { background-color: #94A3B8; cursor: not-allowed; box-shadow: none; }
+        
+        .spinner-custom { width: 1.2rem; height: 1.2rem; border-width: 0.15em; }
+    </style>
+</head>
+<body>
+
+    <!-- GLOBAL TOAST NOTIFICATION -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-medium" id="toastMessage" style="font-size: 14px;">
+                    <!-- Message populated by JS/Go -->
+                </div>
+                <button type="button" class="btn-close btn-close-white me-3 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="login-wrapper">
+        <div class="login-card">
+            
+            <div class="brand-logo">
+                <img src="/static/img/soltiusfit.png" alt="Soltius Logo">
+            </div>
+            
+            <div class="login-header">
+                <h2 class="login-title">Middleware Panel</h2>
+                <p class="login-subtitle">Sign in with your admin credentials</p>
+            </div>
+
+            <form id="loginForm" action="/login" method="POST">
+                <div class="input-wrapper">
+                    <i class="bi bi-person input-icon"></i>
+                    <input type="text" name="username" placeholder="Username" required autocomplete="username">
+                </div>
+
+                <div class="input-wrapper">
+                    <i class="bi bi-shield-lock input-icon"></i>
+                    <input type="password" id="passwordInput" name="password" placeholder="Password" required autocomplete="current-password">
+                    <div class="toggle-password" onclick="togglePassword()">
+                        <i id="eyeIcon" class="bi bi-eye"></i>
+                    </div>
+                </div>
+
+                <button type="submit" id="loginBtn" class="btn-login">
+                    Sign In <i class="bi bi-arrow-right"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const serverError = "{{ .Error }}";
+        if (serverError !== "") {
+            document.addEventListener("DOMContentLoaded", function() {
+                showToast(serverError, "danger");
+            });
+        }
+
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            const bgClass = type === 'success' ? 'bg-success' : 'bg-danger';
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${bgClass}`;
+            toastBody.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}-fill me-2"></i> ${message}`;
+            
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 }); 
+            toast.show();
+        }
+
+        function togglePassword() {
+            const pwdInput = document.getElementById("passwordInput");
+            const eyeIcon = document.getElementById("eyeIcon");
+            
+            if (pwdInput.type === "password") {
+                pwdInput.type = "text";
+                eyeIcon.classList.replace("bi-eye", "bi-eye-slash");
+            } else {
+                pwdInput.type = "password";
+                eyeIcon.classList.replace("bi-eye-slash", "bi-eye");
+            }
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault(); 
+
+            const btn = document.getElementById('loginBtn');
+            const username = document.querySelector('input[name="username"]').value;
+            const password = document.querySelector('input[name="password"]').value;
+
+            if (!username || !password) return; 
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-custom me-2" role="status" aria-hidden="true"></span> Authenticating...';
+
+            fetch('/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username: username, password: password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast(data.message, "success");
+                    
+                    btn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i> Success';
+                    btn.classList.replace('btn-primary', 'btn-success');
+                    
+                    setTimeout(() => {
+                        window.location.href = "/dashboard";
+                    }, 1200);
+                } else {
+                    showToast(data.message, "danger");
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = 'Sign In <i class="bi bi-arrow-right"></i>';
+                }
+            })
+            .catch(error => {
+                showToast("A network error occurred or the server failed to respond", "danger");
+                btn.disabled = false;
+                btn.innerHTML = 'Sign In <i class="bi bi-arrow-right"></i>';
+            });
+        });
+    </script>
+</body>
+</html>

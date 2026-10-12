@@ -14,20 +14,15 @@ import (
 func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 	r := gin.Default()
 
-	// Load HTML templates & Static assets
-	r.LoadHTMLGlob("web/templates/*")
-	r.Static("/static", "web/static")
-
-	// Web Panel Interface
+	// Redirect root & /swagger path ke Swagger UI
 	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusMovedPermanently, "/panel")
+		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
 	})
-	r.GET("/panel", ctrl.ShowPanel)
-
-	// Swagger UI handler
 	r.GET("/swagger", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
 	})
+
+	// Swagger UI handler
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	api := r.Group("/api/v1")

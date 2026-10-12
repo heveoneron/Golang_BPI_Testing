@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backup Config - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --primary-hover: #1D4ED8;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+            --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+        }
+        
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .logout-btn-cancel { background:#F1F5F9; color:#334155; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; cursor:pointer; transition: background .2s ease; }
+        .logout-btn-cancel:hover { background:#E2E8F0; color:#334155; }
+        .logout-btn-confirm { background:#DC2626; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; display:inline-block; transition: background .2s ease; }
+        .logout-btn-confirm:hover { background:#B91C1C; color:#fff; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .profile-btn { background: #fff; border: 1px solid var(--border-soft); border-radius: 50rem; padding: 6px 16px 6px 6px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .profile-btn:hover { border-color: #CBD5E1; box-shadow: 0 4px 6px rgba(0,0,0,0.04); transform: translateY(-1px); }
+        .profile-avatar { width: 32px; height: 32px; background-color: #EFF6FF; color: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+
+        /* SUMMARY CARDS GRID 4 COLUMNS */
+        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .summary-card { background: #ffffff; border: 1px solid var(--border-soft); border-radius: 12px; padding: 20px; box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+        .summary-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .summary-value { font-size: 16px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+
+        /* FORM & CARD STYLING */
+        .main-card { background-color: #ffffff; border-radius: 16px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; padding: 32px; width: 100%; transition: all 0.3s ease; }
+        .form-label { font-size: 12.5px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.03em; }
+        .form-control, .form-select { border: 1px solid var(--border-soft); border-radius: 10px; font-size: 14px; font-weight: 500; padding: 10px 16px; background-color: #F8FAFC; color: var(--text-main); transition: all 0.2s; }
+        .form-control:focus, .form-select:focus { border-color: var(--primary); background-color: #fff; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); outline: none; }
+        
+        .btn-primary-custom { background-color: var(--primary); color: white; border: none; font-weight: 600; border-radius: 10px; padding: 12px 16px; font-size: 14px; width: 100%; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 4px rgba(37,99,235,0.1); }
+        .btn-primary-custom:hover { background-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(37,99,235,0.2); }
+        .btn-primary-custom:disabled { opacity: 0.8; transform: none; cursor: not-allowed; }
+        
+        .btn-outline-custom { background-color: transparent; border: 2px solid #E2E8F0; color: var(--text-main); font-weight: 600; border-radius: 10px; padding: 10px 16px; font-size: 14px; width: 100%; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-outline-custom:hover { background-color: #F8FAFC; border-color: #CBD5E1; }
+        .btn-outline-custom:disabled { opacity: 0.8; cursor: not-allowed; }
+
+        .scheduler-grid-box { border: 1px solid var(--border-soft); border-radius: 12px; background-color: #F8FAFC; padding: 24px; min-height: 150px; }
+        .radio-group-vertical { display: flex; flex-direction: column; gap: 16px; }
+        
+        .custom-radio-container { position: relative; display: flex; align-items: center; cursor: pointer; padding: 12px 16px; border-radius: 10px; border: 1.5px solid transparent; transition: all 0.2s ease; margin-bottom: 0; }
+        .custom-radio-container:hover { background-color: #f1f5f9; border-color: #cbd5e1; }
+        .custom-radio-container input[type="radio"] { position: absolute; opacity: 0; cursor: pointer; height: 0; width: 0; }
+        .custom-radio-mark { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; min-width: 20px; border: 2px solid #94a3b8; border-radius: 50%; margin-right: 12px; transition: all 0.2s ease; flex-shrink: 0; }
+        .custom-radio-container input:checked ~ .custom-radio-mark { border-color: var(--primary); background-color: #eff6ff; }
+        .custom-radio-container input:checked ~ .custom-radio-mark::after { content: ""; display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+        .custom-radio-container input:checked ~ .radio-text { color: var(--primary); font-weight: 700; }
+        .radio-text { font-size: 14px; font-weight: 600; color: var(--text-main); transition: all 0.2s ease; white-space: nowrap; }
+        .custom-radio-container.active { background-color: #eff6ff; border-color: #bfdbfe; box-shadow: 0 2px 4px rgba(59,130,246,0.05); }
+
+        .smart-pill-input { display: none; }
+        .smart-pill-label { border: 1.5px solid var(--border-soft); background-color: #fff; border-radius: 8px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all 0.2s; text-align: center; flex-grow: 1; margin: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+        .smart-pill-label:hover { border-color: #CBD5E1; background-color: #F8FAFC; color: var(--text-main); }
+        .smart-pill-input:checked + .smart-pill-label { background-color: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); transform: translateY(-1px); }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+        .calendar-day-input { display: none; }
+        .calendar-day-label { border: 1px solid var(--border-soft); background-color: #fff; border-radius: 6px; padding: 8px 0; font-size: 13px; font-weight: 600; color: var(--text-main); cursor: pointer; text-align: center; transition: all 0.2s; margin: 0; }
+        .calendar-day-label:hover { border-color: #CBD5E1; background-color: #F8FAFC; }
+        .calendar-day-input:checked + .calendar-day-label { background-color: var(--primary); border-color: var(--primary); color: white; }
+        .label-last-day { background-color: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+        .calendar-day-input:checked + .label-last-day { background-color: var(--primary); border-color: var(--primary); color: white; }
+
+        .preview-box { background-color: #F8FAFC; border: 1px solid var(--border-soft); border-left: 4px solid var(--primary); border-radius: 12px; padding: 20px 24px; margin-top: 24px; transition: all 0.3s ease; }
+        .preview-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .preview-text { font-size: 14.5px; font-weight: 500; line-height: 1.6; color: var(--text-main); }
+        .highlight-text { color: var(--primary); font-weight: 700; background-color: #EFF6FF; padding: 2px 6px; border-radius: 6px; }
+
+        .disabled-scheduler-panel { opacity: 0.5; pointer-events: none; filter: grayscale(20%); transition: all 0.3s ease; }
+        .input-wrap-anim { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Spinner Custom */
+        .spinner-custom { width: 1.2rem; height: 1.2rem; border-width: 0.15em; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-medium" id="toastMessage" style="font-size: 14px;"></div>
+                <button type="button" class="btn-close btn-close-white me-3 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+        {{ template "sidebar" . }}
+        <div class="flex-grow-1 p-5" style="height: 100vh; overflow-y: auto; overscroll-behavior: none;">        <div class="mx-auto w-100" style="max-width: 1440px;">
+            <div class="top-nav">
+                <div class="top-nav-title">
+                    <h3><i class="bi bi-database-fill-up text-primary"></i> Database Backup Config</h3>
+                </div>
+                <div class="dropdown">
+                    <div class="profile-btn" data-bs-toggle="dropdown">
+                        <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
+                        <span style="font-weight: 600; font-size: 14px; color: #0F172A;">{{ if .Username }}{{ .Username }}{{ else }}Admin{{ end }}</span>
+                        <i class="bi bi-chevron-down text-muted" style="font-size: 12px;"></i>
+                    </div>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 p-2 mt-2" style="border-radius: 12px;">
+                        <li><h6 class="dropdown-header fw-bold">Signed in as</h6></li>
+                        <li><span class="dropdown-item-text small text-muted">{{ if .Username }}{{ .Username }}{{ else }}Admin{{ end }}</span></li>
+                        <li><hr class="dropdown-divider my-2"></li>
+                        <li><a class="dropdown-item text-danger fw-bold rounded-3 py-2" href="javascript:void(0)" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right me-2"></i> Sign Out</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            {{ if .Success }}
+            <script>
+                document.addEventListener("DOMContentLoaded", function() { showToast("Configuration saved successfully!", "success"); });
+            </script>
+            {{ end }}
+            {{ if .Error }}
+            <script>
+                document.addEventListener("DOMContentLoaded", function() { showToast("{{ .Error }}", "danger"); });
+            </script>
+            {{ end }}
+
+            {{ $config := index .schedules 0 }}
+
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <span class="summary-label">Last Backup Time</span>
+                    {{ if $config.LastBackupTime }}
+                        <span class="summary-value text-dark">
+                            <i class="bi bi-clock-history text-muted"></i> {{ $config.LastBackupTime.Format "02 Jan 2006, 15:04" }}
+                        </span>
+                    {{ else }}
+                        <span class="summary-value text-muted">
+                            <i class="bi bi-dash-circle"></i> Never Run
+                        </span>
+                    {{ end }}
+                </div>
+
+                <div class="summary-card">
+                    <span class="summary-label">Backup Status</span>
+                    <span class="summary-value" id="summaryStatus">
+                        {{ if eq $config.GetStatus "SUCCESS" }}
+                            <span class="text-success"><i class="bi bi-check-circle-fill"></i> Success</span>
+                        {{ else if eq $config.GetStatus "FAILED" }}
+                            <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Failed</span>
+                        {{ else }}
+                            <span class="text-warning"><i class="bi bi-hourglass-split"></i> Pending</span>
+                        {{ end }}
+                    </span>
+                </div>
+
+                <div class="summary-card">
+                    <span class="summary-label">Next Scheduled Backup</span>
+                    <span class="summary-value" id="summaryNextBackup">
+                        <i class="bi bi-calendar-event text-primary"></i> <span>Loading...</span>
+                    </span>
+                </div>
+                
+                <div class="summary-card">
+                    <span class="summary-label">Retention Period</span>
+                    <span class="summary-value">
+                        <i class="bi bi-archive text-warning"></i> {{ $config.RetentionDays }} Days
+                    </span>
+                </div>
+            </div>
+
+            <div class="main-card">
+                <form action="/backup-config/update" method="POST" id="backupForm">
+                    <input type="hidden" name="id" value="{{ $config.ID }}" id="configIdInput">
+                    
+                    <div class="row">
+                        <div class="col-lg-8 pe-lg-5">
+                            
+                            <div class="d-flex align-items-center mb-4 pb-2 border-bottom">
+                                <div class="form-check form-switch m-0 d-flex align-items-center p-3 bg-light rounded-3 border">
+                                    <input class="form-check-input ms-0 me-3 mt-0" type="checkbox" id="isActiveToggle" name="is_active" {{ if $config.IsActive }}checked{{ end }} style="width: 3rem; height: 1.5rem; cursor: pointer;">
+                                    <label class="form-check-label fw-bold text-dark fs-5" id="isActiveLabel" for="isActiveToggle" style="cursor: pointer;">
+                                        {{ if $config.IsActive }}Automated Backup Enabled{{ else }}Automated Backup Disabled{{ end }}
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div id="masterPanel" class="{{ if not $config.IsActive }}disabled-scheduler-panel{{ end }}">
+                                
+                                <h6 class="form-label text-muted mb-3">Database Target Details</h6>
+                                <div class="scheduler-grid-box p-4 mb-4 shadow-sm border-0" style="background-color: #ffffff;">
+                                    <div class="row g-3">
+                                        <div class="col-12 col-xl-6">
+                                            <label class="form-label text-muted" style="font-size: 11px;">Target Database (Auto-Detected)</label>
+                                            <div class="d-flex align-items-center p-2 bg-light border border-soft rounded-3">
+                                                <div style="width: 32px; height: 32px; background: #EFF6FF; color: #2563EB; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
+                                                    <i class="bi bi-database-fill"></i>
+                                                </div>
+                                                <div>
+                                                    <span class="d-block fw-bold text-dark" style="font-size: 14px;">{{ .CurrentDB }}</span>
+                                                    <span class="d-block text-muted" style="font-size: 11px;">Specific Database (pg_dump)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12 col-xl-6">
+                                            <label class="form-label text-muted" style="font-size: 11px;">Target Backup Directory (Locked)</label>
+                                            <div class="d-flex align-items-center p-2 bg-light border border-soft rounded-3">
+                                                <div style="width: 32px; height: 32px; background: #F0FDF4; color: #16A34A; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
+                                                    <i class="bi bi-folder-fill"></i>
+                                                </div>
+                                                <div>
+                                                    <span class="d-block fw-bold text-dark" style="font-size: 14px; font-family: monospace;">{{ .BasePath }}</span>
+                                                    <span class="d-block text-muted" style="font-size: 11px;">Secured Server Path</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6 class="form-label text-muted mb-3">Scheduling Logic</h6>
+                                <div class="row g-3 align-items-stretch">
+                                    <div class="col-12 col-md-auto">
+                                        <div class="scheduler-grid-box radio-group-vertical p-3 shadow-sm border-0 h-100" style="min-width: 170px;">
+                                            <label class="custom-radio-container" id="cont_modeDaily">
+                                                <input type="radio" name="schedule_mode" id="modeDaily" value="daily" onchange="syncUI()" {{ if eq $config.ScheduleMode "daily" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Daily</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_modeWeekly">
+                                                <input type="radio" name="schedule_mode" id="modeWeekly" value="weekly" onchange="syncUI()" {{ if eq $config.ScheduleMode "weekly" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Weekly</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_modeMonthly">
+                                                <input type="radio" name="schedule_mode" id="modeMonthly" value="monthly" onchange="syncUI()" {{ if eq $config.ScheduleMode "monthly" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Monthly</span>
+                                            </label>
+                                            <label class="custom-radio-container" id="cont_modeCustom">
+                                                <input type="radio" name="schedule_mode" id="modeCustom" value="custom" onchange="syncUI()" {{ if eq $config.ScheduleMode "custom" }}checked{{ end }}><span class="custom-radio-mark"></span><span class="radio-text">Custom</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-12 col-md">
+                                        <div class="scheduler-grid-box d-flex flex-column p-4 shadow-sm border-0 h-100" style="background-color: #ffffff;">
+                                            
+                                            <div id="timeArea" class="input-wrap-anim">
+                                                <label class="form-label text-muted" style="font-size: 11px;">Execution Time</label>
+                                                <input type="time" class="form-control mb-4" style="width: 200px;" name="execution_time" id="execTimeInput" value="{{ $config.ExecutionTime }}" onchange="syncUI()">
+                                                
+                                                <div id="panelWeekly" style="display: none;">
+                                                    <label class="form-label text-muted" style="font-size: 11px;">Select Days</label>
+                                                    <div class="d-flex flex-wrap gap-2 px-1">
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="1" id="wd1" onchange="syncUI()"> <label class="smart-pill-label" for="wd1">Mon</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="2" id="wd2" onchange="syncUI()"> <label class="smart-pill-label" for="wd2">Tue</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="3" id="wd3" onchange="syncUI()"> <label class="smart-pill-label" for="wd3">Wed</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="4" id="wd4" onchange="syncUI()"> <label class="smart-pill-label" for="wd4">Thu</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="5" id="wd5" onchange="syncUI()"> <label class="smart-pill-label" for="wd5">Fri</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="6" id="wd6" onchange="syncUI()"> <label class="smart-pill-label" for="wd6">Sat</label>
+                                                        <input type="checkbox" class="smart-pill-input" name="weekly_days[]" value="0" id="wd0" onchange="syncUI()"> <label class="smart-pill-label" for="wd0">Sun</label>
+                                                    </div>
+                                                </div>
+
+                                                <div id="panelMonthly" style="display: none;">
+                                                    <label class="form-label text-muted" style="font-size: 11px;">Select Dates</label>
+                                                    <div class="calendar-grid bg-light p-3 rounded-3 border" id="calendarGridContainer"></div>
+                                                </div>
+                                            </div>
+
+                                            <div id="cronArea" class="input-wrap-anim" style="display: none;">
+                                                <label class="form-label text-muted" style="font-size: 11px;">Cron Expression</label>
+                                                <input type="text" class="form-control text-primary fw-bold" style="font-family: monospace;" name="cron_expression" id="cronInput" value="{{ $config.CronExpression }}" onkeyup="syncUI()">
+                                                <div class="mt-2 text-muted" style="font-size: 12px;">Format: <code>Minute Hour Day(Month) Month Day(Week)</code></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="preview-box shadow-sm">
+                                    <div class="preview-title"><i class="bi bi-magic text-primary"></i> Execution Preview</div>
+                                    <div class="preview-text" id="previewText">
+                                        Loading preview...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-4 border-start ps-lg-4 d-flex flex-column justify-content-between">
+                            <div>
+                                <button id="btnSaveBackup" type="submit" class="btn-primary-custom mb-3 py-3 shadow-sm d-flex align-items-center justify-content-center">
+                                    <span class="spinner-border spinner-custom me-2 d-none" id="spinnerSave" role="status"></span>
+                                    <i class="bi bi-save2-fill fs-5 me-2" id="iconSave"></i>
+                                    <span id="textSave" class="fs-6">Save Configuration</span>
+                                </button>
+                                
+                                <button id="btnRunBackup" type="button" class="btn-outline-custom mb-4 py-2 d-flex align-items-center justify-content-center" onclick="runBackupNow()">
+                                    <span class="spinner-border spinner-custom me-2 d-none" id="spinnerRun" role="status"></span>
+                                    <i class="bi bi-play-circle-fill text-success fs-5 me-2" id="iconRun"></i> 
+                                    <span id="textRun">Run Backup Now</span>
+                                </button>
+                                
+                                <div class="mb-4 pt-2 border-top">
+                                    <label class="form-label text-muted mb-2">Retention Lifecycle</label>
+                                    <div class="d-flex align-items-center bg-white border border-soft rounded-3 p-3 shadow-sm">
+                                        <input type="number" class="form-control text-center fw-bold me-3 shadow-sm border-warning" name="retention_days" value="{{ $config.RetentionDays }}" min="1" style="width: 80px; background-color: #FEF3C7; color: #92400E;">
+                                        <div>
+                                            <span class="d-block fw-bold" style="font-size: 14px;">Days to Keep</span>
+                                            <span class="text-muted" style="font-size: 11px;">Older backups are deleted.</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            <div class="alert alert-light border shadow-sm" style="font-size: 13.5px; line-height: 1.6; color: var(--text-main); border-radius: 16px;">
+                                <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-info-circle-fill text-primary me-2"></i> Quick Tips</h6>
+                                <ul class="ps-3 mb-0 text-muted">
+                                    <li class="mb-2"><b>Target Database</b> is automatically configured based on your active server environment.</li>
+                                    <li class="mb-2">Selecting multiple days or dates will automatically generate the correct scheduling cycle.</li>
+                                    <li class="mb-0"><b>Run Backup Now</b> will start the backup process immediately, ignoring the automated schedule.</li>
+                                </ul>
+                            </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="dbData" 
+        data-weekly="{{ $config.WeeklyDays }}" 
+        data-monthly="{{ $config.MonthlyDays }}" style="display: none;"></div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // --- TOAST NOTIFICATION ---
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            const bgClass = type === 'success' ? 'bg-success' : 'bg-danger';
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${bgClass}`;
+            
+            toastBody.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}-fill me-2"></i> ${message}`;
+            
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            toast.show();
+        }
+
+        function setupDynamicDOM() {
+            const grid = document.getElementById('calendarGridContainer');
+            let gridHTML = "";
+            for(let i=1; i<=31; i++) {
+                gridHTML += `<input type="checkbox" class="calendar-day-input" name="monthly_days[]" value="${i}" id="md${i}" onchange="syncUI()"><label class="calendar-day-label" for="md${i}">${i}</label>`;
+            }
+            gridHTML += `<input type="checkbox" class="calendar-day-input" name="monthly_days[]" value="L" id="mdL" onchange="syncUI()"><label class="calendar-day-label label-last-day fw-bold" for="mdL" title="Last day of the month">Last</label>`;
+            grid.innerHTML = gridHTML;
+        }
+
+        function initData() {
+            const dbData = document.getElementById('dbData');
+            const wRaw = dbData.getAttribute('data-weekly') || "";
+            if (wRaw) wRaw.split(',').forEach(val => { const cb = document.getElementById('wd'+val); if(cb) cb.checked = true; });
+            const mRaw = dbData.getAttribute('data-monthly') || "";
+            if (mRaw) mRaw.split(',').forEach(val => { const cb = document.getElementById('md'+val); if(cb) cb.checked = true; });
+            syncUI();
+        }
+
+        // --- SUBMIT SAVE SPINNER ---
+        document.getElementById('backupForm').addEventListener('submit', function() {
+            const btn = document.getElementById('btnSaveBackup');
+            const spinner = document.getElementById('spinnerSave');
+            const icon = document.getElementById('iconSave');
+            const text = document.getElementById('textSave');
+            
+            btn.setAttribute('disabled', 'true');
+            spinner.classList.remove('d-none');
+            icon.classList.add('d-none');
+            text.innerText = "Saving...";
+        });
+
+        // --- RUN BACKUP NOW SPINNER & AJAX ---
+        function runBackupNow() {
+            const btn = document.getElementById('btnRunBackup');
+            const spinner = document.getElementById('spinnerRun');
+            const icon = document.getElementById('iconRun');
+            const text = document.getElementById('textRun');
+            
+            btn.setAttribute('disabled', 'true');
+            spinner.classList.remove('d-none');
+            icon.classList.add('d-none');
+            text.innerText = "Running Backup...";
+
+            const id = document.getElementById('configIdInput').value;
+            const formData = new URLSearchParams();
+            formData.append('id', id);
+
+            showToast("Backup triggered. This might take a few moments...", "success");
+
+            fetch('/backup-config/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast(data.message, "success");
+                    setTimeout(() => location.reload(), 1500); 
+                } else {
+                    showToast(data.message, "danger");
+                    // Reset Button
+                    btn.removeAttribute('disabled');
+                    spinner.classList.add('d-none');
+                    icon.classList.remove('d-none');
+                    text.innerText = "Run Backup Now";
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showToast('Network error occurred.', "danger");
+                // Reset Button
+                btn.removeAttribute('disabled');
+                spinner.classList.add('d-none');
+                icon.classList.remove('d-none');
+                text.innerText = "Run Backup Now";
+            });
+        }
+
+        document.getElementById('isActiveToggle').addEventListener('change', function() {
+            const masterPanel = document.getElementById('masterPanel');
+            const label = document.getElementById('isActiveLabel');
+            if (this.checked) {
+                masterPanel.classList.remove('disabled-scheduler-panel');
+                label.innerText = 'Automated Backup Enabled';
+            } else {
+                masterPanel.classList.add('disabled-scheduler-panel');
+                label.innerText = 'Automated Backup Disabled';
+            }
+        });
+
+        function formatAMPM(timeString) {
+            if(!timeString) return '[Time]';
+            const [h, m] = timeString.split(':');
+            let hours = parseInt(h);
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; 
+            return `${hours}:${m} ${ampm}`;
+        }
+
+        function syncUI() {
+            const modeEl = document.querySelector('input[name="schedule_mode"]:checked');
+            if(!modeEl) return;
+            const mode = modeEl.value;
+
+            ['modeDaily', 'modeWeekly', 'modeMonthly', 'modeCustom'].forEach(id => {
+                const container = document.getElementById('cont_' + id);
+                if(document.getElementById(id).checked) container.classList.add('active');
+                else container.classList.remove('active');
+            });
+
+            const timeArea = document.getElementById('timeArea');
+            const cronArea = document.getElementById('cronArea');
+            const panelW = document.getElementById('panelWeekly');
+            const panelM = document.getElementById('panelMonthly');
+            const timeVal = document.getElementById('execTimeInput').value;
+            const cronInput = document.getElementById('cronInput');
+            const nextBackupSummary = document.getElementById('summaryNextBackup');
+            
+            let previewHTML = "";
+            let summaryText = "";
+
+            if (mode === 'custom') {
+                timeArea.style.display = 'none';
+                cronArea.style.display = 'block';
+                panelW.style.display = 'none'; panelM.style.display = 'none';
+                
+                previewHTML = `Backup will run based on expression: <span class="highlight-text">${cronInput.value || '* * * * *'}</span>`;
+                summaryText = `<i class="bi bi-calendar-event text-primary"></i> <span>Custom cron logic</span>`;
+            } else {
+                timeArea.style.display = 'block';
+                cronArea.style.display = 'none';
+                const t12 = formatAMPM(timeVal);
+                let [hr, min] = timeVal.split(':');
+
+                if (mode === 'daily') {
+                    panelW.style.display = 'none';
+                    panelM.style.display = 'none';
+                    previewHTML = `Backup will run <span class="highlight-text">every day</span> at <span class="highlight-text">${t12}</span>.`;
+                    summaryText = `<i class="bi bi-calendar-event text-primary"></i> <span>Every day, ${t12}</span>`;
+                    if(hr) cronInput.value = `${parseInt(min)} ${parseInt(hr)} * * *`;
+                } 
+                else if (mode === 'weekly') {
+                    panelW.style.display = 'block';
+                    panelM.style.display = 'none';
+                    
+                    const checkedLabels = Array.from(document.querySelectorAll('#panelWeekly .smart-pill-input:checked')).map(cb => cb.nextElementSibling.innerText);
+                    const checkedVals = Array.from(document.querySelectorAll('#panelWeekly .smart-pill-input:checked')).map(cb => cb.value);
+                    let dayStr = checkedLabels.length > 0 ? `<span class="highlight-text">${checkedLabels.join(', ')}</span>` : '<span class="text-danger">[Select days]</span>';
+                    
+                    previewHTML = `Backup will run every <span class="highlight-text">week</span> on ${dayStr} at <span class="highlight-text">${t12}</span>.`;
+                    summaryText = `<i class="bi bi-calendar-event text-primary"></i> <span>Weekly setup, ${t12}</span>`;
+                    
+                    if(hr && checkedVals.length > 0) cronInput.value = `${parseInt(min)} ${parseInt(hr)} * * ${checkedVals.join(',')}`;
+                } 
+                else if (mode === 'monthly') {
+                    panelW.style.display = 'none';
+                    panelM.style.display = 'block';
+                    
+                    const checkedVals = Array.from(document.querySelectorAll('#panelMonthly .calendar-day-input:checked')).map(cb => cb.value);
+                    
+                    let dayStr = checkedVals.length > 0 ? `date(s) <span class="highlight-text">${checkedVals.join(', ')}</span>` : '<span class="text-danger">[Select dates]</span>';
+                    previewHTML = `Backup will run on ${dayStr} of the month at <span class="highlight-text">${t12}</span>.`;
+                    summaryText = `<i class="bi bi-calendar-event text-primary"></i> <span>Monthly setup, ${t12}</span>`;
+                    
+                    if(hr && checkedVals.length > 0) cronInput.value = `${parseInt(min)} ${parseInt(hr)} ${checkedVals.join(',')} * *`;
+                }
+            }
+
+            document.getElementById('previewText').innerHTML = previewHTML;
+            nextBackupSummary.innerHTML = summaryText;
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            setupDynamicDOM();
+            initData();
+        });
+    </script>
+    <div class="modal fade" id="logoutConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="text-center pt-5 pb-4 px-4">
+                    <div style="width: 56px; height: 56px; background: #FEF2F2; color: #DC2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 18px auto;">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2" style="color: #0F172A; font-size: 17px; letter-spacing: -0.01em;">Are you sure you want to sign out?</h5>
+                    <p class="text-muted mb-0" style="font-size: 13px; line-height: 1.5;">You will need to sign in again to access the Integration Tracking Panel.</p>
+                </div>
+                <div class="d-flex px-4 pb-4" style="gap: 10px;">
+                    <button type="button" class="flex-fill fw-semibold logout-btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/logout" class="flex-fill fw-semibold text-center logout-btn-confirm">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

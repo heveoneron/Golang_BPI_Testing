@@ -96,7 +96,6 @@ func main() {
 	}
 
 	log.Printf("[INFO] Swagger OpenAPI UI: http://localhost:%s/swagger/index.html", appPort)
-	log.Printf("[INFO] Middleware Web Panel: http://localhost:%s/panel", appPort)
 
 	srv := &http.Server{
 		Addr:    ":" + appPort,

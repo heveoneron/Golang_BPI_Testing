@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Tracking - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <!-- Daterangepicker CSS -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css" />
+    
+    <style>
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .icon-spin { animation: spin 0.8s linear infinite; }
+
+        .btn-refresh-custom { 
+            background-color: #ffffff; 
+            border: 1px solid var(--border-soft); 
+            color: var(--text-muted); 
+            border-radius: 10px; 
+            width: 42px; 
+            height: 40px;
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            transition: all 0.2s ease; 
+            flex-shrink: 0;
+        }
+        .btn-refresh-custom:hover { 
+            background-color: #F1F5F9; 
+            color: var(--primary); 
+            border-color: #CBD5E1; 
+        }
+        :root {
+            --bg-body: #F1F5F9;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 6px 18px rgba(15,23,42,.04);
+            --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow: hidden; height: 100vh; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }    
+        
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .logout-btn-cancel { background:#F1F5F9; color:#334155; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; cursor:pointer; transition: background .2s ease; }
+        .logout-btn-cancel:hover { background:#E2E8F0; color:#334155; }
+        .logout-btn-confirm { background:#DC2626; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13.5px; text-decoration:none; display:inline-block; transition: background .2s ease; }
+        .logout-btn-confirm:hover { background:#B91C1C; color:#fff; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; letter-spacing: -0.025em; display: flex; align-items: center; gap: 8px;}
+        .profile-btn { background: #fff; border: 1px solid var(--border-soft); border-radius: 50rem; padding: 6px 16px 6px 6px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .profile-btn:hover { border-color: #CBD5E1; box-shadow: 0 4px 6px rgba(0,0,0,0.04); transform: translateY(-1px); }
+        .profile-avatar { width: 32px; height: 32px; background-color: #EFF6FF; color: #2563EB; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+
+        .metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
+        
+        .metric-card { background: #ffffff; padding: 12px 16px; border-radius: 16px; border: 1.5px solid var(--border-soft); box-shadow: var(--shadow-card); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; gap: 14px; cursor: pointer; position: relative; overflow: hidden; }
+        .metric-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: #94A3B8; }
+        .metric-card.active-filter { border-color: #161617; background-color: #F8FAFC; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        .metric-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; position: relative; z-index: 2; }
+        .metric-info { display: flex; flex-direction: column; position: relative; z-index: 2; width: 100%; }
+        .metric-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+        .metric-value { font-size: 26px; font-weight: 800; color: var(--text-main); line-height: 1; letter-spacing: -0.02em; }
+        .metric-pct { font-size: 11px; font-weight: 600; margin-top: 2px; }
+        .metric-sparkline { position: absolute; bottom: 0; left: 0; width: 100%; height: 35px; opacity: 0.15; z-index: 1; pointer-events: none; }
+        
+        .icon-blue { background: #EFF6FF; color: #2563EB; }
+        .icon-green { background: #F0FDF4; color: #166534; }
+        .icon-red { background: #FEF2F2; color: #991B1B; }
+        .icon-purple { background: #F5F3FF; color: #7C3AED; }
+        .icon-orange { background: #FFFBEB; color: #B45309; }
+
+        .main-card { background-color: #ffffff; border-radius: 20px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; display: flex; flex-direction: column; }
+        .control-bar { padding: 14px 20px; border-bottom: 1px solid var(--border-soft); background-color: #F8FAFC; }
+        
+        table { table-layout: fixed; width: 100%; margin: 0; }
+        th { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 16px 20px !important; background-color: #ffffff !important; border-bottom: 1px solid var(--border-soft) !important; }
+        td { padding: 20px !important; vertical-align: middle !important; border-bottom: 1px solid #F1F5F9; transition: background-color 0.2s ease; }
+        .table-hover tbody tr:hover td { background-color: #F8FAFC; }
+        .child-row td { background-color: #FAFAFA; border-bottom: 1px dashed #E2E8F0; padding-top: 14px !important; padding-bottom: 14px !important; }
+        .child-row:hover td { background-color: #F1F5F9; }
+
+        .btn-expand { background: #F8FAFC; border: 1px solid #E2E8F0; color: #64748B; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; transition: 0.2s; outline: none; }
+        .btn-expand:hover { background: #E2E8F0; color: #0F172A; }
+        .btn-expand i { transition: transform 0.2s; font-size: 12px; }
+        .expanded .btn-expand i { transform: rotate(90deg); }
+        
+        .badge-soft-primary { 
+            background-color: #F1F5F9; 
+            color: #475569; 
+            border: 1px solid #E2E8F0; 
+            font-size: 10.5px; 
+            font-weight: 600; 
+            padding: 3px 8px; 
+            border-radius: 6px; 
+            letter-spacing: 0.02em; /* Memberikan sedikit jarak agar mudah dibaca */
+        }
+/* (Tempelkan di bawah .badge-soft-primary) */
+        
+        .badge-soft-secondary {
+            background-color: #F8FAFC; 
+            color: #64748B; 
+            border: 1px solid #E2E8F0; 
+            font-size: 10.5px; 
+            font-weight: 600; 
+            padding: 3px 8px; 
+            border-radius: 6px; 
+            letter-spacing: 0.02em;
+        }
+
+        /* Memotong teks panjang menjadi titik-titik (...) */
+        .text-truncate-custom {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: inline-block;
+            vertical-align: bottom;
+        }
+
+        /* Desain rapi untuk informasi Parent */
+        .badge-parent {
+            background-color: #F8FAFC; 
+            color: #475569; 
+            border: 1px dashed #CBD5E1; 
+            font-size: 11px; 
+            font-weight: 500; 
+            padding: 3.5px 8px; 
+            border-radius: 6px; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 6px;
+            max-width: 250px; 
+            margin-bottom: 4px;
+        }
+
+        /* Desain interaktif untuk Nomor SAP */
+        .sap-number-badge {
+            font-family: 'Fira Code', 'Cascadia Code', monospace; 
+            font-size: 11.5px; 
+            font-weight: 600; 
+            background-color: #F8FAFC; 
+            border: 1px solid #E2E8F0; 
+            padding: 2px 6px; 
+            border-radius: 4px; 
+            color: #0F172A;
+            transition: all 0.2s ease;
+            cursor: copy;
+        }
+
+        .copy-hover {
+            cursor: copy !important;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .copy-hover:hover {
+            opacity: 0.7;
+            transform: translateY(-1px);
+        }
+        
+        .sap-number-badge:hover {
+            background-color: #E2E8F0;
+            border-color: #CBD5E1;
+            color: #2563EB;
+        }     
+        .identifier-title { display: inline-block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+        
+        .form-check-input { width: 18px; height: 18px; border-radius: 6px; cursor: pointer; border: 1.5px solid #CBD5E1; }
+        
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: capitalize; border: none; }
+        .status-success { background: #DCFCE7; color: #065F46; }
+        .status-pending { background: #FEF3C7; color: #92400E; }
+        .status-processing { background: #F3E8FF; color: #6D28D9; }
+        .status-failed { background: #FEE2E2; color: #991B1B; }
+        .status-blocked { background: #F1F5F9; color: #475569; }
+        
+        .error-category { font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+        .error-text-clamped { font-size: 12px; color: var(--text-muted); font-weight: 500; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2;line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+        .btn-view-detail { font-size: 11.5px; font-weight: 600; color: #3B82F6; background: none; border: none; padding: 0; margin-top: 6px; cursor: pointer; }
+        
+        .form-select, .form-control { border: 1px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; font-weight: 500; padding: 10px 14px; background-color: #ffffff; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); height: 40px;}
+        
+        /* Select2 Customization */
+        #filterForm {
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #filterForm.ready {
+            visibility: visible;
+            opacity: 1;
+        }
+        .select2-container--default .select2-selection--single {
+            height: 40px;
+            border-radius: 10px;
+            border: 1px solid var(--border-soft);
+            background-color: #ffffff;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+            position: relative;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__rendered {
+            color: var(--text-main);
+            font-size: 12.5px; 
+            font-weight: 500;
+            padding-left: 12px !important;
+            padding-right: 50px !important; 
+            line-height: 38px !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            display: block !important;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__arrow {
+            height: 38px;
+            right: 6px;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__clear {
+            position: absolute !important;
+            right: 28px !important;
+            top: 0 !important;
+            margin: 0 !important;
+            font-size: 18px;
+            font-weight: 600;
+            color: #94A3B8;
+            line-height: 38px;
+            z-index: 10;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__clear:hover {
+            color: #DC2626;
+        }
+        .select2-dropdown {
+            border: 1px solid var(--border-soft);
+            border-radius: 10px;
+            box-shadow: var(--shadow-hover);
+            overflow: hidden;
+            z-index: 1055;
+        }
+        .select2-search__field {
+            border-radius: 6px !important;
+            border: 1px solid #CBD5E1 !important;
+            font-size: 12.5px;
+        }
+        .select2-results__option {
+            font-size: 12.5px;
+            padding: 8px 14px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .custom-module-dropdown {
+            min-width: max-content !important; 
+        }
+        .custom-module-dropdown .select2-results__option {
+            overflow: visible !important; 
+            text-overflow: clip !important; 
+        }
+        .select2-container--default .select2-results__option--highlighted[aria-selected] {
+            background-color: #3B82F6;
+        }
+
+        #clearDateBtn:hover, #clearSearchBtn:hover { color: #DC2626 !important; }
+        .daterangepicker { border-radius: 12px; font-family: 'Inter', sans-serif; box-shadow: var(--shadow-hover); border-color: var(--border-soft); }
+        .daterangepicker .ranges li { font-size: 12px; border-radius: 6px; margin-bottom: 2px; font-weight: 500;}
+        .daterangepicker .ranges li.active { background-color: #3B82F6; font-weight: 600;}
+        .daterangepicker td.active, .daterangepicker td.active:hover { background-color: #3B82F6; }
+        .daterangepicker .btn-primary { background-color: #0F172A; border-color: #0F172A; border-radius: 6px; font-weight: 600;}
+        .daterangepicker .btn-default { border-radius: 6px; font-weight: 600;}
+
+        .btn-bulk { font-size: 13.5px; border-radius: 10px; font-weight: 600; padding: 0 20px; height: 40px; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; transition: all 0.2s ease; border: 1px solid transparent; }
+        .btn-bulk:disabled { background-color: #ffffff; border-color: var(--border-soft); color: var(--text-muted); cursor: not-allowed; }
+        .btn-bulk:not(:disabled) { background-color: #2563EB; border-color: #2563EB; color: #ffffff; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); }
+        .btn-bulk:not(:disabled):hover { background-color: #1D4ED8; border-color: #1D4ED8; color: #ffffff; transform: translateY(-1px); }
+        
+/* ACTION BUTTON: Professional Secondary Button (Konsisten dengan JSON/Logs) */
+        .btn-action-send, .btn-action-retry { 
+            background-color: #ffffff; 
+            border: 1px solid #CBD5E1; /* Garis tepi abu-abu struktural, sangat jelas di latar putih */
+            color: #334155; /* Teks Slate gelap, rasio kontras tinggi dan mudah dibaca */
+            font-weight: 600; 
+            border-radius: 8px; 
+            padding: 6px 12px; 
+            font-size: 12.5px; 
+            width: 100%; 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            white-space: nowrap; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 6px; 
+            height: 34px; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04); /* Bayangan solid pendukung bentuk */
+        }
+
+        /* Warna konteks aksi HANYA diletakkan pada ikon agar tombol tetap clean */
+        .btn-action-send i { color: #2563EB; /* Biru terang */ }
+        .btn-action-retry i { color: #D97706; /* Oranye/Amber pekat */ }
+
+        /* Efek Hover interaktif yang menebalkan garis dan bayangan */
+        .btn-action-send:hover, .btn-action-retry:hover { 
+            background-color: #F8FAFC; 
+            border-color: #94A3B8; 
+            color: #0F172A; 
+            transform: translateY(-1px); 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08); 
+        }
+
+        .copy-icon { color: #CBD5E1; font-size: 11px; margin-left: 6px; transition: color 0.2s; }
+        .copy-hover:hover .copy-icon { color: #2563EB; }
+
+        .action-synced { color: #16A34A; font-weight: 600; font-size: 12.5px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+        /* Gaya seragam untuk seluruh tombol di kolom Payload & Logs */
+        .btn-view-json, .btn-view-log { 
+            background-color: #ffffff; 
+            color: #475569; 
+            border: 1px solid #E2E8F0; 
+            font-size: 11.5px; 
+            font-weight: 600; 
+            padding: 5px 12px; 
+            border-radius: 6px; 
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 6px; 
+            transition: all 0.2s ease; 
+        }
+        
+        
+        .btn-view-json:hover, .btn-view-log:hover { 
+            background-color: #F8FAFC; 
+            transform: translateY(-1px); 
+            color: #0F172A; 
+            border-color: #CBD5E1; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        .table-footer { padding: 16px 24px; background-color: #ffffff; border-top: 1px solid var(--border-soft); display: flex; justify-content: space-between; align-items: center; }
+        .pagination-actions { display: flex; align-items: center; gap: 20px; }
+        
+        .page-limit-select { appearance: none; background-color: transparent; border: none; font-size: 13.5px; font-weight: 600; padding: 6px 8px; cursor: pointer; border-radius: 8px; color: var(--text-main); }
+        .page-limit-select:focus { outline: none; background-color: #F8FAFC; }
+        
+        .page-nav-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 12px; border: 1px solid #CBD5E1; border-radius: 6px; color: var(--text-main); font-weight: 600; font-size: 13px; text-decoration: none; transition: 0.2s; background-color: #ffffff; cursor: pointer; }
+        .page-nav-btn:hover:not(.disabled) { border-color: #94A3B8; background-color: #F1F5F9; color: var(--primary); }
+        .page-nav-btn.disabled { opacity: 0.4; cursor: not-allowed; background-color: #F8FAFC; color: var(--text-muted); border-color: #E2E8F0; }
+        .page-nav-icon-btn { padding: 6px 10px; } 
+        
+        .page-num-btn { min-width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); font-weight: 600; font-size: 14px; text-decoration: none; transition: 0.2s; border: 1px solid transparent; cursor: pointer; }
+        .page-num-btn:hover:not(.active) { color: var(--text-main); background-color: #F1F5F9; }
+        .page-num-btn.active { background-color: var(--sidebar-bg); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+        
+        .page-dots { display: inline-flex; align-items: flex-end; justify-content: center; min-width: 24px; color: var(--text-muted); font-weight: 700; padding-bottom: 4px; letter-spacing: 1px; }
+
+        .json-viewer { background-color: #282C34; color: #ABB2BF; padding: 20px 24px; border-radius: 12px; font-size: 13.5px; font-family: 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', monospace; overflow-x: auto; overflow-y: auto; max-height: 520px; white-space: pre-wrap; word-break: break-all; line-height: 1.7; border: 1px solid #3E4451; }
+        .json-viewer .json-key    { color: #E06C75; }
+        .json-viewer .json-string { color: #98C379; }
+        .json-viewer .json-number { color: #D19A66; }
+        .json-viewer .json-bool   { color: #56B6C2; }
+        .json-viewer .json-null   { color: #C678DD; }
+        .btn-copy-floating {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #ABB2BF;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 4px 10px;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+        .btn-copy-floating:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+        }
+
+        .fiori-container { font-family: 'Inter', sans-serif; font-size: 13px; }
+        .fiori-label { font-size: 12px; color: #64748B; margin-bottom: 2px; }
+        .fiori-value { font-size: 13px; color: #0F172A; margin-bottom: 10px; font-weight: 500; word-break: break-all; }
+        .fiori-section-title { font-size: 14px; font-weight: 800; color: #1E293B; margin: 16px 0 10px 0; border-bottom: 2px solid #E2E8F0; padding-bottom: 6px; }
+        .fiori-item-card { background-color: #ffffff; border: 1px solid #CBD5E1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; border-left: 3px solid #3B82F6; }
+        .fiori-item-header { font-size: 14px; font-weight: 700; color: #0F172A; border-bottom: 1px solid #E2E8F0; padding-bottom: 8px; margin-bottom: 12px; }
+
+        select.form-select:not(.select2-hidden-accessible) {
+            opacity: 0;
+            height: 40px; 
+        }
+    </style>
+</head>
+<body class="d-flex">
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-5" style="height: 100vh; overflow-y: auto;">
+        
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-grid-1x2-fill text-primary"></i> Integration Tracking</h3>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+
+                
+                <!-- Dropdown Profil Lama -->
+                <div class="dropdown">
+                    <div class="profile-btn" data-bs-toggle="dropdown">
+                        <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
+                        <span style="font-weight: 600; font-size: 14px;">{{ .Username }}</span>
+                        <i class="bi bi-chevron-down text-muted"></i>
+                    </div>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 p-2 mt-2">
+                        <li><h6 class="dropdown-header fw-bold">Signed in as</h6></li>
+                        <li><span class="dropdown-item-text small text-muted">{{ .Username }}</span></li>
+                        <li><hr class="dropdown-divider my-2"></li>
+                        <li><a class="dropdown-item text-danger fw-bold py-2" href="javascript:void(0)" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right"></i> Sign Out</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card {{ if eq .status "" }}active-filter{{ end }}" onclick="filterByStatus('')">
+                <div class="metric-icon icon-blue"><i class="bi bi-database"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Total Documents</span> 
+                    <span class="metric-value kpi-number">{{ .TotalAll }}</span>
+                    <span class="metric-pct text-muted">All tracked records</span>
+                </div>
+                <svg class="metric-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path class="dynamic-sparkline" data-trend="{{ .TrendAll }}" stroke="#3B82F6" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="metric-card {{ if eq .status "success" }}active-filter{{ end }}" onclick="filterByStatus('success')">
+                <div class="metric-icon icon-green"><i class="bi bi-check-all"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Success</span>
+                    <span class="metric-value kpi-number">{{ .TotalSuccess }}</span>
+                    <span class="metric-pct text-success" id="pct-success">0% of total</span>
+                </div>
+                <svg class="metric-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path class="dynamic-sparkline" data-trend="{{ .TrendSuccess }}" stroke="#16A34A" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="metric-card {{ if eq .status "error" }}active-filter{{ end }}" onclick="filterByStatus('error')">
+                <div class="metric-icon icon-red"><i class="bi bi-bug"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Error / Failed</span>
+                    <span class="metric-value kpi-number">{{ .TotalFailed }}</span>
+                    <span class="metric-pct text-danger" id="pct-error">0% of total</span>
+                </div>
+                <svg class="metric-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path class="dynamic-sparkline" data-trend="{{ .TrendFailed }}" stroke="#DC2626" stroke-width="1.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <div class="metric-card {{ if eq .status "sent" }}active-filter{{ end }}" onclick="filterByStatus('sent')">
+                <div class="metric-icon icon-purple"><i class="bi bi-send-check"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Sent / Processing</span>
+                    <span class="metric-value kpi-number">{{ .TotalSent }}</span>
+                    <span class="metric-pct" id="pct-sent" style="color: #7C3AED;">0% of total</span>
+                </div>
+                <svg class="metric-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path class="dynamic-sparkline" data-trend="{{ .TrendSent }}" stroke="#7C3AED" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="metric-card {{ if eq .status "pending" }}active-filter{{ end }}" onclick="filterByStatus('pending')">
+                <div class="metric-icon icon-orange"><i class="bi bi-clock-history"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Pending / Queue</span>
+                    <span class="metric-value kpi-number">{{ .TotalPending }}</span>
+                    <span class="metric-pct" id="pct-pending" style="color: #B45309;">0% of total</span>
+                </div>
+                <svg class="metric-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path class="dynamic-sparkline" data-trend="{{ .TrendPending }}" stroke="#B45309" stroke-width="1.5" stroke-dasharray="4 4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+        </div>
+
+<script>
+            (function() {
+                var total = parseInt("{{ .TotalAll }}") || 0;
+                var success = parseInt("{{ .TotalSuccess }}") || 0;
+                var failed = parseInt("{{ .TotalFailed }}") || 0;
+                var sent = parseInt("{{ .TotalSent }}") || 0;
+                var pending = parseInt("{{ .TotalPending }}") || 0;
+
+                document.querySelectorAll('.kpi-number').forEach(function(el) {
+                    var val = parseInt(el.innerText);
+                    if (!isNaN(val)) el.innerText = val.toLocaleString('en-US');
+                });
+
+                if(total > 0) {
+                    var elSuccess = document.getElementById('pct-success');
+                    var elFailed = document.getElementById('pct-error');
+                    var elSent = document.getElementById('pct-sent');
+                    var elPending = document.getElementById('pct-pending');
+                    
+                    if(elSuccess) elSuccess.innerText = (success/total*100).toFixed(1) + '% of total';
+                    if(elFailed) elFailed.innerText = (failed/total*100).toFixed(1) + '% of total';
+                    if(elSent) elSent.innerText = (sent/total*100).toFixed(1) + '% of total';
+                    if(elPending) elPending.innerText = (pending/total*100).toFixed(1) + '% of total';
+                }
+            })();
+
+// Fungsi untuk menggambar garis grafik (Sparkline) secara dinamis
+            window.renderDynamicSparklines = function() {
+                document.querySelectorAll('.dynamic-sparkline').forEach(path => {
+                    const rawData = path.getAttribute('data-trend');
+                    if (!rawData) return;
+
+                    try {
+                        const data = JSON.parse(rawData);
+                        if (!Array.isArray(data) || data.length < 2) return;
+
+                        const max = Math.max(...data);
+                        const min = Math.min(...data);
+                        const range = max - min; 
+
+                        const svgWidth = 100;
+                        const svgHeight = 30;
+                        const paddingX = 0; 
+                        const paddingY = 4; 
+
+                        const stepX = (svgWidth - (paddingX * 2)) / (data.length - 1);
+                        let svgPath = '';
+
+                        data.forEach((value, index) => {
+                            const x = paddingX + (index * stepX);
+                            let y;
+                            
+                            // LOGIKA BARU: Penyesuaian Visual
+                            if (max === 0) {
+                                y = svgHeight - paddingY; // Semua nol, rata bawah
+                            } else if (range === 0) {
+                                y = svgHeight / 2; // Datanya konstan (misal tiap hari 500), taruh di tengah
+                            } else {
+                                y = svgHeight - paddingY - ((value - min) / range) * (svgHeight - (paddingY * 2));
+                            }
+
+                            if (index === 0) {
+                                svgPath += `M ${x.toFixed(2)} ${y.toFixed(2)} `;
+                            } else {
+                                let prevY;
+                                const prevVal = data[index - 1];
+                                
+                                if (max === 0) prevY = svgHeight - paddingY;
+                                else if (range === 0) prevY = svgHeight / 2;
+                                else prevY = svgHeight - paddingY - ((prevVal - min) / range) * (svgHeight - (paddingY * 2));
+                                
+                                const prevX = paddingX + ((index - 1) * stepX);
+                                const midX = (prevX + x) / 2;
+                                svgPath += `Q ${midX.toFixed(2)} ${prevY.toFixed(2)}, ${x.toFixed(2)} ${y.toFixed(2)} `;
+                            }
+                        });
+
+                        path.setAttribute('d', svgPath.trim());
+                    } catch (e) {
+                        console.error("Gagal merender grafik:", e);
+                    }
+                });
+            };
+
+            document.addEventListener('DOMContentLoaded', window.renderDynamicSparklines);
+        </script>
+        <div class="main-card">
+            
+            <div class="control-bar">
+                <div class="d-flex align-items-center flex-wrap gap-2 w-100 justify-content-between">
+                    
+                    <form action="/sync/send-bulk" method="POST" id="bulkForm" class="m-0 flex-shrink-0">
+                        <button type="submit" id="btnBulkSend" class="btn-bulk" disabled>
+                            <i class="bi bi-send"></i> Send (<span id="selectedCount">0</span>)
+                        </button>
+                        <div id="bulkInputs"></div>
+                        <input type="hidden" name="redirect_to" id="bulkRedirectTo" value="">
+                    </form>
+
+                    <form action="/dashboard" method="GET" id="filterForm" class="d-flex align-items-center gap-2 m-0 flex-nowrap" style="justify-content: flex-end;">
+                        <input type="hidden" name="limit" value="{{ .limit }}">
+                        <input type="hidden" name="page" value="1" id="pageInput">
+                        
+                        <input type="hidden" name="start_date" id="realStartDate" value="{{ .StartDate }}">
+                        <input type="hidden" name="end_date" id="realEndDate" value="{{ .EndDate }}">
+                        
+                        <div class="input-group position-relative" style="flex: 0 0 225px;">
+                            <span class="input-group-text bg-white border-end-0 px-2" style="border-radius: 10px 0 0 10px;"><i class="bi bi-calendar-range text-muted"></i></span>
+                            <input type="text" id="dateRangeUI" class="form-control border-start-0 ps-0" style="font-size: 12.5px; cursor: pointer; border-radius: 0 10px 10px 0; font-weight: 600; padding-right: 28px;" placeholder="All Dates" readonly>
+                            <i class="bi bi-x-lg" id="clearDateBtn" style="position: absolute; right: 10px; top: 13px; z-index: 10; cursor: pointer; color: #94A3B8; font-size: 12px; font-weight: bold; display: none;" title="Clear Dates"></i>
+                        </div>
+
+                        <div style="flex: 1 1 auto; min-width: 140px; max-width: 190px;">
+                            <select name="status" id="statusSelect" class="form-select w-100">
+                                <option value=""></option> 
+                                <option value="success" {{ if eq .status "success" }}selected{{ end }}>Success</option>
+                                <option value="error" {{ if eq .status "error" }}selected{{ end }}>All Error / Failed</option>
+                                <option value="error_conn" {{ if eq .status "error_conn" }}selected{{ end }}>&nbsp;&nbsp;&nbsp;&nbsp;└─ Error: Connection</option>
+                                <option value="error_data" {{ if eq .status "error_data" }}selected{{ end }}>&nbsp;&nbsp;&nbsp;&nbsp;└─ Error: Data Validation</option>
+                                <option value="sent" {{ if eq .status "sent" }}selected{{ end }}>Sent / Processing</option>
+                                <option value="pending" {{ if eq .status "pending" }}selected{{ end }}>Pending / Requeued</option>
+                                <option value="in_progress" {{ if eq .status "in_progress" }}selected{{ end }}>In Progress</option>
+                            </select>
+                        </div>
+
+                        <div style="flex: 1 1 auto; min-width: 140px; max-width: 220px;">
+                            <select name="doc_type" id="docTypeSelect" class="form-select w-100">
+                                <option value=""></option>
+                                {{ range .docTypeOptions }}
+                                <option value="{{ . }}" {{ if eq $.docType . }}selected{{ end }}>{{ . }}</option>
+                                {{ end }}
+                            </select>
+                        </div>
+                        
+                        <div class="input-group position-relative" style="flex: 1 1 auto; min-width: 120px; max-width: 160px;">
+                            <span class="input-group-text bg-white border-end-0 px-2" style="border-radius: 10px 0 0 10px;"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" name="search" id="searchInput" class="form-control border-start-0 ps-0" style="border-radius: 0 10px 10px 0; padding-right: 28px;" placeholder="Doc No..." value="{{ .search }}">
+                                {{ if .search }}
+                                    <i class="bi bi-x-lg" id="clearSearchBtn" style="position: absolute; right: 10px; top: 13px; z-index: 10; cursor: pointer; color: #94A3B8; font-size: 12px; font-weight: bold;" title="Clear Search"></i>
+                                {{ else }}
+                                    <i class="bi bi-x-lg" id="clearSearchBtn" style="position: absolute; right: 10px; top: 13px; z-index: 10; cursor: pointer; color: #94A3B8; font-size: 12px; font-weight: bold; display: none;" title="Clear Search"></i>
+                                {{ end }}                        
+                        </div>
+                        
+                        <button type="submit" class="btn btn-dark px-3 fw-bold flex-shrink-0" style="border-radius: 10px; height: 40px; font-size: 13.5px;">Filter</button>
+                        <button type="button" id="btnRefreshData" class="btn-refresh-custom flex-shrink-0" onclick="refreshTableData()" title="Refresh Data">
+                            <i class="bi bi-arrow-clockwise fs-5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover m-0" id="mainTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 4%; text-align: center;"><input type="checkbox" class="form-check-input" id="checkAll"></th>
+                            <th style="width: 38%;">DOCUMENT IDENTIFIER</th>
+                            <th style="width: 10%; text-align: center;">PAYLOAD & LOGS</th>
+                            <th style="width: 13%; text-align: center;">STATUS</th>
+                            <th style="width: 20%;">INFORMATION</th>
+                            <th style="width: 15%; text-align: center;">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        {{ range .orders }}
+                        <tr id="row-{{ .DocType }}-{{ .DocumentNo }}" class="root-row">
+                            <tr id="row-{{ .DocType }}-{{ .DocumentNo }}" class="root-row">
+                            
+                            <!-- 1. Kolom Checkbox (Dikembalikan seperti semula) -->
+                            <td class="text-center">
+                                {{ if .ParentDisplayNo }}
+                                    <input type="checkbox" class="form-check-input" disabled>
+                                {{ else if and (or (eq .Status "pending") (eq .Status "requeued") (eq .Status "error_data")) (not .BlockedReason) }}
+                                    <input type="checkbox" class="form-check-input row-checkbox" value="{{ .DocType }}|{{ .DocumentNo }}">
+                                {{ else }}
+                                    <input type="checkbox" class="form-check-input" disabled>
+                                {{ end }}
+                            </td>
+                            
+                            <!-- 2. Kolom Document Identifier (Sudah dipasang desain baru yang rapi) -->
+                            <!-- 2. Kolom Document Identifier (Dengan fitur Click-to-Copy) -->
+                            <td>
+                                <div class="d-flex align-items-start">
+                                    <div style="width: 26px; flex-shrink: 0; padding-top: 1px;">
+                                        {{ if .HasChildren }}
+                                        <button class="btn-expand" onclick="toggleChildren('{{ .DocumentNo }}', this)">
+                                            <i class="bi bi-chevron-right"></i>
+                                        </button>
+                                        {{ end }}
+                                    </div>
+                                    <div style="flex-grow: 1; min-width: 0;">
+                                        
+<!-- Baris 1: ID Utama & Modul (Ditambah ikon Copy & Pembalut Teks) -->
+                                        <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+                                            <span class="mb-0 fw-bold copy-hover d-inline-block" title="{{ .DocumentNo }} (Click to copy)" onclick="copyToClipboard('{{ .DocumentNo }}', this)" style="font-size: 14.5px; word-break: break-all; padding: 2px 4px; margin-left: -4px; border-radius: 4px;">{{ .DocumentNo }}<i class="bi bi-copy copy-icon"></i></span>
+                                            
+                                            <span class="badge-soft-primary copy-hover" title="{{ .DocType }} (Click to copy)" onclick="copyToClipboard('{{ .DocType }}', this)">{{ .DocType }}<i class="bi bi-copy copy-icon"></i></span>
+                                        </div>
+                                        
+                                        <!-- Baris 2: Parent -->
+                                        {{ if .ParentDisplayNo }}
+                                        <div>
+                                            <span class="badge-parent copy-hover" style="white-space: normal; word-break: break-all;" title="{{ .ParentDisplayNo }} (Click to copy)" onclick="copyToClipboard('{{ .ParentDisplayNo }}', this)">
+                                                <i class="bi bi-arrow-return-right text-muted flex-shrink-0"></i> 
+                                                <span>Parent: {{ .ParentDisplayNo }}</span><i class="bi bi-copy copy-icon"></i>
+                                            </span>
+                                        </div>
+                                        {{ end }}
+                                        
+                                        <!-- Baris 3: SAP Number -->
+                                        {{ if .SAPDocumentNo }}
+                                        <div class="d-flex align-items-center flex-wrap gap-2 mb-1 mt-1">
+                                            <i class="bi bi-box-seam" style="font-size: 12px; color: #94A3B8;"></i>
+                                            <span style="font-size: 11.5px; font-weight: 500; color: #64748B;">SAP No:</span>
+                                            <span class="sap-number-badge copy-hover" style="word-break: break-all;" title="Click to copy" onclick="copyToClipboard('{{ .SAPDocumentNo }}', this)">{{ .SAPDocumentNo }}<i class="bi bi-copy copy-icon"></i></span>
+                                        </div>
+                                        {{ end }}
+                                        
+                                        <!-- Baris 4: Group ID & Meta Waktu -->
+                                        <div class="d-flex flex-column gap-1 mt-1">
+                                            <span class="copy-hover d-inline-flex align-items-center gap-1" title="{{ .GroupID }} (Click to copy)" onclick="copyToClipboard('{{ .GroupID }}', this)" style="padding: 2px 4px; margin-left: -4px; border-radius: 4px; cursor: pointer;">
+                                                <i class="bi bi-diagram-3 text-secondary"></i>
+                                                <span class="text-truncate" style="font-size: 11px; color: #64748B; max-width: 220px;">{{ .GroupID }}</span>
+                                                <i class="bi bi-copy copy-icon"></i>
+                                            </span>
+                                            <!-- ... (bagian jam/waktu di bawahnya biarkan sama) ... -->
+                                            <div class="d-flex align-items-center gap-3">
+                                                <span class="text-muted" style="font-size: 11px; font-weight: 500;">
+                                                    <i class="bi bi-clock me-1 text-secondary"></i>{{ .CreatedAt.Format "02 Jan 06, 15:04" }} WIB
+                                                </span>
+                                                <span class="text-muted" style="font-size: 11px; font-weight: 500;" title="Processing Time (Updated - Created)">
+                                                    <i class="bi bi-stopwatch me-1 text-secondary"></i><span class="proc-time-val" data-created="{{ .CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-updated="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z07:00" }}"></span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                    </div>
+                                </div>
+                            </td>
+                            
+                            <td class="text-center">
+                                <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
+                                    <button type="button" class="btn-view-json" onclick="showPayloadModal('{{ .DocType }}', '{{ .DocumentNo }}')">
+                                        <i class="bi bi-braces"></i> JSON
+                                    </button>
+                                    <button type="button" class="btn-view-log" onclick="showAuditTrailModal('{{ .DocType }}', '{{ .DocumentNo }}')">
+                                        <i class="bi bi-list-ul"></i> Logs
+                                    </button>
+                                </div>
+                                <div style="display:none;" id="raw-payload-{{ .DocType }}-{{ .DocumentNo }}">{{ .Payload }}</div>
+                            </td>
+                            
+                            <td class="text-center">
+                                {{ if eq .Status "success" }}
+                                    <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Success</span>
+                                {{ else if or (eq .Status "sent") (eq .Status "processing") (eq .Status "in_progress") }}
+                                    <span class="status-badge status-processing">
+                                        {{ if or (eq .Status "processing") (eq .Status "in_progress") }}<span class="spinner-border spinner-border-sm me-1" style="width: 10px; height: 10px;"></span>{{ else }}<i class="bi bi-send-check-fill"></i>{{ end }} 
+                                        {{ if eq .Status "in_progress" }}In Progress{{ else }}{{ .Status }}{{ end }}
+                                    </span>
+                                {{ else if or (eq .Status "pending") (eq .Status "requeued") }}
+                                    <span class="status-badge status-pending"><i class="bi bi-hourglass-split"></i> {{ .Status }}</span>
+                                {{ else if eq .Status "blocked" }}
+                                    <span class="status-badge status-blocked"><i class="bi bi-slash-circle"></i> Blocked</span>
+                                {{ else }}
+                                    <span class="status-badge status-failed"><i class="bi bi-exclamation-triangle-fill"></i> Error</span>
+                                {{ end }}
+                            </td>
+                            
+                            <td class="smart-error-cell"
+                                data-status="{{ .Status }}"
+                                data-error="{{ if .ErrorMessage }}{{ .ErrorMessage }}{{ end }}"
+                                data-blocked="{{ if .BlockedReason }}{{ .BlockedReason }}{{ end }}">
+                            </td>
+                            
+                            <td class="text-center">
+                                {{ if or (eq .Status "pending") (eq .Status "requeued") }}
+                                    {{ if .BlockedReason }}
+                                        <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass-split"></i> Waiting Dependency</div>
+                                    {{ else if and (ne .ParentStatusStr "") (ne .ParentStatusStr "success") }}
+                                        <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Waiting Parent Success</div>
+                                    {{ else }}
+                                    <form action="#" data-doctype="{{ .DocType }}" data-docno="{{ .DocumentNo }}" method="POST" class="m-0 single-sync-form">              
+                                       <input type="hidden" name="redirect_to" value="">
+                                       <button type="submit" class="btn-action-send action-btn"><i class="bi bi-send-fill"></i> Send</button>
+                                    </form>
+                                    {{ end }}
+                                {{ else if eq .Status "error_data" }}
+                                    {{ if .BlockedReason }}
+                                        <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass-split"></i> Waiting Dependency</div>
+                                    {{ else if and (ne .ParentStatusStr "") (ne .ParentStatusStr "success") }}
+                                        <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Waiting Parent Success</div>
+                                    {{ else }}
+                                    <form action="#" data-doctype="{{ .DocType }}" data-docno="{{ .DocumentNo }}" method="POST" class="m-0 single-sync-form">
+                                        <input type="hidden" name="redirect_to" value="">
+                                        <button type="submit" class="btn-action-retry action-btn"><i class="bi bi-arrow-repeat"></i> Retry</button>
+                                    </form>
+                                    {{ end }}
+                                {{ else if eq .Status "error_conn" }}
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-arrow-clockwise"></i> Auto Retry by System</div>
+                                {{ else if eq .Status "in_progress" }}
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-diagram-3"></i> Waiting Child</div>
+                                {{ else if or (eq .Status "sent") (eq .Status "processing") }}
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass"></i> Waiting</div>
+                                {{ else if eq .Status "blocked" }}
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Blocked by Parent</div>
+                                {{ else if eq .Status "success" }}
+                                    <div class="action-synced"><i class="bi bi-check2-all"></i> Synced</div>
+                                {{ end }}
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="6" class="text-center py-5 text-muted"><div class="fs-1 mb-3" style="color: #CBD5E1;"><i class="bi bi-inbox"></i></div><h5>No documents found</h5></td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-footer">
+                <div class="pagination-info">Showing <b class="text-dark">{{ .startIndex }}–{{ .endIndex }}</b> of <b class="text-dark">{{ .totalData }}</b> records</div>
+                <div class="pagination-actions">
+                <select id="limitSelect" class="form-select">
+                    <option value="10" {{ if eq .limit 10 }}selected{{ end }}>10 per page</option>
+                    <option value="25" {{ if eq .limit 25 }}selected{{ end }}>25 per page</option>
+                    <option value="50" {{ if eq .limit 50 }}selected{{ end }}>50 per page</option>
+                </select>                    
+                    <div class="d-flex align-items-center gap-2">
+                        
+                        {{ if gt .page 1 }}
+                            <a href="?page=1&limit={{.limit}}&search={{.search}}&status={{.status}}&doc_type={{.docType}}&start_date={{.StartDate}}&end_date={{.EndDate}}" class="page-nav-btn page-nav-icon-btn" title="First Page">
+                                <i class="bi bi-chevron-bar-left"></i>
+                            </a>
+                        {{ else }}
+                            <div class="page-nav-btn page-nav-icon-btn disabled">
+                                <i class="bi bi-chevron-bar-left"></i>
+                            </div>
+                        {{ end }}
+
+                        {{ if .hasPrev }}
+                            <a href="?page={{.prevPage}}&limit={{.limit}}&search={{.search}}&status={{.status}}&doc_type={{.docType}}&start_date={{.StartDate}}&end_date={{.EndDate}}" class="page-nav-btn">
+                                <i class="bi bi-chevron-left"></i> Prev
+                            </a>
+                        {{ else }}
+                            <div class="page-nav-btn disabled">
+                                <i class="bi bi-chevron-left"></i> Prev
+                            </div>
+                        {{ end }}
+
+                        <div id="paginationNumbers" class="d-flex align-items-center" style="gap: 2px; margin: 0 6px;">
+                            <div class="page-num-btn active">{{ .page }}</div>
+                        </div>
+
+                        {{ if .hasNext }}
+                            <a href="?page={{.nextPage}}&limit={{.limit}}&search={{.search}}&status={{.status}}&doc_type={{.docType}}&start_date={{.StartDate}}&end_date={{.EndDate}}" class="page-nav-btn">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </a>
+                        {{ else }}
+                            <div class="page-nav-btn disabled">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </div>
+                        {{ end }}
+
+                        {{ if lt .page .totalPages }}
+                            <a href="?page={{.totalPages}}&limit={{.limit}}&search={{.search}}&status={{.status}}&doc_type={{.docType}}&start_date={{.StartDate}}&end_date={{.EndDate}}" class="page-nav-btn page-nav-icon-btn" title="Last Page">
+                                <i class="bi bi-chevron-bar-right"></i>
+                            </a>
+                        {{ else }}
+                            <div class="page-nav-btn page-nav-icon-btn disabled">
+                                <i class="bi bi-chevron-bar-right"></i>
+                            </div>
+                        {{ end }}
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="auditTrailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+                <div class="modal-header border-bottom pt-4 px-4 bg-light">
+                    <div>
+                        <h5 class="modal-title fw-bold"><i class="bi bi-journal-text me-2 text-primary"></i> Integration Audit Trail</h5>
+                        <p class="text-muted mb-0" style="font-size: 12px;" id="auditModalSubtitle"></p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                        <table class="table table-hover m-0" style="font-size: 13px;">
+                            <thead class="table-light position-sticky top-0" style="z-index: 1;">
+                                <tr>
+                                    <th style="width: 18%; font-size: 11px; padding: 12px 20px !important;">DATE / TIME</th>
+                                    <th style="width: 15%; font-size: 11px; padding: 12px 20px !important;">SOURCE <i class="bi bi-arrow-right"></i> TARGET</th>
+                                    <th style="width: 15%; font-size: 11px; padding: 12px 20px !important;">STATUS</th>
+                                    <th style="width: 52%; font-size: 11px; padding: 12px 20px !important;">MESSAGE / METADATA</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditTrailBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="logoutConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="text-center pt-5 pb-4 px-4">
+                    <div style="width: 56px; height: 56px; background: #FEF2F2; color: #DC2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 18px auto;">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2" style="color: #0F172A; font-size: 17px; letter-spacing: -0.01em;">Are you sure you want to sign out?</h5>
+                    <p class="text-muted mb-0" style="font-size: 13px; line-height: 1.5;">You will need to sign in again to access the Integration Tracking Panel.</p>
+                </div>
+                <div class="d-flex px-4 pb-4" style="gap: 10px;">
+                    <button type="button" class="flex-fill fw-semibold logout-btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/logout" class="flex-fill fw-semibold text-center logout-btn-confirm">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="errorDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-bottom pt-4 px-4 bg-white">
+                    <h5 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i> Error Technical Detail</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <pre id="errorModalContent" class="json-viewer m-0 shadow-sm" style="border-radius: 12px;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="globalPayloadModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+                <div class="modal-header border-bottom-0 pt-4 px-4">
+                    <div>
+                        <h5 class="modal-title fw-bold" id="payloadModalTitle">Payload</h5>
+                        <p class="text-muted mb-0" style="font-size: 12px;" id="payloadModalSubtitle"></p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-bold text-dark" data-bs-toggle="tab" data-bs-target="#table-pane" type="button" role="tab">
+                                <i class="bi bi-file-earmark-text"></i> Document Preview
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-bold text-dark" data-bs-toggle="tab" data-bs-target="#json-pane" type="button" role="tab">
+                                <i class="bi bi-braces"></i> JSON View
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="table-pane" role="tabpanel">
+                            <div id="fiori-view-container" class="fiori-container"></div>
+                        </div>
+                        <div class="tab-pane fade" id="json-pane" role="tabpanel">
+                            <div class="position-relative">
+                                <button type="button" class="btn-copy-floating" onclick="copyModalJSON(this)">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                                <pre id="json-view-container" class="json-viewer m-0"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-4" style="z-index: 1100">
+        <div id="syncToast" class="toast align-items-center text-white bg-dark border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true" style="border-radius: 12px;">
+            <div class="d-flex p-2"><div class="toast-body fw-bold" style="font-size: 14px;"><span class="spinner-border spinner-border-sm me-3"></span><span id="toastMessage">Processing...</span></div></div>
+        </div>
+    </div>
+
+    <!-- JQuery & Bootstrap Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <!-- Moment JS -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
+    <!-- Select2 & DateRangePicker JS -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.min.js"></script>
+    
+    <script>
+        function refreshTableData() {
+            const btn = document.getElementById('btnRefreshData');
+            btn.querySelector('i').classList.add('icon-spin');
+            btn.setAttribute('disabled', 'true');
+            loadDashboardSPA(window.location.href);
+        }
+
+        function syntaxHighlight(json) {
+            if (typeof json !== 'string') { json = JSON.stringify(json, null, 4); }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(
+                /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+                function(match) {
+                    let cls = 'json-number';
+                    if (/^"/.test(match)) { cls = /:$/.test(match) ? 'json-key' : 'json-string'; } 
+                    else if (/true|false/.test(match)) { cls = 'json-bool'; } 
+                    else if (/null/.test(match)) { cls = 'json-null'; }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                }
+            );
+        }
+
+        function renderProcessingTimes() {
+            document.querySelectorAll('.proc-time-val:not(.calculated)').forEach(el => {
+                const c = new Date(el.getAttribute('data-created'));
+                const u = new Date(el.getAttribute('data-updated'));
+                if (isNaN(c) || isNaN(u)) { el.innerText = '-'; } 
+                else {
+                    const diffMs = u - c;
+                    if (diffMs <= 0) { el.innerText = '< 1s'; } 
+                    else {
+                        const diffSec = Math.floor(diffMs / 1000);
+                        if (diffSec === 0) el.innerText = '< 1s';
+                        else if (diffSec < 60) el.innerText = diffSec + 's';
+                        else if (diffSec < 3600) el.innerText = Math.floor(diffSec / 60) + 'm ' + (diffSec % 60) + 's';
+                        else el.innerText = Math.floor(diffSec / 3600) + 'h ' + Math.floor((diffSec % 3600) / 60) + 'm';
+                    }
+                }
+                el.classList.add('calculated');
+            });
+        }
+
+        async function showAuditTrailModal(docType, docNo) {
+            document.getElementById('auditModalSubtitle').innerHTML = `${docType} | ${docNo}`; 
+            const tbody = document.getElementById('auditTrailBody');
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary"></span> Loading...</td></tr>`;
+            new bootstrap.Modal(document.getElementById('auditTrailModal')).show();
+            try {
+                const res = await fetch(`/api/audit-trail?doc_type=${docType}&doc_no=${docNo}`);
+                const json = await res.json();
+                if (json.data && json.data.length > 0) {
+                    let html = '';
+                    let earliestTime = new Date(json.data[0].created_at);
+                    let latestTime = new Date(json.data[0].created_at);
+                    json.data.forEach(log => {
+                        const logDate = new Date(log.created_at);
+                        if (logDate < earliestTime) earliestTime = logDate;
+                        if (logDate > latestTime) latestTime = logDate;
+                        const dateStr = logDate.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                        
+                        let badgeClass = 'bg-secondary';
+                        if(log.status === 'SUCCESS') badgeClass = 'bg-success';
+                        else if(log.status === 'FAILED' || log.status === 'ERROR') badgeClass = 'bg-danger';
+                        else if(log.status === 'SENT' || log.status === 'RECEIVED') badgeClass = 'bg-primary';
+                        
+                        // --- PERBAIKAN DIMULAI DARI SINI ---
+                        let rawMsg = log.error_message ? log.error_message : (log.metadata ? log.metadata : '-');
+                        let msgDisplay = '-';
+                        
+                        if (rawMsg !== '-') {
+                            // Encode teks untuk mengamankan data saat dilempar ke fungsi onclick
+                            const safeMsgData = encodeURIComponent(rawMsg).replace(/'/g, "%27");
+                            
+                            // Jika pesan lebih panjang dari 60 karakter atau mengandung format JSON '{'
+                            if (rawMsg.length > 60 || rawMsg.includes('{')) {
+                                msgDisplay = `
+                                    <div class="d-flex flex-column align-items-start" style="gap: 6px;">
+                                        <span class="error-text-clamped" style="color: #334155; font-weight: 500; font-size: 12px; line-height: 1.5;" title="Teks terpotong, klik View Detail untuk melihat keseluruhan">
+                                            ${rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                                        </span>
+                                        <button type="button" class="btn-view-detail text-primary mt-0" onclick="showErrorDetail('${safeMsgData}')">
+                                            View Detail <i class="bi bi-chevron-right"></i>
+                                        </button>
+                                    </div>`;
+                            } else {
+                                // Jika pesan pendek, tampilkan biasa
+                                msgDisplay = `<span style="color: #334155; font-weight: 500; font-size: 12px; word-break: break-word;">${rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+                            }
+                        }
+
+                        html += `<tr>
+                            <td class="text-muted fw-bold">${dateStr}</td>
+                            <td><span class="badge bg-light text-dark border">${log.source_system}</span> <i class="bi bi-arrow-right mx-1 text-muted"></i> <span class="badge bg-light text-dark border">${log.target_system}</span></td>
+                            <td><span class="badge ${badgeClass}">${log.status}</span></td>
+                            <td>${msgDisplay}</td>
+                        </tr>`;
+                    });
+                    const diffMs = latestTime - earliestTime;
+                    let timeString = '< 1s';
+                    if (diffMs > 0) {
+                        const diffSec = Math.floor(diffMs / 1000);
+                        if (diffSec < 60) timeString = diffSec + 's';
+                        else if (diffSec < 3600) timeString = Math.floor(diffSec / 60) + 'm ' + (diffSec % 60) + 's';
+                        else timeString = Math.floor(diffSec / 3600) + 'h ' + Math.floor((diffSec % 3600) / 60) + 'm';
+                    }
+                    document.getElementById('auditModalSubtitle').innerHTML = `${docType} <span class="mx-1 text-muted">|</span> ${docNo} <span class="badge bg-light text-dark border ms-2"><i class="bi bi-stopwatch text-primary"></i> Total Time: ${timeString}</span>`;
+                    tbody.innerHTML = html;
+                } else { tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">No audit trail found.</td></tr>`; }
+            } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-danger"><i class="bi bi-exclamation-triangle"></i> Failed to fetch audit trail.</td></tr>`; }
+        }
+
+        async function toggleChildren(parentNo, btnElement) {
+            const tr = btnElement.closest('tr');
+            const isExpanded = tr.classList.contains('expanded');
+            const icon = btnElement.querySelector('i');
+            if (isExpanded) {
+                document.querySelectorAll('.child-of-' + parentNo).forEach(el => el.remove());
+                tr.classList.remove('expanded');
+                return;
+            }
+            icon.className = 'spinner-border spinner-border-sm text-secondary';
+            try {
+                const res = await fetch(`/api/documents/${parentNo}/children`);
+                const json = await res.json();
+                if (json.status === 'success' && json.data) {
+                    let html = '';
+                    json.data.forEach(child => { html += createChildRowHTML(child, parentNo); });
+                    tr.insertAdjacentHTML('afterend', html);
+                    tr.classList.add('expanded');
+                    icon.className = 'bi bi-chevron-right';
+                    initSmartErrorCells(document.querySelectorAll('.child-of-' + parentNo + ' .smart-error-cell'));
+                    renderProcessingTimes(); 
+                }
+            } catch (e) { alert("Gagal memuat dokumen turunan."); icon.className = 'bi bi-chevron-right'; }
+        }
+
+        function createChildRowHTML(child, parentNo) {
+            let statusBadge = '';
+            if (child.Status === "success") { statusBadge = '<span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Success</span>'; } 
+            else if (child.Status === "sent" || child.Status === "processing" || child.Status === "in_progress") { 
+                let iconHtml = (child.Status === "processing" || child.Status === "in_progress") ? '<span class="spinner-border spinner-border-sm me-1" style="width: 10px; height: 10px;"></span>' : '';
+                let txt = child.Status === "in_progress" ? "In Progress" : child.Status;
+                statusBadge = `<span class="status-badge status-processing">${iconHtml} ${txt}</span>`; 
+            }
+            else if (child.Status === "pending" || child.Status === "requeued") { statusBadge = `<span class="status-badge status-pending">${child.Status}</span>`; } 
+            else if (child.Status === "blocked") { statusBadge = `<span class="status-badge status-blocked">Blocked</span>`; } 
+            else { statusBadge = '<span class="status-badge status-failed"><i class="bi bi-exclamation-triangle-fill"></i> Error</span>'; }
+
+            const safeError = child.ErrorMessage ? child.ErrorMessage : '';
+            const blockedReason = child.BlockedReason ? child.BlockedReason : '';
+            const createdAt = new Date(child.CreatedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+            const parentIsSuccess = child.ParentStatusStr === "success" || child.ParentStatusStr === "";
+            const hasBlockedReason = blockedReason.trim() !== '';
+            let actionHtml = '';
+            
+            if (child.Status === "pending" || child.Status === "requeued") {
+                if (hasBlockedReason) actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass-split"></i> Waiting Dependency</div>`;
+                else if (parentIsSuccess) actionHtml = `<form action="#" data-doctype="${child.DocType}" data-docno="${child.DocumentNo}" method="POST" class="m-0 single-sync-form"><input type="hidden" name="redirect_to" value=""><button type="submit" class="btn-action-send action-btn"><i class="bi bi-send-fill"></i> Send</button></form>`;
+                else actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Waiting Parent Success</div>`;
+            } else if (child.Status === "error_data") {
+                if (hasBlockedReason) actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass-split"></i> Waiting Dependency</div>`;
+                else if (parentIsSuccess) actionHtml = `<form action="#" data-doctype="${child.DocType}" data-docno="${child.DocumentNo}" method="POST" class="m-0 single-sync-form"><input type="hidden" name="redirect_to" value=""><button type="submit" class="btn-action-retry action-btn"><i class="bi bi-arrow-repeat"></i> Retry</button></form>`;
+                else actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Waiting Parent Success</div>`;
+            } else if (child.Status === "error_conn") { actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-arrow-clockwise"></i> Auto Retry by System</div>`;
+            } else if (child.Status === "in_progress") { actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-diagram-3"></i> Waiting Child</div>`;
+            } else if (child.Status === "sent" || child.Status === "processing") { actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-hourglass"></i> Waiting</div>`;
+            } else if (child.Status === "blocked") { actionHtml = `<div class="text-muted" style="font-size: 11px; font-weight: 600;"><i class="bi bi-lock-fill"></i> Blocked by Parent</div>`;
+            } else if (child.Status === "success") { actionHtml = `<div class="action-synced"><i class="bi bi-check2-all"></i> Synced</div>`; }
+
+turn `
+                <tr id="row-${child.DocType}-${child.DocumentNo}" class="child-row child-of-${parentNo}">
+                    <td class="text-center"></td>
+                    <td>
+                        <div class="d-flex align-items-start">
+                            <div style="width: 26px; flex-shrink: 0; text-align: center; padding-top: 1px;"><i class="bi bi-arrow-return-right text-muted" style="font-size: 14px;"></i></div>
+                            <div style="flex-grow: 1; min-width: 0;">
+                                <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+                                    <span class="identifier-title mb-0 fw-bold text-truncate-custom copy-hover" title="${child.DocumentNo} (Click to copy)" onclick="copyToClipboard('${child.DocumentNo}', this)" style="font-size: 13.5px; max-width: 180px; padding: 2px 4px; margin-left: -4px; border-radius: 4px;">${child.DocumentNo}</span>
+                                    
+                                    <span class="badge-soft-secondary copy-hover" title="${child.DocType} (Click to copy)" onclick="copyToClipboard('${child.DocType}', this)">${child.DocType}</span>
+                                </div>
+                                ${child.SAPDocumentNo ? `<div class="d-flex align-items-center gap-2 mb-1 mt-1"><i class="bi bi-box-seam" style="font-size: 12px; color: #94A3B8;"></i><span style="font-size: 11.5px; font-weight: 500; color: #64748B;">SAP No:</span><span class="sap-number-badge" title="Click to copy" onclick="copyToClipboard('${child.SAPDocumentNo}', this)">${child.SAPDocumentNo}</span></div>` : ''}
+                                <div class="d-flex align-items-center gap-3 mt-1">
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 500;"><i class="bi bi-clock me-1 text-secondary"></i>${createdAt} WIB</div>
+                                    <div class="text-muted" style="font-size: 11px; font-weight: 500;" title="Processing Time"><i class="bi bi-stopwatch me-1 text-secondary"></i><span class="proc-time-val" data-created="${child.CreatedAt}" data-updated="${child.UpdatedAt}"></span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
+                            <button type="button" class="btn-view-json" onclick="showPayloadModal('${child.DocType}', '${child.DocumentNo}', '${(child.Payload || '{}').replace(/'/g, "&#39;")}')"><i class="bi bi-braces"></i> JSON</button>
+                            <button type="button" class="btn-view-log" onclick="showAuditTrailModal('${child.DocType}', '${child.DocumentNo}')"><i class="bi bi-list-ul"></i> Logs</button>
+                        </div>
+                    </td>
+                    <td class="text-center">${statusBadge}</td>
+                    <td class="smart-error-cell" data-status="${child.Status}" data-error="${safeError}" data-blocked="${blockedReason}"></td>
+                    <td class="text-center">${actionHtml}</td>
+                </tr>
+            `;
+        }
+
+            function showPayloadModal(docType, docNo, inlinePayload) {
+            // 1. Reset tombol copy ke mode awal setiap kali modal dibuka
+            const copyBtn = document.querySelector('.btn-copy-floating');
+            if (copyBtn) {
+                copyBtn.innerHTML = '<i class="bi bi-clipboard"></i> Copy';
+                copyBtn.style.backgroundColor = ''; 
+                copyBtn.style.color = ''; 
+                copyBtn.style.borderColor = '';
+            }
+
+            let rawJson;
+            if (inlinePayload !== undefined && inlinePayload !== '') { rawJson = inlinePayload; } 
+            else {
+                const rawPayloadEl = document.getElementById(`raw-payload-${docType}-${docNo}`);
+                if (!rawPayloadEl) return;
+                rawJson = rawPayloadEl.innerText;
+            }
+            document.getElementById('payloadModalTitle').innerText = `Payload: ${docNo}`;
+            document.getElementById('payloadModalSubtitle').innerText = docType;
+            let obj = null;
+            try {
+                obj = JSON.parse(rawJson);
+                document.getElementById('json-view-container').innerHTML = syntaxHighlight(JSON.stringify(obj, null, 4));
+            } catch(e) { document.getElementById('json-view-container').innerHTML = syntaxHighlight(rawJson); }
+            const fioriContainer = document.getElementById('fiori-view-container');
+            fioriContainer.innerHTML = obj ? buildFioriPreview(obj) : `<div class="alert alert-danger m-3">Format JSON tidak valid.</div>`;
+            new bootstrap.Modal(document.getElementById('globalPayloadModal')).show();
+        }
+
+        function buildFioriPreview(obj) {
+            let html = ''; let arrays = []; let primitives = {};
+            function parseNode(node, prefix = '') {
+                for (const key in node) {
+                    if (node[key] === null) { primitives[prefix + key] = '-'; } 
+                    else if (Array.isArray(node[key])) { arrays.push({ name: prefix + key, data: node[key] }); } 
+                    else if (typeof node[key] === 'object') {
+                        if (node[key].results && Array.isArray(node[key].results)) arrays.push({ name: prefix + key, data: node[key].results });
+                        else parseNode(node[key], prefix + key + '_');
+                    } else { primitives[prefix + key] = node[key]; }
+                }
+            }
+            parseNode(obj);
+
+            html += `<div class="fiori-section-title">HEADER DATA</div><div class="row mb-3"><div class="col-sm-12"><div class="row">`;
+            if (Object.keys(primitives).length === 0) { html += `<div class="col-12 text-muted fst-italic">No header data available</div>`; } 
+            else {
+                for (const key in primitives) {
+                    html += `<div class="col-sm-6 mb-2 d-flex align-items-start"><div class="fiori-label w-50 pe-2" style="word-break: break-word;">${key}</div><div class="fiori-value w-50 fw-bold">${primitives[key] !== '' ? primitives[key] : '-'}</div></div>`;
+                }
+            }
+            html += `</div></div></div>`;
+
+            arrays.forEach(arr => {
+                const sectionName = arr.name.replace(/_/g, ' ');
+                html += `<div class="fiori-section-title mt-4 text-uppercase">ITEMS: ${sectionName}</div>`;
+                if (arr.data.length === 0) { html += `<div class="text-muted fst-italic mb-3">Empty list</div>`; }
+                
+                arr.data.forEach((item, idx) => {
+                    html += `<div class="fiori-item-card mb-3"><div class="fiori-item-header text-primary">Item Row ${idx + 1}</div><div class="row">`;
+                    let itemPrimitives = {};
+                    function parseItem(n, p = '') {
+                        for (const k in n) {
+                            if (n[k] === null) itemPrimitives[p+k] = '-';
+                            else if (typeof n[k] !== 'object') itemPrimitives[p+k] = n[k];
+                            else if (!Array.isArray(n[k])) parseItem(n[k], p+k+'_');
+                        }
+                    }
+                    parseItem(item);
+                    for (const itemKey in itemPrimitives) {
+                        html += `<div class="col-sm-6 mb-1 d-flex align-items-start"><div class="fiori-label w-50 pe-2" style="word-break: break-word;">${itemKey}</div><div class="fiori-value w-50">${itemPrimitives[itemKey] !== '' ? itemPrimitives[itemKey] : '-'}</div></div>`;
+                    }
+                    html += `</div></div>`;
+                });
+            });
+            return html;
+        }
+
+        function showErrorDetail(encodedRawError) {
+            const rawError = decodeURIComponent(encodedRawError);
+            const cleanText = (txt) => { if (!txt) return ""; return txt.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim(); };
+            try {
+                const jsonStart = rawError.indexOf('{');
+                const jsonEnd = rawError.lastIndexOf('}');
+                if (jsonStart !== -1 && jsonEnd !== -1) {
+                    let prefix = cleanText(rawError.substring(0, jsonStart));
+                    let suffix = cleanText(rawError.substring(jsonEnd + 1));
+                    let mainJsonStr = rawError.substring(jsonStart, jsonEnd + 1);
+                    
+                    let cleanedStr = mainJsonStr.replace(/"raw response"\s*:\s*"(?=\{)/g, '"raw response": ').replace(/\}"\s*,/g, '},').replace(/\}"\s*\}/g, '}}');
+                    let jsonObj = null;
+                    try { jsonObj = JSON.parse(cleanedStr); } catch(e1) { try { jsonObj = JSON.parse(mainJsonStr); } catch(e2) {} }
+                    
+                    if (jsonObj) {
+                        if (typeof jsonObj["raw response"] === 'string') { try { jsonObj["raw response"] = JSON.parse(jsonObj["raw response"]); } catch(err) {} }
+                        let html = "";
+                        if (prefix) html += `<div class="mb-3 pb-2 border-bottom fw-bold" style="color: #64748B; word-break: break-word;">${prefix}</div>`;
+                        html += syntaxHighlight(JSON.stringify(jsonObj, null, 4));
+                        if (suffix) html += `<div class="mt-3 pt-2 border-top fw-bold" style="color: #64748B; word-break: break-word;">${suffix}</div>`;
+                        document.getElementById('errorModalContent').innerHTML = html;
+                        new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
+                        return;
+                    }
+                }
+            } catch(e) {}
+            
+            let cleanRaw = rawError.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim();
+            if (!cleanRaw.includes('{')) {
+                document.getElementById('errorModalContent').innerHTML = syntaxHighlight(cleanRaw);
+                new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
+                return;
+            }
+            
+            let formattedText = ""; let indentLevel = 0; let inString = false;
+            cleanRaw = cleanRaw.replace(/\\"/g, '"'); 
+            for (let i = 0; i < cleanRaw.length; i++) {
+                let char = cleanRaw[i];
+                if (char === '"' && cleanRaw[i-1] !== '\\') { inString = !inString; formattedText += char; } 
+                else if (!inString) {
+                    if (char === '{' || char === '[') { indentLevel++; formattedText += char + '\n' + '    '.repeat(indentLevel); } 
+                    else if (char === '}' || char === ']') { indentLevel = Math.max(0, indentLevel - 1); formattedText += '\n' + '    '.repeat(indentLevel) + char; } 
+                    else if (char === ',') { formattedText += char + '\n' + '    '.repeat(indentLevel); } 
+                    else if (char === ':') { formattedText += char + ' '; } 
+                    else { formattedText += char; }
+                } else { formattedText += char; }
+            }
+            document.getElementById('errorModalContent').innerHTML = syntaxHighlight(formattedText);
+            new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
+        }   
+
+        function initSmartErrorCells(nodeList) {
+            nodeList.forEach(cell => {
+                const status = cell.getAttribute('data-status');
+                const rawError = cell.getAttribute('data-error');
+                const blockedReason = cell.getAttribute('data-blocked');
+
+                if (status === 'success') {
+                    let successMsg = "Finalized by BPA"; let currentDocType = "";
+                    const trElement = cell.closest("tr");
+                    if (trElement && trElement.id) { const idParts = trElement.id.split('-'); if (idParts.length >= 3) { currentDocType = idParts[1]; } }
+                    if (["PPMBillOfMaterialC", "PPMBillOfMaterialItemC", "PPMBillOfMaterialItemU", "PPMBillOfMaterialItemD"].includes(currentDocType)) successMsg = "Processed successfully in SAP (Direct)";
+                    else if (currentDocType === "PPMSendEmailNotifSCEC") successMsg = "Email notification triggered successfully";
+                    cell.innerHTML = `<div class="text-success fw-bold" style="font-size: 12.5px;"><i class="bi bi-cloud-check me-1"></i> ${successMsg}</div>`;
+                    return;
+                }
+                if (status === 'blocked') { cell.innerHTML = `<div class="text-muted" style="font-size: 12px; font-style: italic;">Waiting for Parent Document to be resolved</div>`; return; }
+if (status === 'in_progress') { 
+                    cell.innerHTML = `<div style="font-size: 12.5px; font-weight: 500; color: #334155;"><i class="bi bi-diagram-3 me-1" style="color: #6D28D9;"></i> Waiting for child document progress</div>`; 
+                    return; 
+                }
+                if (status === 'sent' || status === 'processing') {
+                    if (!rawError || rawError.trim() === '') {
+                        cell.innerHTML = `<div style="font-size: 12.5px; font-weight: 500; color: #334155;"><i class="bi bi-arrow-repeat me-1" style="color: #6D28D9;"></i> Waiting for confirmation from SAP</div>`;
+                    } else {
+                        const safeInfoData = encodeURIComponent(rawError).replace(/'/g, "%27");
+                        cell.innerHTML = `
+                            <div class="d-flex flex-column align-items-start" style="gap: 4px;">
+                                <span class="error-category" style="color: #6D28D9;"><i class="bi bi-arrow-repeat me-1"></i> Processing Info</span>
+                                <span class="error-text-clamped" style="color: #334155; font-weight: 500; word-break: break-all;" title="${rawError}">${rawError}</span>
+                                <button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeInfoData}')">View Detail <i class="bi bi-chevron-right"></i></button>
+                            </div>`;
+                    }
+                    return;
+                }
+                if (blockedReason && blockedReason.trim() !== '') { cell.innerHTML = `<div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${blockedReason}</div>`; return; }
+                if (!rawError || rawError === '-' || rawError.trim() === '') { cell.innerHTML = `<div class="text-muted">-</div>`; return; }
+
+                let shortMsg = rawError; let category = 'System Issue', badgeColor = '#F59E0B', badgeIcon = 'bi-exclamation-circle';
+                try {
+                    const jsonStart = rawError.indexOf('{');
+                    if (jsonStart !== -1) {
+                        const jsonObj = JSON.parse(rawError.substring(jsonStart));
+                        if (jsonObj.error && jsonObj.error.message) { shortMsg = typeof jsonObj.error.message === 'string' ? jsonObj.error.message : jsonObj.error.message.value; }
+                    }
+                } catch(e) { }
+
+                const searchTarget = shortMsg.toLowerCase();
+                if (searchTarget.includes('timeout') || searchTarget.includes('conn_error') || searchTarget.includes('connection') || searchTarget.includes('deadline exceeded')) { category = 'Network/System Error'; badgeColor = '#3B82F6'; badgeIcon = 'bi-wifi-off'; } 
+                else if (searchTarget.includes('pricing') || searchTarget.includes('condition') || status === 'error_data') { category = 'Data Validation'; badgeColor = '#EF4444'; badgeIcon = 'bi-file-earmark-x'; } 
+                else if (searchTarget.includes('auth') || searchTarget.includes('unauthorized') || searchTarget.includes('forbidden')) { category = 'Auth Error'; badgeColor = '#8B5CF6'; badgeIcon = 'bi-shield-lock-fill'; } 
+                else if (status === 'error_conn') { category = 'Network/System Error'; badgeColor = '#3B82F6'; badgeIcon = 'bi-wifi-off'; }
+const safeErrorData = encodeURIComponent(rawError).replace(/'/g, "%27");
+                cell.innerHTML = `<div class="d-flex flex-column align-items-start" style="gap: 4px;"><span class="error-category" style="color: ${badgeColor};"><i class="bi ${badgeIcon}"></i> ${category}</span><span class="error-text-clamped" style="color: #334155; font-weight: 500;" title="${shortMsg}">${shortMsg}</span><button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeErrorData}')">View Detail <i class="bi bi-chevron-right"></i></button></div>`;
+            });
+        }
+
+        function renderPagination(currentPage, totalPages) {
+            const container = document.getElementById('paginationNumbers');
+            if (!container || totalPages <= 0) return;
+            
+            const form = document.getElementById('filterForm');
+            const limit = form.querySelector('input[name="limit"]').value;
+            const search = form.querySelector('input[name="search"]').value;
+            const status = form.querySelector('select[name="status"]').value;
+            const docType = form.querySelector('select[name="doc_type"]').value;
+            const startDate = document.querySelector('input[name="start_date"]').value;
+            const endDate = document.querySelector('input[name="end_date"]').value;
+            
+            function makeUrl(p) {
+                const params = new URLSearchParams();
+                params.set('page', p); params.set('limit', limit);
+                if (search) params.set('search', search);
+                if (status) params.set('status', status);
+                if (docType) params.set('doc_type', docType);
+                if (startDate) params.set('start_date', startDate);
+                if (endDate) params.set('end_date', endDate);
+                return `?${params.toString()}`;
+            }
+            
+            let html = ''; let pages = []; const range = 2; 
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - range && i <= currentPage + range)) pages.push(i);
+            }
+            
+            let last = 0;
+            pages.forEach(p => {
+                if (last + 1 !== p && last !== 0) html += `<span class="page-dots">...</span>`;
+                if (p === currentPage) html += `<div class="page-num-btn active">${p}</div>`;
+                else html += `<a href="${makeUrl(p)}" class="page-num-btn">${p}</a>`;
+                last = p;
+            });
+            container.innerHTML = html;
+        }
+
+        async function copyModalJSON(btnEl) {
+            // Cegah user ngeklik berkali-kali saat sedang berstatus "Copied!"
+            if (btnEl.innerText.includes('Copied')) return;
+
+            const jsonText = document.getElementById('json-view-container').innerText;
+            
+            btnEl.innerHTML = '<i class="bi bi-check2"></i> Copied!';
+            btnEl.style.backgroundColor = '#16A34A'; 
+            btnEl.style.color = '#ffffff';
+            btnEl.style.borderColor = '#16A34A';
+            
+            if (navigator.clipboard && window.isSecureContext) {
+                try { await navigator.clipboard.writeText(jsonText); } catch (err) {}
+            } else {
+                const textArea = document.createElement("textarea");
+                textArea.value = jsonText;
+                textArea.style.position = "absolute"; 
+                textArea.style.opacity = "0"; 
+                
+                // FIX KUNCI: Append ke dalam elemen modal agar tidak diblokir Focus Trap Bootstrap
+                btnEl.parentElement.appendChild(textArea);
+                
+                textArea.focus();
+                textArea.select();
+                
+                try { document.execCommand('copy'); } catch (err) { console.error(err); }
+                textArea.remove(); 
+            }
+            
+            setTimeout(() => {
+                btnEl.innerHTML = '<i class="bi bi-clipboard"></i> Copy';
+                btnEl.style.backgroundColor = ''; 
+                btnEl.style.color = ''; 
+                btnEl.style.borderColor = '';
+            }, 2000);
+        }
+        // ==========================================
+        $(document).ready(function() { 
+            
+            // 1. Dinamis KPI & DOM Updater
+            function calculateMetrics() {
+                let total = 0;
+                const kpiEls = document.querySelectorAll('.kpi-number');
+                if(kpiEls.length > 0) total = parseInt(kpiEls[0].innerText.replace(/,/g, '')) || 0;
+                
+                kpiEls.forEach((el, index) => {
+                    let rawVal = parseInt(el.innerText.replace(/,/g, '')) || 0;
+                    el.innerText = rawVal.toLocaleString('en-US'); 
+                    if(index > 0 && total > 0) {
+                        const pctEl = el.parentElement.querySelector('.metric-pct');
+                        if(pctEl) pctEl.innerText = ((rawVal / total) * 100).toFixed(1) + '% of total';
+                    }
+                });
+            }
+            calculateMetrics();
+
+            function initTopbarUI() {
+                $('#docTypeSelect').select2({ placeholder: "All Modules", allowClear: true, width: '100%', dropdownCssClass: 'custom-module-dropdown' });
+                $('#statusSelect').select2({ placeholder: "All Status", allowClear: true, minimumResultsForSearch: Infinity, width: '100%', dropdownCssClass: 'custom-module-dropdown' });
+
+                $('#statusSelect, #docTypeSelect').off('select2:select select2:unselect').on('select2:select select2:unselect', function () {
+                    $('#pageInput').val(1); $('#filterForm').trigger('submit');
+                });
+                
+                const redirectInput = document.getElementById('bulkRedirectTo');
+                if(redirectInput) redirectInput.value = window.location.href;
+                
+                let startDateVal = $('#realStartDate').val();
+                let endDateVal = $('#realEndDate').val();
+                if (startDateVal && endDateVal) {
+                    $('#dateRangeUI').val(moment(startDateVal).format('DD/MM/YYYY') + ' - ' + moment(endDateVal).format('DD/MM/YYYY'));
+                    $('#clearDateBtn').show(); 
+                } else {
+                    $('#dateRangeUI').val(''); $('#clearDateBtn').hide(); 
+                }
+            }
+            initTopbarUI();
+
+            window.initTableUI = function() {
+                initSmartErrorCells(document.querySelectorAll('.root-row .smart-error-cell'));
+                renderProcessingTimes();
+
+                $('#limitSelect').select2({ minimumResultsForSearch: Infinity, width: '140px' }).off('select2:select').on('select2:select', function () {
+                    const selectedLimit = $(this).val();
+                    
+                    const limitInput = document.querySelector('input[name="limit"]');
+                    if(limitInput) limitInput.value = selectedLimit;
+
+                    const params = new URLSearchParams(window.location.search);
+                    params.set('limit', selectedLimit); params.set('page', 1);
+                    loadDashboardSPA("?" + params.toString());
+                });
+            };
+            initTableUI();
+            
+        window.copyToClipboard = function(text, el) {
+            // 1. Eksekusi Salin ke Clipboard (Metode Modern / Fallback)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).catch(() => {});
+            } else {
+                const ta = document.createElement("textarea");
+                ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+                document.body.appendChild(ta); ta.focus(); ta.select();
+                try { document.execCommand('copy'); } catch(e){}
+                ta.remove();
+            }
+            
+            // 2. Simpan gaya (style) asli elemen
+            const originalBg = el.style.backgroundColor;
+            const originalColor = el.style.color;
+            const originalTransition = el.style.transition;
+            
+            // Cari elemen ikon copy di dalamnya
+            const icon = el.querySelector('i.copy-icon');
+            
+            // 3. Terapkan Micro-interaction (Animasi Sukses)
+            el.style.transition = 'all 0.2s ease';
+            el.style.backgroundColor = '#DCFCE7'; // Background hijau pastel
+            el.style.color = '#16A34A';           // Teks hijau sukses
+            
+            // Ubah ikon kotak menjadi ikon centang
+            if (icon) {
+                icon.classList.remove('bi-copy');
+                icon.classList.add('bi-check2');
+                icon.style.color = '#16A34A';     // Ikon jadi hijau
+                icon.style.transform = 'scale(1.2)'; // Sedikit membesar
+            }
+            
+            // 4. Kembalikan ke kondisi semula setelah 1.2 detik
+            setTimeout(() => { 
+                el.style.backgroundColor = originalBg; 
+                el.style.color = originalColor; 
+                el.style.transition = originalTransition; 
+                
+                if (icon) {
+                    icon.classList.remove('bi-check2');
+                    icon.classList.add('bi-copy');
+                    icon.style.color = ''; 
+                    icon.style.transform = 'scale(1)';
+                }
+            }, 1200);
+        };
+
+            window.loadDashboardSPA = async function(url) {
+                const tbody = document.getElementById('tableBody');
+                if(tbody) tbody.style.opacity = '0.4'; 
+                
+                try {
+                    const res = await fetch(url);
+                    const html = await res.text();
+                    const newDoc = new DOMParser().parseFromString(html, 'text/html');
+                    
+                    document.querySelector('.metrics-grid').innerHTML = newDoc.querySelector('.metrics-grid').innerHTML;
+                    document.querySelector('.table-responsive').innerHTML = newDoc.querySelector('.table-responsive').innerHTML;
+                    document.querySelector('.table-footer').innerHTML = newDoc.querySelector('.table-footer').innerHTML;
+                    
+                    // 1. Ekstrak currentPage langsung dari URL AJAX agar akurat
+                    const fetchUrlObj = new URL(url, window.location.origin);
+                    let currentPage = parseInt(fetchUrlObj.searchParams.get('page')) || 1;
+
+                    // 2. Sinkronkan nilai halaman ke form filter
+                    const pageInputEl = document.getElementById('pageInput');
+                    if(pageInputEl) pageInputEl.value = currentPage;
+
+                    // 3. Sinkronkan nilai limit ke form filter
+                    const newLimitInput = newDoc.querySelector('input[name="limit"]');
+                    if(newLimitInput) {
+                        const currentLimitInput = document.querySelector('input[name="limit"]');
+                        if(currentLimitInput) currentLimitInput.value = newLimitInput.value;
+                    }
+
+                    window.history.pushState({}, '', url);
+                    
+                    initTableUI(); 
+                    calculateMetrics();
+                    window.renderDynamicSparklines();
+                    
+                    // 4. Hitung Total Pages menggunakan URL dari tombol Last Page
+                    let totalPages = currentPage;
+                    const lastPageBtn = newDoc.querySelector('a[title="Last Page"]');
+                    if(lastPageBtn && lastPageBtn.href) {
+                        const lastUrlObj = new URL(lastPageBtn.href, window.location.origin);
+                        totalPages = parseInt(lastUrlObj.searchParams.get('page')) || currentPage;
+                    }
+                    renderPagination(currentPage, totalPages);
+                    
+                    updateBulkButton();
+                    
+                    const btnRef = document.getElementById('btnRefreshData');
+                    if(btnRef) { btnRef.querySelector('i').classList.remove('icon-spin'); btnRef.removeAttribute('disabled'); }
+                    
+                } catch (err) {
+                    console.error("SPA Error:", err);
+                    window.location.href = url; 
+                }
+            };
+
+            $(document).on('submit', '#filterForm', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                const params = new URLSearchParams();
+                for (const [key, value] of formData.entries()) { if (value) params.append(key, value); }
+                loadDashboardSPA("?" + params.toString());
+            });
+
+            window.filterByStatus = function(statusValue) {
+                const statusSelect = document.getElementById('statusSelect');
+                if (statusSelect) { $(statusSelect).val(statusValue).trigger('change.select2'); }$('#pageInput').val(1);
+                $('#filterForm').trigger('submit');
+            };
+
+            $(document).on('click', '.page-nav-btn:not(.disabled)', function(e) {
+                if($(this).hasClass('page-num-btn') &&$(this).hasClass('active')) return;
+                if($(this).attr('href')) {
+                    e.preventDefault();
+                    loadDashboardSPA($(this).attr('href'));
+                }
+            });
+
+            // 6. Delegasi Teks Search & Date Range
+            $(document).on('input', '#searchInput', function() {
+                if ($(this).val().length > 0) $('#clearSearchBtn').show(); else $('#clearSearchBtn').hide();
+            });
+            
+            $(document).on('click', '#clearSearchBtn', function(e) {                 e.stopPropagation(); $('#searchInput').val(''); $('#pageInput').val(1); $('#filterForm').trigger('submit');
+            });
+
+            $('#dateRangeUI').daterangepicker({
+                autoUpdateInput: false, locale: { format: 'DD/MM/YYYY' },
+                ranges: {
+                   'Today': [moment(), moment()], 'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                   'Last 7 Days': [moment().subtract(6, 'days'), moment()], 'Last 30 Days': [moment().subtract(29, 'days'), moment()],
+                   'This Month': [moment().startOf('month'), moment().endOf('month')], 'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+                }, opens: 'right'
+            }).on('apply.daterangepicker', function(ev, picker) {
+                $(this).val(picker.startDate.format('DD/MM/YYYY') + ' - ' + picker.endDate.format('DD/MM/YYYY'));$('#realStartDate').val(picker.startDate.format('YYYY-MM-DD'));
+                $('#realEndDate').val(picker.endDate.format('YYYY-MM-DD'));
+                $('#clearDateBtn').show();
+                $('#pageInput').val(1); $('#filterForm').trigger('submit');
+            });
+
+            $(document).on('click', '#clearDateBtn', function(e) {
+                e.stopPropagation(); $('#dateRangeUI').val(''); $('#realStartDate').val(''); $('#realEndDate').val('');
+                $(this).hide(); 
+                $('#pageInput').val(1); $('#filterForm').trigger('submit');
+            });
+
+            // 7. Delegasi Bulk Select
+            window.updateBulkButton = function() {
+                const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+                const btnBulkSend = document.getElementById('btnBulkSend');
+                const bulkInputs = document.getElementById('bulkInputs');
+                if(bulkInputs) {
+                    bulkInputs.innerHTML = '';
+                    checkboxes.forEach(cb => { 
+                        const input = document.createElement('input');
+                        input.type = 'hidden'; input.name = 'ids[]'; input.value = cb.value;
+                        bulkInputs.appendChild(input);
+                    });
+                }
+                const selectedCount = document.getElementById('selectedCount');
+                if(selectedCount) selectedCount.innerText = checkboxes.length;
+                if(btnBulkSend) btnBulkSend.disabled = (checkboxes.length === 0);
+            };
+            
+            $(document).on('change', '#checkAll', function() {
+                $('.row-checkbox:not(:disabled)').prop('checked', this.checked); updateBulkButton();
+            });
+            $(document).on('change', '.row-checkbox', function() { updateBulkButton(); });
+
+            $(document).on('submit', '#bulkForm', function(e) {
+                if ($(this).hasClass('is-submitting')) { e.preventDefault(); return; }$(this).addClass('is-submitting');
+                const toastEl = document.getElementById('syncToast');
+                if(toastEl) {
+                    document.getElementById('toastMessage').innerText = `Sending ${document.getElementById('selectedCount').innerText} records...`;
+                    new bootstrap.Toast(toastEl, { autohide: false }).show();
+                }
+                const btn = document.getElementById('btnBulkSend');
+                if(btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Processing...'; }
+            });
+
+            // 8. Delegasi Tombol Send / Retry per baris
+            $(document).on('submit', '.single-sync-form', function(e) {                 e.preventDefault(); const form =$(this);
+                if (form.hasClass('is-submitting')) return;
+                form.addClass('is-submitting');
+                
+                const toastEl = document.getElementById('syncToast');
+                if(toastEl) { document.getElementById('toastMessage').innerText = "Sending data to BPA..."; new bootstrap.Toast(toastEl, { autohide: false }).show(); }
+                
+                const btn = form.find('.action-btn');
+                const originalBtnHtml = btn.html();
+                btn.html('<span class="spinner-border spinner-border-sm"></span>').prop('disabled', true);
+
+                fetch('/sync/send', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ doc_type: form.attr('data-doctype'), doc_id: form.attr('data-docno') })
+                }).then(res => res.json()).then(data => {
+                    if (data.status === 'success' || data.status === 'ok') { loadDashboardSPA(window.location.href); } 
+                    else { alert(data.message || "Gagal mengirim dokumen."); form.removeClass('is-submitting'); btn.html(originalBtnHtml).prop('disabled', false); }
+                }).catch(err => {
+                    alert("Kesalahan jaringan."); form.removeClass('is-submitting'); btn.html(originalBtnHtml).prop('disabled', false);
+                });
+            });
+
+            // Tampilkan UI setelah siap
+            const currentPage = parseInt("{{ .page }}") || 1;
+            const totalPages = parseInt("{{ .totalPages }}") || 0;
+            renderPagination(currentPage, totalPages);
+            setTimeout(() => { $('#filterForm').addClass('ready'); }, 100);
+        });
+    </script>
+</body>
+</html>
