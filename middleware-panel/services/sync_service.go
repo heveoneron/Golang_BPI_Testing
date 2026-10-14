@@ -73,8 +73,11 @@ func (s *syncService) SendToSAPServiceLayer(docType string, documentNo string, t
 
 	apiURL := os.Getenv("API_URL")
 	if apiURL == "" {
+		apiURL = os.Getenv("MIDDLEWARE_API_URL")
+	}
+	if apiURL == "" {
 		doc.Status = "error_data"
-		errMsg := "Konfigurasi API_URL di file .env tidak ditemukan"
+		errMsg := "Konfigurasi API_URL atau MIDDLEWARE_API_URL di file .env tidak ditemukan"
 		doc.ErrorMessage = &errMsg
 		s.repo.UpdateDocument(&doc)
 		return errors.New("missing api configuration")

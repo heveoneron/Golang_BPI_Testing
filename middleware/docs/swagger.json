@@ -119,6 +119,40 @@
                 }
             }
         },
+        "/trigger/pull": {
+            "post": {
+                "description": "Memicu eksekusi manual worker pull untuk menarik data antrean mxout_inter_trans dari SQL Server Maximo ke PostgreSQL staging_documents",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Ingestion"
+                ],
+                "summary": "Trigger Pull Worker dari SQL Server Maximo",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Jumlah data yang mau ditarik (Default: 1 untuk testing)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_controller.TriggerPullResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/trigger/push": {
             "post": {
                 "description": "Memicu eksekusi manual worker push untuk mengirim dokumen pending ke SAP Grow OData",
@@ -325,6 +359,27 @@
                 "message": {
                     "type": "string",
                     "example": "PO successfully ingested into staging_documents and transformed to core documents"
+                },
+                "transformed": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "internal_controller.TriggerPullResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Pull trigger executed successfully"
+                },
+                "pulled_count": {
+                    "type": "integer",
+                    "example": 1
                 },
                 "transformed": {
                     "type": "integer",

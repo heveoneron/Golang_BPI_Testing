@@ -29,17 +29,15 @@ func NewSyncService(sqlRepo *repository.SQLServerRepository, pgRepo *repository.
 }
 
 // 1. EXTRACT & LOAD DARI SQL SERVER KE STAGING_DOCUMENTS (Tier 1)
-func (s *SyncService) PullDataFromSQLServer(ctx context.Context) int {
-	interfaceID := "INT_BPI_PO_01"
-	lastSync, err := s.PGRepo.GetLastSync(ctx, interfaceID)
-	if err != nil {
-		lastSync = time.Now().Add(-24 * time.Hour)
+func (s *SyncService) PullDataFromSQLServer(ctx context.Context, limit int) (int, int) {
+	if limit <= 0 {
+		limit = 1
 	}
 
-	records, maxUpdated, err := s.SQLRepo.ExtractData(ctx, "PO", lastSync)
+	records, err := s.SQLRepo.ExtractData(ctx, limit)
 	if err != nil {
 		log.Printf("[WARN] Pull SQL Server error: %v", err)
-		return 0
+		return 0, 0
 	}
 
 	insertedCount := 0
@@ -54,13 +52,20 @@ func (s *SyncService) PullDataFromSQLServer(ctx context.Context) int {
 		}
 		if err := s.PGRepo.UpsertStagingDocument(ctx, doc); err == nil {
 			insertedCount++
+			if rec.TransID != "" {
+				_ = s.SQLRepo.MarkProcessed(ctx, rec.TransID)
+			}
+		} else {
+			log.Printf("[WARN] Upsert staging gagal untuk %s %s: %v", rec.DocType, rec.DocumentNo, err)
 		}
 	}
 
-	if insertedCount > 0 && maxUpdated.After(lastSync) {
-		_ = s.PGRepo.UpdateLastSync(ctx, interfaceID, maxUpdated)
+	transformedCount := 0
+	if insertedCount > 0 {
+		transformedCount = s.TransformStagingToCore(ctx)
 	}
-	return insertedCount
+
+	return insertedCount, transformedCount
 }
 
 // 2. TRANSFORM DARI STAGING_DOCUMENTS KE DOCUMENTS (Tier 2 - ShoeTown Pattern)

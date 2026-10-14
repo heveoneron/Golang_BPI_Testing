@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 )
 
@@ -13,60 +15,474 @@ type SQLServerRepository struct {
 }
 
 type ExtractedRecord struct {
-	DocType        string
-	DocumentNo     string
-	PayloadJSON    json.RawMessage
-	LastUpdatedAt  time.Time
+	TransID       string
+	DocType       string
+	DocumentNo    string
+	PayloadJSON   json.RawMessage
+	LastUpdatedAt time.Time
 }
 
 func NewSQLServerRepository(db *sql.DB) *SQLServerRepository {
 	return &SQLServerRepository{DB: db}
 }
 
-// ExtractData menarik data delta dari SQL Server Maximo berbasis watermark lastSync
-// Dalam implementasi riil BPI, ini menjalankan query ke tabel axmxpo, axreceipt, axitem, axuom
-// atau stored procedure sp_GetMaximoOutboundPayload @lastSync
-func (r *SQLServerRepository) ExtractData(ctx context.Context, docType string, lastSync time.Time) ([]ExtractedRecord, time.Time, error) {
+// ExtractData menarik data antrean dari mxout_inter_trans dengan batas limit (default 1 untuk testing bertahap)
+// ExtractData menarik data antrean dari mxout_inter_trans dengan batas limit data valid.
+// Hanya data yang terbukti memiliki baris detail di tabel ifacetbname yang akan ditarik.
+func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]ExtractedRecord, error) {
 	if r.DB == nil {
-		// Mock offline safe: kembalikan slice kosong jika DB belum terhubung
-		return nil, lastSync, nil
+		return nil, nil
 	}
 
-	// Query delta dari tabel staging SQL Server dengan filter mxout_inter_trans.ax = 0
+	if limit <= 0 {
+		limit = 1
+	}
+
+	var records []ExtractedRecord
+
+	// Scan antrean sampai terkumpul sejumlah 'limit' data valid yang memiliki data detail di kedua tabel,
+	// atau sampai tidak ada lagi antrean yang belum diproses.
+	for len(records) < limit {
+		batchSize := 50
+		query := fmt.Sprintf(`
+			SELECT TOP (%d) transid, ISNULL(ifacename, ''), ISNULL(ifacetbname, ''), ISNULL([action], '')
+			FROM mxout_inter_trans
+			WHERE (ax = 0 OR ax IS NULL)
+			ORDER BY transid ASC
+		`, batchSize)
+
+		rows, err := r.DB.QueryContext(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("error query mxout_inter_trans: %w", err)
+		}
+
+		type queueItem struct {
+			transID     int64
+			ifacename   string
+			ifacetbname string
+			action      string
+		}
+
+		var items []queueItem
+		for rows.Next() {
+			var it queueItem
+			if err := rows.Scan(&it.transID, &it.ifacename, &it.ifacetbname, &it.action); err == nil {
+				items = append(items, it)
+			}
+		}
+		rows.Close()
+
+		if len(items) == 0 {
+			// Tidak ada lagi antrean yang belum diproses
+			break
+		}
+
+		processedInBatch := 0
+		for _, it := range items {
+			tbUpper := strings.ToUpper(strings.TrimSpace(it.ifacetbname))
+			if tbUpper == "" {
+				log.Printf("[SKIP] mxout_inter_trans transid=%d di-skip: ifacetbname kosong", it.transID)
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				processedInBatch++
+				continue
+			}
+
+			var rec *ExtractedRecord
+			var extractErr error
+
+			switch tbUpper {
+			case "AXMXPO":
+				rec, extractErr = r.extractPO(ctx, it.transID, it.action)
+			case "AXPR":
+				rec, extractErr = r.extractPR(ctx, it.transID, it.action)
+			case "AXRECEIPT":
+				rec, extractErr = r.extractReceipt(ctx, it.transID, it.action)
+			default:
+				rec, extractErr = r.extractGeneric(ctx, it.transID, it.ifacetbname, it.action)
+			}
+
+			if extractErr != nil {
+				log.Printf("[WARN] Gagal query detail transid %d (%s): %v", it.transID, it.ifacetbname, extractErr)
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				processedInBatch++
+				continue
+			}
+
+			// VALIDASI: Hanya proses jika data detail benar-benar ada di kedua tabel
+			if rec == nil {
+				log.Printf("[SKIP] mxout_inter_trans transid=%d (%s) di-skip: TIDAK ADA data detail terkait di tabel dbo.[%s]", it.transID, it.ifacename, it.ifacetbname)
+				// Tandai ax = 1 agar antrean bergerak, TETAPI JANGAN kirim ke staging/SAP
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				processedInBatch++
+				continue
+			}
+
+			// Data valid ditemukan lengkap di kedua tabel!
+			records = append(records, *rec)
+			processedInBatch++
+			if len(records) >= limit {
+				break
+			}
+		}
+
+		if processedInBatch == 0 {
+			break
+		}
+	}
+
+	return records, nil
+}
+
+// MarkProcessed menandai status ax = 1 pada mxout_inter_trans agar record tidak ditarik berulang
+func (r *SQLServerRepository) MarkProcessed(ctx context.Context, transID string) error {
+	if r.DB == nil {
+		return nil
+	}
+	_, err := r.DB.ExecContext(ctx, "UPDATE mxout_inter_trans SET ax = 1 WHERE transid = @p1", transID)
+	return err
+}
+
+// Ekstraksi data PO Maximo (Header + Lines) dari tabel axmxpo
+func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
 	query := `
-		SELECT t.ifacetbname, t.transid, p.payload_json, t.transdate
-		FROM mxout_inter_trans t
-		LEFT JOIN v_maximo_payload p ON t.transid = p.transid
-		WHERE t.ax = 0 AND t.transdate >= @p1
-		ORDER BY t.transdate ASC
+		SELECT 
+			ISNULL(ponum, ''), ISNULL(vendor, ''), orderdate, ISNULL(currencycode, 'IDR'),
+			ISNULL(status, 'APPR'), ISNULL(revisionnum, 0), ISNULL(siteid, ''),
+			ISNULL(polinenum, 0), ISNULL(prnum, ''), ISNULL(prlinenum, 0), ISNULL(linetype, 'ITEM'),
+			ISNULL(itemnum, ''), ISNULL(orderqty, 0), ISNULL(orderunit, 'PCS'), ISNULL(unitcost, 0),
+			ISNULL(bpibudgetcode, ''), ISNULL(bpidepartment, ''), ISNULL(bpicoa, ''),
+			ISNULL(taxcode1, ''), ISNULL(storeloc, ''), ISNULL(budgetyear, ''), transseq
+		FROM axmxpo
+		WHERE transid = @p1
+		ORDER BY transseq ASC
 	`
-	rows, err := r.DB.QueryContext(ctx, query, lastSync)
+	rows, err := r.DB.QueryContext(ctx, query, transID)
 	if err != nil {
-		return nil, lastSync, fmt.Errorf("error query sql server: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
-	var records []ExtractedRecord
-	maxUpdated := lastSync
+	var poNum, vendor, currCode, status, siteID string
+	var orderDate sql.NullTime
+	var revisionNum int
+	var lines []map[string]interface{}
+	isFirst := true
 
 	for rows.Next() {
-		var tbName, transID, payloadStr string
-		var transDate time.Time
-		if err := rows.Scan(&tbName, &transID, &payloadStr, &transDate); err != nil {
+		var pNum, vnd, cCode, st, sID, prNum, lType, itm, unit, bCode, dept, coa, tax1, sLoc, bYear string
+		var oDate sql.NullTime
+		var rev, pLine, prLine, seq int
+		var qty, cost float64
+
+		if err := rows.Scan(
+			&pNum, &vnd, &oDate, &cCode, &st, &rev, &sID,
+			&pLine, &prNum, &prLine, &lType, &itm, &qty, &unit, &cost,
+			&bCode, &dept, &coa, &tax1, &sLoc, &bYear, &seq,
+		); err != nil {
 			continue
 		}
 
-		records = append(records, ExtractedRecord{
-			DocType:       tbName,
-			DocumentNo:    transID,
-			PayloadJSON:   json.RawMessage(payloadStr),
-			LastUpdatedAt: transDate,
-		})
-
-		if transDate.After(maxUpdated) {
-			maxUpdated = transDate
+		if isFirst {
+			poNum = pNum
+			vendor = vnd
+			orderDate = oDate
+			currCode = cCode
+			status = st
+			revisionNum = rev
+			siteID = sID
+			isFirst = false
 		}
+
+		lines = append(lines, map[string]interface{}{
+			"POLINENUM":   pLine,
+			"PRNUM":       prNum,
+			"PRLINENUM":   prLine,
+			"LINETYPE":    lType,
+			"ITEMNUM":     itm,
+			"ORDERUNIT":   unit,
+			"QTY":         qty,
+			"UNITCOST":    cost,
+			"BUDGETCODE":  bCode,
+			"DEPARTMENT":  dept,
+			"MAINACCOUNT": coa,
+			"TAXCODE1":    tax1,
+			"STORELOC":    sLoc,
+			"BUDGETYEAR":  bYear,
+		})
 	}
 
-	return records, maxUpdated, nil
+	// Jika tidak ada line/data detail sama sekali di axmxpo untuk transid ini
+	if isFirst || len(lines) == 0 {
+		return nil, nil
+	}
+
+	dateStr := time.Now().Format("2006-01-02")
+	if orderDate.Valid {
+		dateStr = orderDate.Time.Format("2006-01-02")
+	}
+
+	poPayload := map[string]interface{}{
+		"PONUM":        poNum,
+		"VENDOR":       vendor,
+		"ORDERDATE":    dateStr,
+		"CURRENCYCODE": currCode,
+		"STATUS":       status,
+		"REVISIONNUM":  revisionNum,
+		"SITEID":       siteID,
+		"ACTION":       action,
+		"LINES":        lines,
+	}
+
+	payloadBytes, err := json.Marshal(poPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		DocType:       "PO",
+		DocumentNo:    poNum,
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
+}
+
+// Ekstraksi data PR Maximo dari tabel axpr
+func (r *SQLServerRepository) extractPR(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
+	query := `
+		SELECT 
+			ISNULL(prnum, ''), ISNULL(requestedby, ''), issuedate, ISNULL(status, 'APPR'), ISNULL(siteid, ''),
+			ISNULL(prlinenum, 0), ISNULL(itemnum, ''), ISNULL(linetype, 'ITEM'), ISNULL(orderqty, 0),
+			ISNULL(orderunit, 'PCS'), ISNULL(bpibudgetcode, ''), ISNULL(bpidepartment, ''), ISNULL(bpicoa, ''), transseq
+		FROM axpr
+		WHERE transid = @p1
+		ORDER BY transseq ASC
+	`
+	rows, err := r.DB.QueryContext(ctx, query, transID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prNum, reqBy, status, siteID string
+	var issueDate sql.NullTime
+	var lines []map[string]interface{}
+	isFirst := true
+
+	for rows.Next() {
+		var pNum, rBy, st, sID, itm, lType, unit, bCode, dept, coa string
+		var iDate sql.NullTime
+		var prLine, seq int
+		var qty float64
+
+		if err := rows.Scan(&pNum, &rBy, &iDate, &st, &sID, &prLine, &itm, &lType, &qty, &unit, &bCode, &dept, &coa, &seq); err != nil {
+			continue
+		}
+
+		if isFirst {
+			prNum = pNum
+			reqBy = rBy
+			issueDate = iDate
+			status = st
+			siteID = sID
+			isFirst = false
+		}
+
+		lines = append(lines, map[string]interface{}{
+			"PRLINENUM":   prLine,
+			"ITEMNUM":     itm,
+			"LINETYPE":    lType,
+			"ORDERQTY":    qty,
+			"ORDERUNIT":   unit,
+			"BUDGETCODE":  bCode,
+			"DEPARTMENT":  dept,
+			"MAINACCOUNT": coa,
+		})
+	}
+
+	// Jika tidak ada data detail sama sekali di axpr untuk transid ini
+	if isFirst || len(lines) == 0 {
+		return nil, nil
+	}
+
+	dateStr := time.Now().Format("2006-01-02")
+	if issueDate.Valid {
+		dateStr = issueDate.Time.Format("2006-01-02")
+	}
+
+	prPayload := map[string]interface{}{
+		"PRNUM":       prNum,
+		"REQUESTEDBY": reqBy,
+		"ISSUEDATE":   dateStr,
+		"STATUS":      status,
+		"SITEID":      siteID,
+		"ACTION":      action,
+		"LINES":       lines,
+	}
+
+	payloadBytes, _ := json.Marshal(prPayload)
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		DocType:       "PR",
+		DocumentNo:    prNum,
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
+}
+
+// Ekstraksi data Penerimaan Barang (GRN/Receipt) dari tabel axreceipt
+func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
+	query := `
+		SELECT 
+			ISNULL(bpigrnnumber, ''), ISNULL(ponum, ''), ISNULL(polinenum, 0), ISNULL(itemnum, ''),
+			ISNULL(qty, 0), actualdate, ISNULL(status, 'APPR'), transseq
+		FROM axreceipt
+		WHERE transid = @p1
+		ORDER BY transseq ASC
+	`
+	rows, err := r.DB.QueryContext(ctx, query, transID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var grnNo, poNum, status string
+	var actDate sql.NullTime
+	var lines []map[string]interface{}
+	isFirst := true
+
+	for rows.Next() {
+		var gNo, pNo, itm, st string
+		var pLine, seq int
+		var qty float64
+		var aDate sql.NullTime
+
+		if err := rows.Scan(&gNo, &pNo, &pLine, &itm, &qty, &aDate, &st, &seq); err != nil {
+			continue
+		}
+
+		if isFirst {
+			grnNo = gNo
+			poNum = pNo
+			status = st
+			actDate = aDate
+			isFirst = false
+		}
+
+		lines = append(lines, map[string]interface{}{
+			"POLINENUM": pLine,
+			"ITEMNUM":   itm,
+			"QTY":       qty,
+		})
+	}
+
+	// Jika tidak ada data detail sama sekali di axreceipt untuk transid ini
+	if isFirst || len(lines) == 0 {
+		return nil, nil
+	}
+
+	docNo := grnNo
+	if docNo == "" {
+		docNo = fmt.Sprintf("GRN-%s-%d", poNum, transID)
+	}
+
+	dateStr := time.Now().Format("2006-01-02")
+	if actDate.Valid {
+		dateStr = actDate.Time.Format("2006-01-02")
+	}
+
+	receiptPayload := map[string]interface{}{
+		"GRNNUM":     docNo,
+		"PONUM":      poNum,
+		"ACTUALDATE": dateStr,
+		"STATUS":     status,
+		"ACTION":     action,
+		"LINES":      lines,
+	}
+
+	payloadBytes, _ := json.Marshal(receiptPayload)
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		DocType:       "GRN",
+		DocumentNo:    docNo,
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
+}
+
+// Ekstraksi umum untuk tabel-tabel lainnya (AXITEM, AXUOM, AXVENDOR, AXBUDGET, AXINVISSUE, dll)
+func (r *SQLServerRepository) extractGeneric(ctx context.Context, transID int64, tableName, action string) (*ExtractedRecord, error) {
+	// Sanitasi nama tabel untuk keamanan query
+	cleanTable := strings.ReplaceAll(tableName, ";", "")
+	cleanTable = strings.ReplaceAll(cleanTable, "--", "")
+	cleanTable = strings.ReplaceAll(cleanTable, " ", "")
+
+	if cleanTable == "" {
+		return nil, nil
+	}
+
+	// Cek apakah tabel ada di database
+	var tableExists int
+	checkQuery := fmt.Sprintf("IF OBJECT_ID('dbo.[%s]', 'U') IS NOT NULL SELECT 1 ELSE SELECT 0", cleanTable)
+	if err := r.DB.QueryRowContext(ctx, checkQuery).Scan(&tableExists); err != nil || tableExists == 0 {
+		return nil, nil
+	}
+
+	query := fmt.Sprintf("SELECT * FROM dbo.[%s] WHERE transid = @p1", cleanTable)
+	rows, err := r.DB.QueryContext(ctx, query, transID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		columns := make([]interface{}, len(cols))
+		columnPointers := make([]interface{}, len(cols))
+		for i := range columns {
+			columnPointers[i] = &columns[i]
+		}
+
+		if err := rows.Scan(columnPointers...); err != nil {
+			continue
+		}
+
+		m := make(map[string]interface{})
+		for i, colName := range cols {
+			val := columns[i]
+			if b, ok := val.([]byte); ok {
+				m[colName] = string(b)
+			} else {
+				m[colName] = val
+			}
+		}
+		results = append(results, m)
+	}
+
+	// JIKA TIDAK ADA DATA DETAIL (results kosong), JANGAN DIKIRIM!
+	if len(results) == 0 {
+		return nil, nil
+	}
+
+	docNo := fmt.Sprintf("%s-%d", cleanTable, transID)
+	payload := map[string]interface{}{
+		"TABLENAME": cleanTable,
+		"TRANSID":   transID,
+		"ACTION":    action,
+		"DATA":      results,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		DocType:       cleanTable,
+		DocumentNo:    docNo,
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
 }

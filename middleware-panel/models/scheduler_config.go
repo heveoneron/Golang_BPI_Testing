@@ -16,5 +16,7 @@ type SchedulerConfig struct {
 	MonthlyMonths string `gorm:"type:varchar(100)"`
 	MonthlyDays   string `gorm:"type:varchar(100)"`
 
+	BatchLimit int `gorm:"default:1"` // Jumlah data ditarik per eksekusi (default: 1 untuk testing)
+
 	Mode string `gorm:"type:varchar(20);default:'scheduler'"`
 }

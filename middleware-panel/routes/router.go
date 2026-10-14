@@ -93,9 +93,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/config", appConfigController.SaveConfig)
 	r.DELETE("/api/config/:key", appConfigController.DeleteConfig)
 
-	// Scheduler Config
+	// Scheduler Config & Manual Pull
 	r.GET("/scheduler-config", schedController.ShowSchedulerConfig)
 	r.POST("/scheduler-config", schedController.UpdateSchedulerConfig)
+	r.POST("/scheduler/pull", schedController.ExecutePullNow)
+	r.GET("/scheduler/pull", schedController.ExecutePullNow)
 
 	// Backup Scheduler Config
 	r.GET("/backup-config", backupController.ShowConfigPage)

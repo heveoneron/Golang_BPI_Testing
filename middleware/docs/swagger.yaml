@@ -133,6 +133,21 @@ definitions:
         example: 1
         type: integer
     type: object
+  internal_controller.TriggerPullResponse:
+    properties:
+      limit:
+        example: 1
+        type: integer
+      message:
+        example: Pull trigger executed successfully
+        type: string
+      pulled_count:
+        example: 1
+        type: integer
+      transformed:
+        example: 1
+        type: integer
+    type: object
   internal_controller.TriggerPushResponse:
     properties:
       message:
@@ -219,6 +234,29 @@ paths:
           schema:
             $ref: '#/definitions/internal_controller.ErrorResponse'
       summary: Ingest Manual PO Maximo
+      tags:
+      - Ingestion
+  /trigger/pull:
+    post:
+      description: Memicu eksekusi manual worker pull untuk menarik data antrean mxout_inter_trans
+        dari SQL Server Maximo ke PostgreSQL staging_documents
+      parameters:
+      - description: 'Jumlah data yang mau ditarik (Default: 1 untuk testing)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_controller.TriggerPullResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_controller.ErrorResponse'
+      summary: Trigger Pull Worker dari SQL Server Maximo
       tags:
       - Ingestion
   /trigger/push:

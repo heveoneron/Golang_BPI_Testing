@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"golang-bpi-testing/internal/model"
 	"golang-bpi-testing/internal/repository"
@@ -39,6 +40,13 @@ type IngestManualPOResponse struct {
 type TriggerPushResponse struct {
 	Message     string `json:"message" example:"Push trigger executed"`
 	PushedCount int    `json:"pushed_count" example:"1"`
+}
+
+type TriggerPullResponse struct {
+	Message     string `json:"message" example:"Pull trigger executed successfully"`
+	PulledCount int    `json:"pulled_count" example:"1"`
+	Transformed int    `json:"transformed" example:"1"`
+	Limit       int    `json:"limit" example:"1"`
 }
 
 type DocumentItemDTO struct {
@@ -133,6 +141,37 @@ func (c *WebController) TriggerPush(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, TriggerPushResponse{
 		Message:     "Push trigger executed",
 		PushedCount: count,
+	})
+}
+
+// TriggerPull godoc
+// @Summary      Trigger Pull Worker dari SQL Server Maximo
+// @Description  Memicu eksekusi manual worker pull untuk menarik data antrean mxout_inter_trans dari SQL Server Maximo ke PostgreSQL staging_documents
+// @Tags         Ingestion
+// @Produce      json
+// @Param        limit    query     int   false  "Jumlah data yang mau ditarik (Default: 1 untuk testing)"
+// @Success      200      {object}  TriggerPullResponse
+// @Failure      503      {object}  ErrorResponse
+// @Router       /trigger/pull [post]
+func (c *WebController) TriggerPull(ctx *gin.Context) {
+	if c.SyncSvc == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Sync service is not initialized"})
+		return
+	}
+
+	limit := 1
+	if lStr := ctx.Query("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	pulled, transformed := c.SyncSvc.PullDataFromSQLServer(ctx.Request.Context(), limit)
+	ctx.JSON(http.StatusOK, TriggerPullResponse{
+		Message:     "Pull trigger executed successfully",
+		PulledCount: pulled,
+		Transformed: transformed,
+		Limit:       limit,
 	})
 }
 

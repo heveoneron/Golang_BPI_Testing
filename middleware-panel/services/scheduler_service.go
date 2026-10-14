@@ -76,6 +76,15 @@ func (s *schedulerService) UpdateConfigFromForm(form map[string]interface{}) (*m
 		schedConfig.RepeatIntervalMins = 0
 	}
 
+	if batchStr, ok := form["batch_limit"].(string); ok {
+		if bLimit, err := strconv.Atoi(batchStr); err == nil && bLimit > 0 {
+			schedConfig.BatchLimit = bLimit
+		}
+	}
+	if schedConfig.BatchLimit <= 0 {
+		schedConfig.BatchLimit = 1
+	}
+
 	err = s.repo.UpdateConfig(schedConfig)
 	return schedConfig, err
 }

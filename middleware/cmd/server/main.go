@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -138,13 +139,15 @@ func startPullWorker(ctx context.Context, svc *service.SyncService, pgRepo *repo
 			if pgRepo.Pool == nil {
 				continue
 			}
-			pulled := svc.PullDataFromSQLServer(ctx)
-			if pulled > 0 {
-				log.Printf("[WORKER-PULL] Berhasil menarik %d record dari SQL Server.", pulled)
+			pullLimit := 1
+			if envLimit := os.Getenv("PULL_BATCH_LIMIT"); envLimit != "" {
+				if l, err := strconv.Atoi(envLimit); err == nil && l > 0 {
+					pullLimit = l
+				}
 			}
-			transformed := svc.TransformStagingToCore(ctx)
-			if transformed > 0 {
-				log.Printf("[WORKER-TRANSFORM] Berhasil mentransformasi %d dokumen ke core documents.", transformed)
+			pulled, transformed := svc.PullDataFromSQLServer(ctx, pullLimit)
+			if pulled > 0 {
+				log.Printf("[WORKER-PULL] Berhasil menarik %d record dari SQL Server (Transformed: %d).", pulled, transformed)
 			}
 		}
 	}

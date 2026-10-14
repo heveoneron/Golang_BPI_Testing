@@ -1,8 +1,13 @@
 package controllers
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"middleware-panel/services"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -49,6 +54,7 @@ func (c *SchedulerController) UpdateSchedulerConfig(ctx *gin.Context) {
 		"monthly_days":         ctx.PostFormArray("monthly_days[]"),
 		"is_repeat_enabled":    ctx.PostForm("is_repeat_enabled"),
 		"repeat_interval_mins": ctx.PostForm("repeat_interval_mins"),
+		"batch_limit":          ctx.PostForm("batch_limit"),
 	}
 
 	schedConfig, _ := c.service.UpdateConfigFromForm(form)
@@ -58,5 +64,46 @@ func (c *SchedulerController) UpdateSchedulerConfig(ctx *gin.Context) {
 		"SchedConfig": schedConfig,
 		"Username":    session.Get("username"),
 		"ActiveMenu":  "scheduler",
+	})
+}
+
+// ExecutePullNow memicu eksekusi manual penarikan data SQL Server Maximo ke PostgreSQL
+func (c *SchedulerController) ExecutePullNow(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	limitStr := ctx.DefaultQuery("limit", "1")
+	limit, _ := strconv.Atoi(limitStr)
+	if limit <= 0 {
+		limit = 1
+	}
+
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	endpoint := fmt.Sprintf("%s/trigger/pull?limit=%d", middlewareURL, limit)
+
+	resp, err := http.Post(endpoint, "application/json", nil)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": fmt.Sprintf("Gagal menghubungi Middleware Engine di %s: %v", endpoint, err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	_ = json.Unmarshal(bodyBytes, &result)
+
+	ctx.JSON(resp.StatusCode, gin.H{
+		"status":  "success",
+		"data":    result,
+		"message": fmt.Sprintf("Trigger pull berhasil dieksekusi (Limit: %d data).", limit),
 	})
 }
