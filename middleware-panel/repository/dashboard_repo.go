@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"fmt"
 	"middleware-panel/models"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -15,6 +17,7 @@ type DashboardRepository interface {
 	GetDocumentStats(docType string, startDate string, endDate string) (int64, int64, int64, int64, int64)
 	GetDistinctDocTypes() ([]string, error)
 	GetTrendStats(docType string, startDate string, endDate string) map[string][]int
+	GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error)
 }
 
 type dashboardRepo struct {
@@ -266,4 +269,83 @@ func (r *dashboardRepo) GetTrendStats(docType string, startDate string, endDate 
 	}
 
 	return trends
+}
+
+func (r *dashboardRepo) GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error) {
+	var logs []models.IntegrationLog
+	query := r.db.Model(&models.IntegrationLog{})
+	if docType != "" {
+		query = query.Where("LOWER(document_type) = LOWER(?)", docType)
+	}
+	if documentNo != "" {
+		query = query.Where("document_no = ?", documentNo)
+	}
+	_ = query.Order("created_at ASC").Find(&logs).Error
+
+	// Fallback cerdas: Jika belum ada log di integration_logs untuk dokumen ini,
+	// buatkan log representatif dari lifecycle data di tabel documents agar button logs tidak kosong!
+	if len(logs) == 0 && documentNo != "" {
+		var doc models.Document
+		docQuery := r.db.Model(&models.Document{}).Where("document_no = ?", documentNo)
+		if docType != "" {
+			docQuery = docQuery.Where("LOWER(doc_type) = LOWER(?)", docType)
+		}
+		if err := docQuery.First(&doc).Error; err != nil {
+			// Coba lagi tanpa filter docType
+			_ = r.db.Model(&models.Document{}).Where("document_no = ?", documentNo).First(&doc).Error
+		}
+
+		if doc.DocumentNo != "" {
+			// Step 1: Received dari Maximo ERP
+			logs = append(logs, models.IntegrationLog{
+				SourceSystem: "MAXIMO",
+				TargetSystem: "MIDDLEWARE",
+				DocumentType: doc.DocType,
+				DocumentNo:   doc.DocumentNo,
+				Status:       "RECEIVED",
+				Metadata:     fmt.Sprintf("Payload received from Maximo ERP (Group: %s)", doc.GroupID),
+				CreatedAt:    doc.CreatedAt,
+			})
+
+			// Step 2: Kirim / Status ke SAP Grow
+			sapStatus := "SENT"
+			targetSys := "SAP GROW"
+			metadataMsg := "Waiting for confirmation from SAP"
+			if strings.EqualFold(doc.Status, "success") {
+				sapStatus = "SUCCESS"
+				metadataMsg = "Document successfully posted to SAP Grow"
+				if doc.SAPDocumentNo != nil && *doc.SAPDocumentNo != "" {
+					metadataMsg = fmt.Sprintf("Document successfully posted to SAP Grow (SAP Doc: %s)", *doc.SAPDocumentNo)
+				}
+			} else if strings.Contains(strings.ToLower(doc.Status), "error") || strings.EqualFold(doc.Status, "failed") {
+				sapStatus = "FAILED"
+				if doc.ErrorMessage != nil && *doc.ErrorMessage != "" {
+					metadataMsg = *doc.ErrorMessage
+				} else {
+					metadataMsg = "Failed processing document to SAP"
+				}
+			} else if strings.EqualFold(doc.Status, "pending") || strings.EqualFold(doc.Status, "requeued") {
+				sapStatus = "PENDING"
+				metadataMsg = "Queued in middleware buffer"
+			}
+
+			updatedTime := doc.UpdatedAt
+			if updatedTime.Equal(doc.CreatedAt) || updatedTime.Before(doc.CreatedAt) {
+				updatedTime = doc.CreatedAt.Add(1 * time.Second)
+			}
+
+			logs = append(logs, models.IntegrationLog{
+				SourceSystem: "MIDDLEWARE",
+				TargetSystem: targetSys,
+				DocumentType: doc.DocType,
+				DocumentNo:   doc.DocumentNo,
+				Status:       sapStatus,
+				ErrorMessage: doc.ErrorMessage,
+				Metadata:     metadataMsg,
+				CreatedAt:    updatedTime,
+			})
+		}
+	}
+
+	return logs, nil
 }

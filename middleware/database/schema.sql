@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS scheduler_configs (
     last_check_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 7. TABEL INTEGRATION LOGS (AUDIT TRAIL)
+CREATE TABLE IF NOT EXISTS integration_logs (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id VARCHAR(100),
+    source_system VARCHAR(50) NOT NULL,       -- 'MAXIMO', 'MIDDLEWARE', 'SAP GROW'
+    target_system VARCHAR(50) NOT NULL,       -- 'MIDDLEWARE', 'SAP GROW', 'MAXIMO'
+    document_type VARCHAR(50) NOT NULL,       -- 'PO', 'GRN', 'ITEM', dll
+    document_no VARCHAR(100) NOT NULL,        -- Nomor dokumen
+    status VARCHAR(30) NOT NULL,              -- 'RECEIVED', 'SENT', 'SUCCESS', 'FAILED'
+    error_message TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_integration_logs_doc ON integration_logs(document_type, document_no);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_created ON integration_logs(created_at);
+
 INSERT INTO scheduler_configs (id, pull_is_active, pull_interval, push_is_active, push_interval)
 VALUES (1, TRUE, 3, TRUE, 1)
 ON CONFLICT (id) DO NOTHING;

@@ -9,6 +9,7 @@ type DashboardService interface {
 	GetDashboardData(search, status, docType, startDate, endDate string, page, limit int) ([]models.Document, int64, int64, map[string]int64, map[string][]int, error)
 	GetChildDocuments(parentNo string) ([]models.Document, error)
 	GetDocTypeOptions() ([]string, error)
+	GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error)
 }
 
 type dashboardService struct {
@@ -45,4 +46,8 @@ func (s *dashboardService) GetChildDocuments(parentNo string) ([]models.Document
 
 func (s *dashboardService) GetDocTypeOptions() ([]string, error) {
 	return s.repo.GetDistinctDocTypes()
+}
+
+func (s *dashboardService) GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error) {
+	return s.repo.GetAuditTrail(docType, documentNo)
 }

@@ -14,12 +14,13 @@ func main() {
 
     // Auto Migrate Tabel
     config.DB.AutoMigrate(
-        &models.Document{},
-        &models.SchedulerConfig{},
-        &models.BackupSchedule{},
-        &models.Config{},
-        &models.MaterialGLMapping{},
-        &models.SystemLog{},
+    	&models.Document{},
+    	&models.SchedulerConfig{},
+    	&models.BackupSchedule{},
+    	&models.Config{},
+    	&models.MaterialGLMapping{},
+    	&models.SystemLog{},
+    	&models.IntegrationLog{},
     )
 
     // Seed default record BackupSchedule jika belum ada untuk mencegah error template

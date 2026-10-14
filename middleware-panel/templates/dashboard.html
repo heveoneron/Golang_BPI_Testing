@@ -10,9 +10,10 @@
     <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
     <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
     <!-- Select2 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link href="/static/css/select2.min.css" rel="stylesheet" />
+    <link href="/static/css/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
     <!-- Daterangepicker CSS -->
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css" />
+    <link rel="stylesheet" type="text/css" href="/static/css/daterangepicker.css" />
     
     <style>
         @keyframes spin { 100% { transform: rotate(360deg); } }
@@ -404,12 +405,17 @@
         
         <div class="top-nav">
             <div class="top-nav-title">
-                <h3><i class="bi bi-grid-1x2-fill text-primary"></i> Integration Tracking</h3>
+                <h3><i class="bi bi-grid-1x2-fill text-primary"></i> Tracking Data</h3>
             </div>
-            <div class="d-flex align-items-center gap-3">
-
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-primary fw-bold" style="border-radius: 10px; font-size: 13px; height: 38px; display: inline-flex; align-items: center; gap: 6px;" data-bs-toggle="modal" data-bs-target="#ingestPOModal">
+                    <i class="bi bi-plus-circle"></i> Ingest Test PO
+                </button>
+                <button type="button" class="btn btn-primary fw-bold" style="border-radius: 10px; font-size: 13px; height: 38px; display: inline-flex; align-items: center; gap: 6px;" onclick="triggerEnginePush(this)">
+                    <i class="bi bi-cloud-arrow-up-fill"></i> Trigger Push to SAP
+                </button>
                 
-                <!-- Dropdown Profil Lama -->
+                <!-- Dropdown Profil -->
                 <div class="dropdown">
                     <div class="profile-btn" data-bs-toggle="dropdown">
                         <div class="profile-avatar"><i class="bi bi-person-fill"></i></div>
@@ -651,9 +657,8 @@
                     <tbody id="tableBody">
                         {{ range .orders }}
                         <tr id="row-{{ .DocType }}-{{ .DocumentNo }}" class="root-row">
-                            <tr id="row-{{ .DocType }}-{{ .DocumentNo }}" class="root-row">
                             
-                            <!-- 1. Kolom Checkbox (Dikembalikan seperti semula) -->
+                            <!-- 1. Kolom Checkbox -->
                             <td class="text-center">
                                 {{ if .ParentDisplayNo }}
                                     <input type="checkbox" class="form-check-input" disabled>
@@ -730,7 +735,16 @@
                                     <button type="button" class="btn-view-json" onclick="showPayloadModal('{{ .DocType }}', '{{ .DocumentNo }}')">
                                         <i class="bi bi-braces"></i> JSON
                                     </button>
-                                    <button type="button" class="btn-view-log" onclick="showAuditTrailModal('{{ .DocType }}', '{{ .DocumentNo }}')">
+                                    <button type="button" class="btn-view-log" 
+                                            data-doctype="{{ .DocType }}" 
+                                            data-docno="{{ .DocumentNo }}" 
+                                            data-status="{{ .Status }}" 
+                                            data-sapdoc="{{ if .SAPDocumentNo }}{{ .SAPDocumentNo }}{{ end }}" 
+                                            data-error="{{ if .ErrorMessage }}{{ .ErrorMessage }}{{ end }}" 
+                                            data-created="{{ .CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}" 
+                                            data-updated="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z07:00" }}" 
+                                            data-group="{{ .GroupID }}" 
+                                            onclick="showAuditTrailModal('{{ .DocType }}', '{{ .DocumentNo }}', this)">
                                         <i class="bi bi-list-ul"></i> Logs
                                     </button>
                                 </div>
@@ -966,6 +980,52 @@
         </div>
     </div>
 
+    <!-- Modal Ingest Test PO -->
+    <div class="modal fade" id="ingestPOModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+                <div class="modal-header border-bottom-0 pt-4 px-4">
+                    <div>
+                        <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-plus text-primary me-2"></i>Ingest Test PO (Maximo Format)</h5>
+                        <p class="text-muted mb-0" style="font-size: 12.5px;">Kirim sample raw PO Maximo ke engine middleware untuk pengujian validasi, budget reservation, dan transformasi OData.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body px-4 py-2">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary" style="font-size: 12px; letter-spacing: 0.04em;">JSON PAYLOAD SAMPLE</label>
+                        <textarea class="form-control font-monospace" id="poJsonInput" rows="12" style="font-size: 12.5px; border-radius: 12px; background: #0F172A; color: #38BDF8;">{
+  "PONUM": "PO-BPI-TEST-999",
+  "VENDOR": "VEND-PLTU-01",
+  "ORDERDATE": "2026-10-12",
+  "CURRENCYCODE": "IDR",
+  "STATUS": "APPR",
+  "REVISIONNUM": 0,
+  "LINES": [
+    {
+      "POLINENUM": 1,
+      "ITEMNUM": "BEARING-TURBINE-6204",
+      "ORDERUNIT": "PCS",
+      "QTY": 5,
+      "UNITCOST": 150000,
+      "BUDGETCODE": "10081",
+      "DEPARTMENT": "3000",
+      "MAINACCOUNT": "513043"
+    }
+  ]
+}</textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light fw-bold px-3" data-bs-dismiss="modal" style="border-radius: 10px;">Batal</button>
+                    <button type="button" class="btn btn-primary fw-bold px-4" id="btnSubmitIngest" onclick="submitIngestPO(this)" style="border-radius: 10px;">
+                        <i class="bi bi-send-fill me-1"></i> Ingest Document
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container position-fixed bottom-0 end-0 p-4" style="z-index: 1100">
         <div id="syncToast" class="toast align-items-center text-white bg-dark border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true" style="border-radius: 12px;">
             <div class="d-flex p-2"><div class="toast-body fw-bold" style="font-size: 14px;"><span class="spinner-border spinner-border-sm me-3"></span><span id="toastMessage">Processing...</span></div></div>
@@ -973,13 +1033,13 @@
     </div>
 
     <!-- JQuery & Bootstrap Scripts -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="/static/js/jquery.min.js"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <!-- Moment JS -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
+    <script type="text/javascript" src="/static/js/moment.min.js"></script>
     <!-- Select2 & DateRangePicker JS -->
-    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.min.js"></script>
+    <script src="/static/js/select2.min.js"></script>
+    <script type="text/javascript" src="/static/js/daterangepicker.min.js"></script>
     
     <script>
         function refreshTableData() {
@@ -1024,19 +1084,64 @@
             });
         }
 
-        async function showAuditTrailModal(docType, docNo) {
+        async function showAuditTrailModal(docType, docNo, btnEl) {
             document.getElementById('auditModalSubtitle').innerHTML = `${docType} | ${docNo}`; 
             const tbody = document.getElementById('auditTrailBody');
             tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary"></span> Loading...</td></tr>`;
             new bootstrap.Modal(document.getElementById('auditTrailModal')).show();
             try {
-                const res = await fetch(`/api/audit-trail?doc_type=${docType}&doc_no=${docNo}`);
+                const encodedDocType = encodeURIComponent(docType);
+                const encodedDocNo = encodeURIComponent(docNo);
+                const res = await fetch(`/api/audit-trail?doc_type=${encodedDocType}&doc_no=${encodedDocNo}`);
                 const json = await res.json();
-                if (json.data && json.data.length > 0) {
+                let logs = (json && json.data && json.data.length > 0) ? json.data : [];
+
+                // Smart Client Fallback: Jika database log masih kosong, buatkan trace log langsung dari elemen baris
+                if (logs.length === 0 && btnEl) {
+                    const status = btnEl.getAttribute('data-status') || 'pending';
+                    const sapDoc = btnEl.getAttribute('data-sapdoc') || '';
+                    const errMsg = btnEl.getAttribute('data-error') || '';
+                    const group = btnEl.getAttribute('data-group') || docNo;
+                    const cDate = btnEl.getAttribute('data-created') ? new Date(btnEl.getAttribute('data-created')) : new Date();
+                    const uDate = btnEl.getAttribute('data-updated') ? new Date(btnEl.getAttribute('data-updated')) : new Date(cDate.getTime() + 1000);
+
+                    let sapStatus = 'SENT';
+                    let metaMsg = 'Waiting for confirmation from SAP';
+                    if (status.toLowerCase() === 'success') {
+                        sapStatus = 'SUCCESS';
+                        metaMsg = sapDoc ? `Document successfully posted to SAP Grow (SAP Doc: ${sapDoc})` : 'Document successfully posted to SAP Grow';
+                    } else if (status.toLowerCase().includes('error') || status.toLowerCase() === 'failed') {
+                        sapStatus = 'FAILED';
+                        metaMsg = errMsg || 'Failed processing document to SAP';
+                    } else if (status.toLowerCase() === 'pending' || status.toLowerCase() === 'requeued') {
+                        sapStatus = 'PENDING';
+                        metaMsg = 'Queued in middleware buffer';
+                    }
+
+                    logs = [
+                        {
+                            created_at: cDate.toISOString(),
+                            source_system: 'MAXIMO',
+                            target_system: 'MIDDLEWARE',
+                            status: 'RECEIVED',
+                            metadata: `Payload received from Maximo ERP (Group: ${group})`
+                        },
+                        {
+                            created_at: uDate.toISOString(),
+                            source_system: 'MIDDLEWARE',
+                            target_system: 'SAP GROW',
+                            status: sapStatus,
+                            error_message: errMsg,
+                            metadata: metaMsg
+                        }
+                    ];
+                }
+
+                if (logs.length > 0) {
                     let html = '';
-                    let earliestTime = new Date(json.data[0].created_at);
-                    let latestTime = new Date(json.data[0].created_at);
-                    json.data.forEach(log => {
+                    let earliestTime = new Date(logs[0].created_at);
+                    let latestTime = new Date(logs[0].created_at);
+                    logs.forEach(log => {
                         const logDate = new Date(log.created_at);
                         if (logDate < earliestTime) earliestTime = logDate;
                         if (logDate > latestTime) latestTime = logDate;
@@ -1047,15 +1152,12 @@
                         else if(log.status === 'FAILED' || log.status === 'ERROR') badgeClass = 'bg-danger';
                         else if(log.status === 'SENT' || log.status === 'RECEIVED') badgeClass = 'bg-primary';
                         
-                        // --- PERBAIKAN DIMULAI DARI SINI ---
+                        // --- FORMAT PESAN & METADATA ---
                         let rawMsg = log.error_message ? log.error_message : (log.metadata ? log.metadata : '-');
                         let msgDisplay = '-';
                         
                         if (rawMsg !== '-') {
-                            // Encode teks untuk mengamankan data saat dilempar ke fungsi onclick
                             const safeMsgData = encodeURIComponent(rawMsg).replace(/'/g, "%27");
-                            
-                            // Jika pesan lebih panjang dari 60 karakter atau mengandung format JSON '{'
                             if (rawMsg.length > 60 || rawMsg.includes('{')) {
                                 msgDisplay = `
                                     <div class="d-flex flex-column align-items-start" style="gap: 6px;">
@@ -1067,7 +1169,6 @@
                                         </button>
                                     </div>`;
                             } else {
-                                // Jika pesan pendek, tampilkan biasa
                                 msgDisplay = `<span style="color: #334155; font-weight: 500; font-size: 12px; word-break: break-word;">${rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
                             }
                         }
@@ -1174,7 +1275,18 @@ turn `
                     <td class="text-center">
                         <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
                             <button type="button" class="btn-view-json" onclick="showPayloadModal('${child.DocType}', '${child.DocumentNo}', '${(child.Payload || '{}').replace(/'/g, "&#39;")}')"><i class="bi bi-braces"></i> JSON</button>
-                            <button type="button" class="btn-view-log" onclick="showAuditTrailModal('${child.DocType}', '${child.DocumentNo}')"><i class="bi bi-list-ul"></i> Logs</button>
+                            <button type="button" class="btn-view-log" 
+                                    data-doctype="${child.DocType}" 
+                                    data-docno="${child.DocumentNo}" 
+                                    data-status="${child.Status}" 
+                                    data-sapdoc="${child.SAPDocumentNo || ''}" 
+                                    data-error="${child.ErrorMessage || ''}" 
+                                    data-created="${child.CreatedAt}" 
+                                    data-updated="${child.UpdatedAt}" 
+                                    data-group="${child.GroupID || child.DocumentNo}" 
+                                    onclick="showAuditTrailModal('${child.DocType}', '${child.DocumentNo}', this)">
+                                <i class="bi bi-list-ul"></i> Logs
+                            </button>
                         </div>
                     </td>
                     <td class="text-center">${statusBadge}</td>

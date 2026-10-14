@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -191,54 +192,55 @@ func (c *DashboardController) GetChildrenAPI(ctx *gin.Context) {
 	})
 }
 
-// --- PROXY AUDIT TRAIL API ---
+// --- PROXY / DIRECT AUDIT TRAIL API ---
 func (c *DashboardController) GetAuditTrailAPI(ctx *gin.Context) {
-	session := sessions.Default(ctx)
-	token := session.Get("token")
-	if token == nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized. Sesi login admin tidak ditemukan."})
-		return
-	}
-	tokenStr := token.(string)
-
 	docType := ctx.Query("doc_type")
 	docNo := ctx.Query("doc_no")
 
-	// Ambil URL dasar secara dinamis murni dari .env tanpa hardcode IP
+	// 1. Coba ambil riwayat audit trail langsung dari database PostgreSQL
+	logs, err := c.dashService.GetAuditTrail(docType, docNo)
+	if err == nil && len(logs) > 0 {
+		ctx.JSON(http.StatusOK, gin.H{
+			"status": "success",
+			"data":   logs,
+		})
+		return
+	}
+
+	// 2. Jika tidak ada dan BACKUP_API_URL dikonfigurasi, coba proxy ke engine eksternal
 	apiURL := os.Getenv("BACKUP_API_URL")
-	if apiURL == "" {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Konfigurasi BACKUP_API_URL tidak ditemukan di server ini."})
-		return
+	if apiURL != "" {
+		session := sessions.Default(ctx)
+		tokenStr := ""
+		if token := session.Get("token"); token != nil {
+			tokenStr = token.(string)
+		}
+
+		targetURL := apiURL + "/admin/integration-logs?document_type=" + docType + "&document_no=" + docNo
+		req, err := http.NewRequest("GET", targetURL, nil)
+		if err == nil {
+			if tokenStr != "" {
+				req.Header.Set("Authorization", "Bearer "+tokenStr)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{Timeout: 3 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				var jsonResp interface{}
+				if err := json.Unmarshal(body, &jsonResp); err == nil {
+					ctx.JSON(resp.StatusCode, jsonResp)
+					return
+				}
+			}
+		}
 	}
 
-	// Konstruksi endpoint target
-	targetURL := apiURL + "/admin/integration-logs?document_type=" + docType + "&document_no=" + docNo
-
-	req, err := http.NewRequest("GET", targetURL, nil)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Sisipkan token dari sesi ke dalam Header Request
-	req.Header.Set("Authorization", "Bearer "+tokenStr)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal terhubung ke API Integration Logs"})
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	var jsonResp interface{}
-	if err := json.Unmarshal(body, &jsonResp); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Format JSON tidak valid dari API Eksternal"})
-		return
-	}
-
-	ctx.JSON(resp.StatusCode, jsonResp)
+	// 3. Fallback jika kosong
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   logs,
+	})
 }

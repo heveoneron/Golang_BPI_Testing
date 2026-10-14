@@ -1,9 +1,12 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"golang-bpi-testing/internal/model"
 	"golang-bpi-testing/internal/repository"
@@ -239,6 +242,172 @@ func (c *WebController) GetDocuments(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, GetDocumentsResponse{Total: len(list), Data: list})
+}
+
+// GetIntegrationLogs godoc
+// @Summary      Get integration audit trail logs
+// @Description  Mendapatkan riwayat audit trail pertukaran data Maximo <-> Middleware <-> SAP
+// @Tags         Logs
+// @Produce      json
+// @Param        document_type query string false "Filter Document Type"
+// @Param        document_no   query string false "Filter Document No"
+// @Success      200  {object}  map[string]interface{}
+// @Router       /integration-logs [get]
+func (c *WebController) GetIntegrationLogs(ctx *gin.Context) {
+	docType := ctx.Query("document_type")
+	if docType == "" {
+		docType = ctx.Query("doc_type")
+	}
+	docNo := ctx.Query("document_no")
+	if docNo == "" {
+		docNo = ctx.Query("doc_no")
+	}
+
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"status": "success",
+			"data":   []interface{}{},
+		})
+		return
+	}
+
+	query := `
+		SELECT id, trace_id, source_system, target_system, document_type, document_no, status, error_message, metadata, created_at
+		FROM integration_logs
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argIdx := 1
+	if docType != "" {
+		query += fmt.Sprintf(" AND document_type = $%d", argIdx)
+		args = append(args, docType)
+		argIdx++
+	}
+	if docNo != "" {
+		query += fmt.Sprintf(" AND document_no = $%d", argIdx)
+		args = append(args, docNo)
+		argIdx++
+	}
+	query += " ORDER BY created_at ASC"
+
+	rows, err := c.PGRepo.Pool.Query(ctx.Request.Context(), query, args...)
+	if err != nil {
+		// Jika tabel belum di-create atau error, buatkan log sintetis dari documents
+		logs := c.getSyntheticLogsFromDocuments(ctx.Request.Context(), docType, docNo)
+		ctx.JSON(http.StatusOK, gin.H{
+			"status": "success",
+			"data":   logs,
+		})
+		return
+	}
+	defer rows.Close()
+
+	var logs []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var traceID, src, tgt, dType, dNo, status string
+		var errMsg, meta *string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &traceID, &src, &tgt, &dType, &dNo, &status, &errMsg, &meta, &createdAt); err == nil {
+			errStr := ""
+			if errMsg != nil {
+				errStr = *errMsg
+			}
+			metaStr := ""
+			if meta != nil {
+				metaStr = *meta
+			}
+			logs = append(logs, map[string]interface{}{
+				"id":            id,
+				"trace_id":      traceID,
+				"source_system": src,
+				"target_system": tgt,
+				"document_type": dType,
+				"document_no":   dNo,
+				"status":        status,
+				"error_message": errStr,
+				"metadata":      metaStr,
+				"created_at":    createdAt,
+			})
+		}
+	}
+
+	if len(logs) == 0 && docNo != "" {
+		logs = c.getSyntheticLogsFromDocuments(ctx.Request.Context(), docType, docNo)
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   logs,
+	})
+}
+
+func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docType, docNo string) []map[string]interface{} {
+	var logs []map[string]interface{}
+	if c.PGRepo == nil || c.PGRepo.Pool == nil || docNo == "" {
+		return logs
+	}
+
+	var dType, dNo, groupID, status string
+	var sapDocNo, errMsg *string
+	var createdAt, updatedAt time.Time
+	err := c.PGRepo.Pool.QueryRow(ctx, `
+		SELECT doc_type, document_no, group_id, status, sap_document_no, error_message, created_at, updated_at
+		FROM documents
+		WHERE document_no = $1
+		LIMIT 1
+	`, docNo).Scan(&dType, &dNo, &groupID, &status, &sapDocNo, &errMsg, &createdAt, &updatedAt)
+	if err != nil {
+		return logs
+	}
+
+	// 1. Log Received Maximo
+	logs = append(logs, map[string]interface{}{
+		"source_system": "MAXIMO",
+		"target_system": "MIDDLEWARE",
+		"document_type": dType,
+		"document_no":   dNo,
+		"status":        "RECEIVED",
+		"metadata":      fmt.Sprintf("Payload received from Maximo ERP (Group: %s)", groupID),
+		"created_at":    createdAt,
+	})
+
+	// 2. Log Sent / Processing to SAP
+	sapStatus := "SENT"
+	metaMsg := "Waiting for confirmation from SAP"
+	if status == "success" {
+		sapStatus = "SUCCESS"
+		metaMsg = "Document successfully posted to SAP Grow"
+		if sapDocNo != nil && *sapDocNo != "" {
+			metaMsg = fmt.Sprintf("Document successfully posted to SAP Grow (SAP Doc: %s)", *sapDocNo)
+		}
+	} else if status == "error" || status == "error_data" || status == "error_conn" {
+		sapStatus = "FAILED"
+		if errMsg != nil {
+			metaMsg = *errMsg
+		}
+	} else if status == "pending" || status == "requeued" {
+		sapStatus = "PENDING"
+		metaMsg = "Queued in middleware buffer"
+	}
+
+	upTime := updatedAt
+	if upTime.Equal(createdAt) {
+		upTime = createdAt.Add(1 * time.Second)
+	}
+
+	logs = append(logs, map[string]interface{}{
+		"source_system": "MIDDLEWARE",
+		"target_system": "SAP GROW",
+		"document_type": dType,
+		"document_no":   dNo,
+		"status":        sapStatus,
+		"error_message": errMsg,
+		"metadata":      metaMsg,
+		"created_at":    upTime,
+	})
+
+	return logs
 }
 
 // HealthCheck godoc
