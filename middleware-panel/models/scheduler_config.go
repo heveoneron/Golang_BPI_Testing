@@ -5,6 +5,7 @@ import "gorm.io/gorm"
 type SchedulerConfig struct {
 	gorm.Model
 	IsActive           bool   `gorm:"default:false"`
+	PullIsActive       bool   `gorm:"default:false"`
 	Frequency          string `gorm:"type:varchar(20);default:'daily'"`
 	StartDate          string `gorm:"type:varchar(15)"`
 	StartTime          string `gorm:"type:varchar(10)"`

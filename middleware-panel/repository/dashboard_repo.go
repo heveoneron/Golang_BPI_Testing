@@ -18,6 +18,9 @@ type DashboardRepository interface {
 	GetDistinctDocTypes() ([]string, error)
 	GetTrendStats(docType string, startDate string, endDate string) map[string][]int
 	GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error)
+	DeleteDocument(docType, docNo string) error
+	BulkDeleteDocuments(items []string) (int64, error)
+	ClearAllDocuments() error
 }
 
 type dashboardRepo struct {
@@ -349,3 +352,55 @@ func (r *dashboardRepo) GetAuditTrail(docType string, documentNo string) ([]mode
 
 	return logs, nil
 }
+
+func (r *dashboardRepo) DeleteDocument(docType, docNo string) error {
+	// 1. Delete from documents
+	q := r.db.Where("document_no = ?", docNo)
+	if docType != "" {
+		q = q.Where("LOWER(doc_type) = LOWER(?)", docType)
+	}
+	if err := q.Delete(&models.Document{}).Error; err != nil {
+		return err
+	}
+
+	// 2. Delete from staging_documents
+	qStage := r.db.Table("staging_documents").Where("document_no = ?", docNo)
+	if docType != "" {
+		qStage = qStage.Where("LOWER(doc_type) = LOWER(?)", docType)
+	}
+	_ = qStage.Delete(nil).Error
+
+	// 3. Delete from integration_logs
+	qLog := r.db.Table("integration_logs").Where("document_no = ?", docNo)
+	if docType != "" {
+		qLog = qLog.Where("LOWER(document_type) = LOWER(?)", docType)
+	}
+	_ = qLog.Delete(nil).Error
+
+	return nil
+}
+
+func (r *dashboardRepo) BulkDeleteDocuments(items []string) (int64, error) {
+	var count int64
+	for _, it := range items {
+		parts := strings.SplitN(it, "|", 2)
+		docType := ""
+		docNo := it
+		if len(parts) == 2 {
+			docType = parts[0]
+			docNo = parts[1]
+		}
+		if err := r.DeleteDocument(docType, docNo); err == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *dashboardRepo) ClearAllDocuments() error {
+	_ = r.db.Exec("DELETE FROM documents").Error
+	_ = r.db.Exec("DELETE FROM staging_documents").Error
+	_ = r.db.Exec("DELETE FROM integration_logs").Error
+	return nil
+}
+

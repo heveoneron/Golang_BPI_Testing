@@ -56,6 +56,16 @@
             </a>
         </li>
         <li class="nav-item">
+            <a href="/sap-endpoints" class="nav-link {{ if eq .ActiveMenu "sap_endpoints" }}active{{ end }}">
+                <i class="bi bi-cloud-arrow-up-fill"></i> SAP Integration
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/table-api-mapping" class="nav-link {{ if eq .ActiveMenu "table_mapping" }}active{{ end }}">
+                <i class="bi bi-diagram-3-fill"></i> Table-to-API Mapping
+            </a>
+        </li>
+        <li class="nav-item">
             <a href="/scheduler-config" class="nav-link {{ if eq .ActiveMenu "scheduler" }}active{{ end }}">
                 <i class="bi bi-clock-history"></i> Scheduler
             </a>
@@ -63,6 +73,11 @@
         <li class="nav-item">
             <a href="/backup-config" class="nav-link {{ if eq .ActiveMenu "backup" }}active{{ end }}">
                 <i class="bi bi-database-check"></i> Backup
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/users" class="nav-link {{ if eq .ActiveMenu "users" }}active{{ end }}">
+                <i class="bi bi-people-fill"></i> User Access
             </a>
         </li>
     </ul>

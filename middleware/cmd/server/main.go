@@ -127,8 +127,22 @@ func main() {
 // Background Worker 1: Pull dari SQL Server & Transform ke Core Documents
 func startPullWorker(ctx context.Context, svc *service.SyncService, pgRepo *repository.PostgresRepository, wg *sync.WaitGroup) {
 	defer wg.Done()
-	log.Println("[WORKER] Pull Worker aktif (Interval default 3 Menit)...")
-	ticker := time.NewTicker(3 * time.Minute)
+
+	intervalMin := 3
+	if envInterval := os.Getenv("PULL_INTERVAL_MINUTES"); envInterval != "" {
+		if m, err := strconv.Atoi(envInterval); err == nil && m > 0 {
+			intervalMin = m
+		}
+	}
+
+	initActive, _ := pgRepo.IsAutoPullActive(ctx)
+	statusStr := "AKTIF (ON)"
+	if !initActive {
+		statusStr = "NONAKTIF (OFF)"
+	}
+	log.Printf("[WORKER] Pull Worker aktif (Interval: %d Menit, Status Auto-Pull: %s)...", intervalMin, statusStr)
+
+	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -139,12 +153,24 @@ func startPullWorker(ctx context.Context, svc *service.SyncService, pgRepo *repo
 			if pgRepo.Pool == nil {
 				continue
 			}
-			pullLimit := 1
+
+			// Pengecekan status dinamis: Apakah fitur Auto-Pull ON atau OFF (via .env atau Panel)
+			isActive, dbLimit := pgRepo.IsAutoPullActive(ctx)
+			if !isActive {
+				log.Println("[WORKER-PULL] Auto get data dari Maximo sedang NONAKTIF / OFF (via .env atau Panel). Siklus penarikan otomatis dilewati.")
+				continue
+			}
+
+			pullLimit := dbLimit
+			if pullLimit <= 0 {
+				pullLimit = 1
+			}
 			if envLimit := os.Getenv("PULL_BATCH_LIMIT"); envLimit != "" {
 				if l, err := strconv.Atoi(envLimit); err == nil && l > 0 {
 					pullLimit = l
 				}
 			}
+
 			pulled, transformed := svc.PullDataFromSQLServer(ctx, pullLimit)
 			if pulled > 0 {
 				log.Printf("[WORKER-PULL] Berhasil menarik %d record dari SQL Server (Transformed: %d).", pulled, transformed)

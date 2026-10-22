@@ -31,6 +31,7 @@ func (s *schedulerService) UpdateConfigFromForm(form map[string]interface{}) (*m
 	}
 
 	schedConfig.IsActive = (form["is_active"] == "on")
+	schedConfig.PullIsActive = schedConfig.IsActive
 
 	if val, ok := form["frequency"].(string); ok {
 		schedConfig.Frequency = val

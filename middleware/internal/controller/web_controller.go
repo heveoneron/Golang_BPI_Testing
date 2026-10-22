@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -423,3 +424,275 @@ func (c *WebController) HealthCheck(ctx *gin.Context) {
 		Status:  "running",
 	})
 }
+
+// ==========================================
+// SAP ENDPOINTS & MULTI-CREDENTIAL HANDLERS
+// ==========================================
+
+// GetSAPEndpoints mengambil daftar semua endpoint SAP terdaftar
+func (c *WebController) GetSAPEndpoints(ctx *gin.Context) {
+	if c.PGRepo == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	endpoints, err := c.PGRepo.GetSAPEndpoints(ctx.Request.Context())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   endpoints,
+	})
+}
+
+// TestSAPEndpoint menguji koneksi & token CSRF ke endpoint spesifik
+func (c *WebController) TestSAPEndpoint(ctx *gin.Context) {
+	if c.PGRepo == nil || c.SyncSvc == nil || c.SyncSvc.SAPClient == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "SAP client service is not initialized"})
+		return
+	}
+
+	var req struct {
+		ServiceCode string `json:"service_code"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil || req.ServiceCode == "" {
+		req.ServiceCode = ctx.Query("service_code")
+	}
+	if req.ServiceCode == "" {
+		req.ServiceCode = "PO"
+	}
+
+	ep, err := c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), req.ServiceCode)
+	if err != nil || ep == nil {
+		ctx.JSON(http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("Service code '%s' tidak ditemukan", req.ServiceCode)})
+		return
+	}
+
+	csrfToken, latency, connErr := c.SyncSvc.SAPClient.TestConnection(ep)
+	status := "SUCCESS"
+	respMsg := fmt.Sprintf("Handshake Berhasil! CSRF Token didapatkan (Latency: %dms)", latency)
+	if connErr != nil {
+		status = "FAILED"
+		respMsg = fmt.Sprintf("Handshake Gagal: %v (Latency: %dms)", connErr, latency)
+	}
+
+	_ = c.PGRepo.UpdateSAPEndpointStatus(ctx.Request.Context(), ep.ServiceCode, status, respMsg)
+
+	if connErr != nil {
+		ctx.JSON(http.StatusBadGateway, gin.H{
+			"status":       "error",
+			"service_code": ep.ServiceCode,
+			"scenario_id":  ep.ScenarioID,
+			"username":     ep.Username,
+			"latency_ms":   latency,
+			"message":      respMsg,
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":       "success",
+		"service_code": ep.ServiceCode,
+		"scenario_id":  ep.ScenarioID,
+		"username":     ep.Username,
+		"csrf_token":   csrfToken,
+		"latency_ms":   latency,
+		"message":      respMsg,
+	})
+}
+
+// SaveSAPEndpoint menyimpan atau memperbarui kredensial endpoint SAP
+func (c *WebController) SaveSAPEndpoint(ctx *gin.Context) {
+	if c.PGRepo == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	var ep model.SAPEndpoint
+	if err := ctx.ShouldBindJSON(&ep); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Format JSON tidak valid: " + err.Error()})
+		return
+	}
+
+	if ep.ServiceCode == "" || ep.Username == "" {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "ServiceCode dan Username wajib diisi"})
+		return
+	}
+
+	if err := c.PGRepo.SaveSAPEndpoint(ctx.Request.Context(), &ep); err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": fmt.Sprintf("Endpoint %s (%s) berhasil disimpan", ep.ServiceCode, ep.Username),
+	})
+}
+
+// ExecuteSAPTest mengeksekusi langsung payload test ke SAP Grow dari panel sandbox
+func (c *WebController) ExecuteSAPTest(ctx *gin.Context) {
+	if c.PGRepo == nil || c.SyncSvc == nil || c.SyncSvc.SAPClient == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "SAP client service is not initialized"})
+		return
+	}
+
+	var req struct {
+		ServiceCode string      `json:"service_code"`
+		Method      string      `json:"method"`
+		Payload     interface{} `json:"payload"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Format request tidak valid: " + err.Error()})
+		return
+	}
+
+	if req.ServiceCode == "" {
+		req.ServiceCode = "PO"
+	}
+	if req.Method == "" {
+		req.Method = "POST"
+	}
+
+	ep, err := c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), req.ServiceCode)
+	if err != nil || ep == nil {
+		ctx.JSON(http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("Service '%s' tidak ditemukan di database", req.ServiceCode)})
+		return
+	}
+
+	var payloadBytes []byte
+	if req.Payload != nil {
+		payloadBytes, _ = json.Marshal(req.Payload)
+	}
+
+	statusCode, sapDocNo, respBody, sapErr := c.SyncSvc.SAPClient.ExecuteOData(ep, req.Method, payloadBytes)
+
+	// Catat ke integration logs untuk audit trail
+	logStatus := "SUCCESS"
+	errMsg := ""
+	if sapErr != nil {
+		logStatus = "FAILED"
+		errMsg = sapErr.Error()
+	}
+	_ = c.PGRepo.InsertIntegrationLog(
+		ctx.Request.Context(),
+		fmt.Sprintf("SANDBOX-%s-%d", ep.ServiceCode, time.Now().Unix()),
+		"SANDBOX_PANEL",
+		"SAP GROW",
+		ep.ServiceCode,
+		sapDocNo,
+		logStatus,
+		errMsg,
+		fmt.Sprintf("Sandbox %s test execution via %s (%s)", req.Method, ep.ScenarioID, ep.Username),
+	)
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":         "executed",
+		"http_code":      statusCode,
+		"service_code":   ep.ServiceCode,
+		"scenario_id":    ep.ScenarioID,
+		"username":       ep.Username,
+		"sap_document_no": sapDocNo,
+		"response":       respBody,
+		"error":          errMsg,
+	})
+}
+
+// SchedulerStatusResponse merepresentasikan respons status scheduler
+type SchedulerStatusResponse struct {
+	Status          string `json:"status" example:"success"`
+	AutoPullEnabled bool   `json:"auto_pull_enabled" example:"true"`
+	EnvSetting      string `json:"env_setting" example:"true"`
+	BatchLimit      int    `json:"batch_limit" example:"1"`
+	Message         string `json:"message,omitempty" example:"Auto-pull status di database berhasil diatur"`
+}
+
+// GetSchedulerStatus godoc
+// @Summary      Cek Status Pengaturan Auto-Pull
+// @Description  Memeriksa status aktif/nonaktif fitur penarikan data otomatis dari Maximo (berdasarkan .env dan DB)
+// @Tags         Scheduler
+// @Produce      json
+// @Success      200  {object}  SchedulerStatusResponse
+// @Router       /scheduler/status [get]
+func (c *WebController) GetSchedulerStatus(ctx *gin.Context) {
+	if c.PGRepo == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	isActive, batchLimit := c.PGRepo.IsAutoPullActive(ctx.Request.Context())
+	envPull := os.Getenv("AUTO_PULL_ENABLED")
+	if envPull == "" {
+		envPull = os.Getenv("ENABLE_AUTO_PULL")
+	}
+
+	ctx.JSON(http.StatusOK, SchedulerStatusResponse{
+		Status:          "success",
+		AutoPullEnabled: isActive,
+		EnvSetting:      envPull,
+		BatchLimit:      batchLimit,
+	})
+}
+
+// ToggleAutoPull godoc
+// @Summary      Ubah Status On/Off Auto-Pull di Database
+// @Description  Mengubah status aktif/nonaktif auto get data from Maximo pada database runtime
+// @Tags         Scheduler
+// @Accept       json
+// @Produce      json
+// @Param        active  query     bool  false  "Status aktif (true/false)"
+// @Success      200     {object}  SchedulerStatusResponse
+// @Router       /scheduler/toggle [post]
+func (c *WebController) ToggleAutoPull(ctx *gin.Context) {
+	if c.PGRepo == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	var targetActive bool = true
+	hasParam := false
+
+	var body struct {
+		Active *bool `json:"active"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err == nil && body.Active != nil {
+		targetActive = *body.Active
+		hasParam = true
+	}
+
+	if !hasParam {
+		q := ctx.DefaultQuery("active", "")
+		if q != "" {
+			targetActive = (q == "true" || q == "1" || q == "on")
+			hasParam = true
+		}
+	}
+
+	if !hasParam {
+		currentActive, _ := c.PGRepo.IsAutoPullActive(ctx.Request.Context())
+		targetActive = !currentActive
+	}
+
+	if err := c.PGRepo.SetAutoPullActive(ctx.Request.Context(), targetActive); err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	effectiveActive, limit := c.PGRepo.IsAutoPullActive(ctx.Request.Context())
+	envPull := os.Getenv("AUTO_PULL_ENABLED")
+	if envPull == "" {
+		envPull = os.Getenv("ENABLE_AUTO_PULL")
+	}
+
+	ctx.JSON(http.StatusOK, SchedulerStatusResponse{
+		Status:          "success",
+		AutoPullEnabled: effectiveActive,
+		EnvSetting:      envPull,
+		BatchLimit:      limit,
+		Message:         fmt.Sprintf("Auto-pull status di database berhasil diatur ke: %v", targetActive),
+	})
+}
+

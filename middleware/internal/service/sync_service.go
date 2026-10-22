@@ -52,8 +52,9 @@ func (s *SyncService) PullDataFromSQLServer(ctx context.Context, limit int) (int
 		}
 		if err := s.PGRepo.UpsertStagingDocument(ctx, doc); err == nil {
 			insertedCount++
+			_ = s.PGRepo.InsertIntegrationLog(ctx, fmt.Sprintf("GRP-%s-%s", rec.DocType, rec.DocumentNo), "MAXIMO", "MIDDLEWARE", rec.DocType, rec.DocumentNo, "RECEIVED", "", fmt.Sprintf("Data pulled from SQL Server (TransID: %s, Table: %s)", rec.TransID, rec.IfaceTbName))
 			if rec.TransID != "" {
-				_ = s.SQLRepo.MarkProcessed(ctx, rec.TransID)
+				_ = s.SQLRepo.MarkProcessed(ctx, rec.TransID, rec.IfaceTbName)
 			}
 		} else {
 			log.Printf("[WARN] Upsert staging gagal untuk %s %s: %v", rec.DocType, rec.DocumentNo, err)
@@ -109,6 +110,7 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 
 		if err := s.PGRepo.UpsertCoreDocument(ctx, coreDoc); err == nil {
 			_ = s.PGRepo.MarkStagingProcessed(ctx, stage.ID, "PROCESSED", "-")
+			_ = s.PGRepo.InsertIntegrationLog(ctx, coreDoc.GroupID, "MIDDLEWARE", "MIDDLEWARE", coreDoc.DocType, coreDoc.DocumentNo, "TRANSFORMED", "", "Staging payload converted to SAP OData format")
 			transformedCount++
 		}
 	}
@@ -134,15 +136,23 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			costCenter = line.CostCenter
 		}
 
+		itemNum := line.ItemNum
+		if itemNum == "" {
+			itemNum = "PK0514"
+		}
+
 		sapItems = append(sapItems, model.SAPGrowPOItem{
 			PurchaseOrderItem:         fmt.Sprintf("%d", (idx+1)*10),
-			Material:                  line.ItemNum,
-			OrderQuantity:             fmt.Sprintf("%.2f", line.OrderQty),
+			PurchaseOrderItemText:     itemNum,
+			Material:                  itemNum,
+			Plant:                     "5110",
+			StorageLocation:           "511C",
+			OrderQuantity:             fmt.Sprintf("%.0f", line.OrderQty),
 			PurchaseOrderQuantityUnit: line.OrderUnit,
-			NetPriceAmount:            fmt.Sprintf("%.2f", line.UnitCost),
-			AccountAssignmentCategory: "K",
-			CostCenter:                line.CostCenter,
-			GLAccount:                 line.MainAccount,
+			NetPriceAmount:            fmt.Sprintf("%.0f", line.UnitCost),
+			DocumentCurrency:          maxPO.CurrencyCode,
+			NetPriceQuantity:          "1",
+			OrderPriceUnit:            line.OrderUnit,
 		})
 	}
 
@@ -156,16 +166,29 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		}
 	}
 
-	// Bentuk struktur OData SAP Grow
+	docCurrency := maxPO.CurrencyCode
+	if docCurrency == "" {
+		docCurrency = "USD"
+	}
+	orderDate := maxPO.OrderDate
+	if orderDate == "" {
+		orderDate = time.Now().Format("2006-01-02")
+	}
+
+	// Bentuk struktur OData v4 SAP Grow
 	sapPO := model.SAPGrowPOPayload{
-		CompanyCode:             "1000",
-		PurchasingOrganization:  "1010",
+		PurchaseOrderType:       "NB",
+		CompanyCode:             "5110",
+		PurchasingOrganization:  "5110",
 		PurchasingGroup:         "001",
 		Supplier:                maxPO.Vendor,
-		PurchaseOrderDate:       maxPO.OrderDate,
-		DocumentCurrency:        maxPO.CurrencyCode,
-		CorrespncExternalRefDoc: maxPO.PONum,
-		ToPurchaseOrderItem:     sapItems,
+		DocumentCurrency:        docCurrency,
+		Language:                "EN",
+		PurchaseOrderDate:       orderDate,
+		PaymentTerms:            "0001",
+		IncotermsClassification: "EXW",
+		IncotermsLocation1:      "Jakarta",
+		PurchaseOrderItem:       sapItems,
 	}
 
 	return json.Marshal(sapPO)
@@ -180,32 +203,45 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 
 	pushedCount := 0
 	for _, doc := range docs {
-		endpoint := "/sap/opu/odata/sap/API_PURCHASEORDER_PROCESS_SRV/A_PurchaseOrder"
-		if doc.DocType == "GRN" {
-			endpoint = "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
-		}
-
-		respBody, sapErr := s.SAPClient.PostODataDocument(endpoint, doc.SAPPayload)
-		if sapErr != nil {
-			log.Printf("[WARN] Push to SAP Failed for %s: %v", doc.DocumentNo, sapErr)
-			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", sapErr.Error(), json.RawMessage(respBody))
-		} else {
-			// Ekstrak Document No dari response OData
-			var respMap map[string]interface{}
-			_ = json.Unmarshal([]byte(respBody), &respMap)
-			sapDocNo := fmt.Sprintf("SAP-%s-%d", doc.DocType, time.Now().Unix())
-			if d, ok := respMap["d"].(map[string]interface{}); ok {
-				if po, exists := d["PurchaseOrder"].(string); exists {
-					sapDocNo = po
-				} else if mat, exists := d["MaterialDocument"].(string); exists {
-					sapDocNo = mat
-				}
+		// 1. Ambil konfigurasi endpoint & kredensial spesifik berdasarkan DocType
+		ep, err := s.PGRepo.GetSAPEndpointByCode(ctx, doc.DocType)
+		if err != nil || ep == nil {
+			// Fallback ke default endpoint jika belum ada di database
+			defaultPath := "/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
+			defaultODataVer := "v4"
+			if doc.DocType == "BP" {
+				defaultPath = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner"
+				defaultODataVer = "v2"
+			} else if doc.DocType == "GRN" {
+				defaultPath = "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
+				defaultODataVer = "v2"
 			}
 
+			ep = &model.SAPEndpoint{
+				ServiceCode:  doc.DocType,
+				ServiceName:  fmt.Sprintf("Default %s Service", doc.DocType),
+				ODataVersion: defaultODataVer,
+				BaseURL:      s.SAPClient.BaseURL,
+				EndpointPath: defaultPath,
+				Username:     s.SAPClient.Username,
+				Password:     s.SAPClient.Password,
+				IsActive:     true,
+			}
+		}
+
+		// 2. Eksekusi request ke SAP Grow OData dengan auth & token handshake terisolasi
+		_, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(ep, "POST", doc.SAPPayload)
+		if sapErr != nil {
+			log.Printf("[WARN] Push to SAP Failed for %s (%s): %v", doc.DocumentNo, doc.DocType, sapErr)
+			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", sapErr.Error(), json.RawMessage(respBody))
+			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", sapErr.Error(), fmt.Sprintf("Failed sending to SAP Grow: %s", sapErr.Error()))
+		} else {
 			_ = s.PGRepo.UpdateSAPSuccess(ctx, doc.ID, sapDocNo, json.RawMessage(respBody))
+			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "SUCCESS", "", fmt.Sprintf("Successfully posted to SAP Grow (SAP Doc: %s)", sapDocNo))
 			pushedCount++
-			log.Printf("[INFO] Push to SAP Success: %s -> %s", doc.DocumentNo, sapDocNo)
+			log.Printf("[INFO] Push to SAP Success: %s -> %s (Scenario: %s)", doc.DocumentNo, sapDocNo, ep.ScenarioID)
 		}
 	}
 	return pushedCount
 }
+

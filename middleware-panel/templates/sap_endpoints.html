@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP Grow Integration - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 16px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .key-badge { background-color: #F1F5F9; color: #334155; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; border: 1px solid #E2E8F0;}
+        .mono-val { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12.5px; color: #1E293B; }
+
+        .badge-v4 { background-color: #EFF6FF; color: #2563EB; border: 1px solid #BFDBFE; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+        .badge-v2 { background-color: #ECFDF5; color: #059669; border: 1px solid #A7F3D0; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+
+        .btn-handshake { background-color: #EFF6FF; color: #2563EB; border: 1px solid #BFDBFE; font-weight: 600; font-size: 12.5px; padding: 6px 12px; border-radius: 6px; transition: all 0.2s; }
+        .btn-handshake:hover { background-color: #2563EB; color: #fff; }
+        .btn-edit-ep { background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; font-weight: 600; font-size: 12.5px; padding: 6px 12px; border-radius: 6px; }
+        .btn-edit-ep:hover { background-color: #E2E8F0; color: #0F172A; }
+
+        .sandbox-box { background: #0F172A; color: #E2E8F0; border-radius: 8px; padding: 14px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12.5px; min-height: 220px; resize: vertical; width: 100%; border: 1px solid #334155; }
+        .response-box { background: #020617; color: #38BDF8; border-radius: 8px; padding: 14px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12.5px; min-height: 220px; max-height: 380px; overflow-y: auto; width: 100%; border: 1px solid #1E293B; white-space: pre-wrap; word-break: break-all; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-cloud-arrow-up-fill text-primary"></i> SAP Grow Integration Endpoints</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Multi-Credential Service Registry &amp; CSRF Handshake Sandbox</span>
+            </div>
+            <div>
+                <a href="/swagger/index.html" target="_blank" class="btn btn-outline-secondary btn-sm" style="border-radius: 8px;">
+                    <i class="bi bi-code-slash"></i> Swagger REST
+                </a>
+            </div>
+        </div>
+
+        <!-- Section 1: Endpoints Table -->
+        <div class="main-card">
+            <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-hdd-network me-2 text-primary"></i>Registered SAP Services</h5>
+                    <span class="text-muted" style="font-size: 12px;">Setiap service memiliki Communication User dan OData version tersendiri di SAP Grow</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom m-0">
+                    <thead>
+                        <tr>
+                            <th width="12%">Service</th>
+                            <th width="15%">Scenario ID</th>
+                            <th width="8%">Version</th>
+                            <th width="20%">Communication User</th>
+                            <th width="20%">Endpoint Path</th>
+                            <th width="10%">Last Status</th>
+                            <th width="15%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Endpoints }}
+                        <tr>
+                            <td>
+                                <span class="key-badge">{{ .ServiceCode }}</span>
+                                <div class="text-muted small mt-1" style="font-size: 11px;">{{ .ServiceName }}</div>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary" style="font-size: 11px;">{{ .ScenarioID }}</span>
+                            </td>
+                            <td>
+                                {{ if eq .ODataVersion "v4" }}
+                                    <span class="badge-v4">OData v4</span>
+                                {{ else }}
+                                    <span class="badge-v2">OData v2</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <div class="fw-bold">{{ .Username }}</div>
+                                <div class="d-flex align-items-center gap-1 text-muted" style="font-size: 11px;">
+                                    <span>Pass:</span>
+                                    <span id="pwd-mask-{{ .ServiceCode }}">••••••••</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="mono-val text-truncate" style="max-width: 250px;" title="{{ .BaseURL }}{{ .EndpointPath }}">
+                                    {{ .EndpointPath }}
+                                </div>
+                                <div class="text-muted small" style="font-size: 10.5px;">{{ .BaseURL }}</div>
+                            </td>
+                            <td>
+                                {{ if eq .LastStatus "SUCCESS" }}
+                                    <span class="badge bg-success" style="font-size: 11px;"><i class="bi bi-check-circle me-1"></i>Connected</span>
+                                {{ else if eq .LastStatus "FAILED" }}
+                                    <span class="badge bg-danger" style="font-size: 11px;"><i class="bi bi-x-circle me-1"></i>Error</span>
+                                {{ else }}
+                                    <span class="badge bg-secondary" style="font-size: 11px;">Untested</span>
+                                {{ end }}
+                                {{ if .LastResponse }}
+                                    <div class="text-muted small text-truncate mt-1" style="max-width: 140px; font-size: 10px;" title="{{ .LastResponse }}">{{ .LastResponse }}</div>
+                                {{ end }}
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <button class="btn btn-handshake btn-sm" onclick="pingHandshake('{{ .ServiceCode }}')" id="btn-ping-{{ .ServiceCode }}">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Ping CSRF
+                                    </button>
+                                    <button class="btn btn-edit-ep btn-sm" onclick="openEditModal('{{ .ServiceCode }}', '{{ .ServiceName }}', '{{ .ScenarioID }}', '{{ .ODataVersion }}', '{{ .BaseURL }}', '{{ .EndpointPath }}', '{{ .Username }}')">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">
+                                Tidak ada service terdaftar. Silakan inisialisasi database.
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Section 2: Interactive SAP Sandbox / Tester -->
+        <div class="main-card">
+            <div class="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-terminal me-2 text-primary"></i>Interactive SAP API Sandbox</h5>
+                    <span class="text-muted" style="font-size: 12px;">Uji coba kirim (POST) atau ambil (GET) data secara langsung ke server SAP Grow S/4HANA Cloud</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadSamplePayload('PO')">
+                        <i class="bi bi-file-earmark-code me-1"></i> Muat Sample PO (v4)
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="loadSamplePayload('BP')">
+                        <i class="bi bi-file-earmark-code me-1"></i> Muat Sample BP (v2)
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="loadSamplePayload('PRODUCT')">
+                        <i class="bi bi-box-seam me-1"></i> Muat Sample Product (v2)
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold small">Target SAP Service</label>
+                        <select id="sandboxService" class="form-select" onchange="onServiceChange()">
+                            <option value="PO" selected>PO - Purchase Order (OData v4 - CU_SAP_COM_0053)</option>
+                            <option value="BP">BP - Business Partner (OData v2 - CU_SAP_COM_0008)</option>
+                            <option value="PRODUCT">PRODUCT - Product / Material Master (OData v2 - CU_SAP_COM_0009)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold small">HTTP Method</label>
+                        <select id="sandboxMethod" class="form-select">
+                            <option value="POST" selected>POST (Create)</option>
+                            <option value="GET">GET (Fetch)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <button class="btn btn-primary w-100 fw-bold" id="btnExecuteSandbox" onclick="executeSandbox()">
+                            <i class="bi bi-send-fill me-1"></i> Eksekusi Request ke SAP Grow
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small d-flex justify-content-between">
+                            <span>Request Payload JSON</span>
+                            <span class="text-muted fw-normal" style="font-size: 11px;">Otomatis disisipkan x-csrf-token &amp; Basic Auth</span>
+                        </label>
+                        <textarea id="sandboxPayload" class="sandbox-box"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small d-flex justify-content-between">
+                            <span>Response dari SAP Grow Cloud</span>
+                            <span id="responseStatusBadge" class="badge bg-secondary">Waiting Execution</span>
+                        </label>
+                        <div id="sandboxResponse" class="response-box">// Hasil respons dari SAP Grow OData akan muncul di sini...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Endpoint -->
+    <div class="modal fade" id="editEndpointModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold" id="editModalTitle">Edit SAP Endpoint</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="editEndpointForm" onsubmit="saveEndpoint(event)">
+                        <input type="hidden" id="editServiceCode">
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Service Name</label>
+                            <input type="text" id="editServiceName" class="form-control" required>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="form-label fw-bold small">Scenario ID</label>
+                                <input type="text" id="editScenarioID" class="form-control" placeholder="SAP_COM_0053" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold small">OData Version</label>
+                                <select id="editODataVersion" class="form-select">
+                                    <option value="v4">OData v4</option>
+                                    <option value="v2">OData v2</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Base URL</label>
+                            <input type="text" id="editBaseURL" class="form-control" placeholder="https://my445160-api.s4hana.cloud.sap" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Endpoint Path</label>
+                            <input type="text" id="editEndpointPath" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Communication User (Username)</label>
+                            <input type="text" id="editUsername" class="form-control" placeholder="CU_SAP_COM_0053" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Password (Kosongkan jika tidak diubah)</label>
+                            <input type="password" id="editPassword" class="form-control" placeholder="••••••••">
+                        </div>
+                        <div class="d-flex justify-content-end gap-2 mt-4">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                            <button type="submit" class="btn btn-primary btn-sm fw-bold">Simpan Perubahan</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const samplePO = {
+            "PurchaseOrderType": "NB",
+            "CompanyCode": "5110",
+            "PurchasingOrganization": "5110",
+            "PurchasingGroup": "001",
+            "Supplier": "51305001",
+            "DocumentCurrency": "USD",
+            "Language": "EN",
+            "PurchaseOrderDate": "2026-10-13",
+            "PaymentTerms": "0001",
+            "IncotermsClassification": "EXW",
+            "IncotermsLocation1": "Jakarta",
+            "_PurchaseOrderItem": [
+                {
+                    "PurchaseOrderItem": "10",
+                    "PurchaseOrderItemText": "Carton Besar",
+                    "Material": "PK0514",
+                    "Plant": "5110",
+                    "StorageLocation": "511C",
+                    "OrderQuantity": 10,
+                    "PurchaseOrderQuantityUnit": "PC",
+                    "NetPriceAmount": 100,
+                    "DocumentCurrency": "USD",
+                    "NetPriceQuantity": 1,
+                    "OrderPriceUnit": "PC"
+                }
+            ]
+        };
+
+        const sampleBP = {
+            "Customer": "51100001",
+            "BusinessPartnerCategory": "2",
+            "BusinessPartnerFullName": "Domestic ID Customer 1",
+            "BusinessPartnerName": "Domestic ID Customer 1",
+            "LegalForm": "01",
+            "OrganizationBPName1": "Domestic ID Customer 1",
+            "SearchTerm1": "CUST1"
+        };
+
+        const sampleProduct = {
+            "ProductType": "SERV",
+            "CrossPlantStatus": "",
+            "CrossPlantStatusValidityDate": null,
+            "CreationDate": "/Date(1791158400000)/",
+            "CreatedByUser": "SAP_SYSTEM",
+            "LastChangeDate": "/Date(1791158400000)/",
+            "LastChangedByUser": "SAP_SYSTEM",
+            "LastChangeDateTime": "/Date(1791223850000+0000)/",
+            "IsMarkedForDeletion": false,
+            "ProductOldID": "",
+            "GrossWeight": "0.000",
+            "PurchaseOrderQuantityUnit": "",
+            "SourceOfSupply": "",
+            "WeightUnit": "KG",
+            "NetWeight": "0.000",
+            "CountryOfOrigin": "",
+            "CompetitorID": "",
+            "ProductGroup": "A001",
+            "BaseUnit": "AU",
+            "ItemCategoryGroup": "PSTE",
+            "ProductHierarchy": "",
+            "Division": "",
+            "VarblPurOrdUnitIsActive": "",
+            "VolumeUnit": "",
+            "MaterialVolume": "0.000",
+            "ANPCode": "0",
+            "Brand": "",
+            "ProcurementRule": "",
+            "ValidityStartDate": null,
+            "LowLevelCode": "",
+            "ProdNoInGenProdInPrepackProd": "",
+            "SerialIdentifierAssgmtProfile": "",
+            "SizeOrDimensionText": "",
+            "IndustryStandardName": "",
+            "ProductStandardID": "",
+            "InternationalArticleNumberCat": "",
+            "ProductIsConfigurable": false,
+            "IsBatchManagementRequired": false,
+            "ExternalProductGroup": "",
+            "CrossPlantConfigurableProduct": "",
+            "SerialNoExplicitnessLevel": "",
+            "ProductManufacturerNumber": "",
+            "ManufacturerNumber": "",
+            "ManufacturerPartProfile": "",
+            "QltyMgmtInProcmtIsActive": false,
+            "IndustrySector": "M",
+            "ChangeNumber": "",
+            "MaterialRevisionLevel": "",
+            "HandlingIndicator": "",
+            "WarehouseProductGroup": "",
+            "WarehouseStorageCondition": "",
+            "StandardHandlingUnitType": "",
+            "SerialNumberProfile": "",
+            "AdjustmentProfile": "",
+            "PreferredUnitOfMeasure": "",
+            "IsPilferable": false,
+            "IsRelevantForHzdsSubstances": false,
+            "QuarantinePeriod": "0",
+            "TimeUnitForQuarantinePeriod": "",
+            "QualityInspectionGroup": "",
+            "AuthorizationGroup": "",
+            "DocumentIsCreatedByCAD": false,
+            "HandlingUnitType": "",
+            "HasVariableTareWeight": false,
+            "MaximumPackagingLength": "0.000",
+            "MaximumPackagingWidth": "0.000",
+            "MaximumPackagingHeight": "0.000",
+            "UnitForMaxPackagingDimensions": "",
+            "to_Description": {
+                "results": [
+                    {
+                        "Product": "",
+                        "Language": "EN",
+                        "ProductDescription": "test API"
+                    }
+                ]
+            }
+        };
+
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMessage = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMessage.innerHTML = `<i class="bi bi-${isSuccess ? 'check-circle' : 'exclamation-circle'}-fill"></i> ${message}`;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        function loadSamplePayload(type) {
+            const svcSelect = document.getElementById('sandboxService');
+            svcSelect.value = type;
+            const payloadArea = document.getElementById('sandboxPayload');
+            if (type === 'PO') {
+                payloadArea.value = JSON.stringify(samplePO, null, 2);
+            } else if (type === 'PRODUCT') {
+                payloadArea.value = JSON.stringify(sampleProduct, null, 2);
+            } else {
+                payloadArea.value = JSON.stringify(sampleBP, null, 2);
+            }
+        }
+
+        function onServiceChange() {
+            const type = document.getElementById('sandboxService').value;
+            loadSamplePayload(type);
+        }
+
+        // Init with PO payload
+        loadSamplePayload('PO');
+
+        async function pingHandshake(code) {
+            const btn = document.getElementById(`btn-ping-${code}`);
+            const originalHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Pinging...`;
+
+            try {
+                const resp = await fetch('/api/sap-endpoints/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service_code: code })
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(`[${code}] ${res.message} (Token: ${res.csrf_token.substring(0, 15)}...)`, true);
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(`[${code}] ${res.message || 'Handshake gagal'}`, false);
+                }
+            } catch (err) {
+                showToast(`Gagal menghubungi server: ${err.message}`, false);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
+        }
+
+        function openEditModal(code, name, scenario, version, baseURL, path, user) {
+            document.getElementById('editServiceCode').value = code;
+            document.getElementById('editServiceName').value = name;
+            document.getElementById('editScenarioID').value = scenario;
+            document.getElementById('editODataVersion').value = version;
+            document.getElementById('editBaseURL').value = baseURL;
+            document.getElementById('editEndpointPath').value = path;
+            document.getElementById('editUsername').value = user;
+            document.getElementById('editPassword').value = '';
+            document.getElementById('editModalTitle').innerText = `Edit Endpoint: ${code}`;
+            const modal = new bootstrap.Modal(document.getElementById('editEndpointModal'));
+            modal.show();
+        }
+
+        async function saveEndpoint(e) {
+            e.preventDefault();
+            const payload = {
+                service_code: document.getElementById('editServiceCode').value,
+                service_name: document.getElementById('editServiceName').value,
+                scenario_id: document.getElementById('editScenarioID').value,
+                odata_version: document.getElementById('editODataVersion').value,
+                base_url: document.getElementById('editBaseURL').value,
+                endpoint_path: document.getElementById('editEndpointPath').value,
+                username: document.getElementById('editUsername').value,
+                password: document.getElementById('editPassword').value,
+                is_active: true
+            };
+
+            try {
+                const resp = await fetch('/api/sap-endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal menyimpan', false);
+                }
+            } catch (err) {
+                showToast(`Error: ${err.message}`, false);
+            }
+        }
+
+        async function executeSandbox() {
+            const btn = document.getElementById('btnExecuteSandbox');
+            const respBox = document.getElementById('sandboxResponse');
+            const statusBadge = document.getElementById('responseStatusBadge');
+            const code = document.getElementById('sandboxService').value;
+            const method = document.getElementById('sandboxMethod').value;
+            const payloadStr = document.getElementById('sandboxPayload').value;
+
+            let payloadObj = null;
+            if (payloadStr.trim() !== '') {
+                try {
+                    payloadObj = JSON.parse(payloadStr);
+                } catch (e) {
+                    showToast('Format JSON Payload tidak valid: ' + e.message, false);
+                    return;
+                }
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Mengirim ke SAP Grow...`;
+            statusBadge.className = 'badge bg-warning text-dark';
+            statusBadge.innerText = 'Transmitting...';
+            respBox.innerText = 'Connecting to SAP Cloud ERP...';
+
+            try {
+                const resp = await fetch('/api/sap-endpoints/execute-sandbox', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        service_code: code,
+                        method: method,
+                        payload: payloadObj
+                    })
+                });
+
+                const res = await resp.json();
+                if (res.http_code >= 200 && res.http_code < 300) {
+                    statusBadge.className = 'badge bg-success';
+                    statusBadge.innerText = `HTTP ${res.http_code} OK (SAP Doc: ${res.sap_document_no || 'N/A'})`;
+                    showToast(`Eksekusi Sukses! SAP Document: ${res.sap_document_no}`, true);
+                } else {
+                    statusBadge.className = 'badge bg-danger';
+                    statusBadge.innerText = `HTTP ${res.http_code || 500} ERROR`;
+                    showToast(`SAP merespons dengan status error: ${res.error || res.message}`, false);
+                }
+
+                try {
+                    const parsedJSON = JSON.parse(res.response);
+                    respBox.innerText = JSON.stringify(parsedJSON, null, 2);
+                } catch (_) {
+                    respBox.innerText = res.response || JSON.stringify(res, null, 2);
+                }
+            } catch (err) {
+                statusBadge.className = 'badge bg-danger';
+                statusBadge.innerText = 'Network Error';
+                respBox.innerText = 'Error: ' + err.message;
+                showToast(`Gagal menghubungi server middleware: ${err.message}`, false);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="bi bi-send-fill me-1"></i> Eksekusi Request ke SAP Grow`;
+            }
+        }
+    </script>
+</body>
+</html>

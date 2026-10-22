@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"golang-bpi-testing/internal/model"
@@ -236,3 +238,283 @@ func (r *PostgresRepository) CheckAndLockBudget(ctx context.Context, budgetCombo
 
 	return true, tx.Commit(ctx)
 }
+
+// 6. Audit Trail Logging (integration_logs)
+func (r *PostgresRepository) InsertIntegrationLog(ctx context.Context, traceID, src, tgt, docType, docNo, status, errMsg, metadata string) error {
+	if r.Pool == nil {
+		return nil
+	}
+	_, err := r.Pool.Exec(ctx, `
+		INSERT INTO integration_logs (
+			trace_id, source_system, target_system, document_type, document_no, status, error_message, metadata, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, NOW()
+		)
+	`, traceID, src, tgt, docType, docNo, status, errMsg, metadata)
+	return err
+}
+
+// 7. SAP Endpoints & Credential Registry Operations
+func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error {
+	if r.Pool == nil {
+		return nil
+	}
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS sap_endpoints (
+			id SERIAL PRIMARY KEY,
+			service_code VARCHAR(50) NOT NULL UNIQUE,
+			service_name VARCHAR(100) NOT NULL,
+			scenario_id VARCHAR(50) NOT NULL,
+			odata_version VARCHAR(10) NOT NULL DEFAULT 'v4',
+			base_url TEXT NOT NULL DEFAULT 'https://my445160-api.s4hana.cloud.sap',
+			endpoint_path TEXT NOT NULL,
+			csrf_path TEXT,
+			username VARCHAR(100) NOT NULL,
+			password TEXT NOT NULL,
+			is_active BOOLEAN DEFAULT TRUE,
+			last_status VARCHAR(30) DEFAULT 'UNTESTED',
+			last_response TEXT,
+			last_tested_at TIMESTAMP WITH TIME ZONE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+
+		INSERT INTO sap_endpoints (service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, username, password)
+		VALUES 
+		(
+			'PO', 
+			'Purchase Order Integration (OData v4)', 
+			'SAP_COM_0053', 
+			'v4', 
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder',
+			'CU_SAP_COM_0053',
+			'PowerofOne@123456789'
+		),
+		(
+			'BP', 
+			'Business Partner Integration (OData v2)', 
+			'SAP_COM_0008', 
+			'v2', 
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner',
+			'CU_SAP_COM_0008',
+			'PowerofOne@123456789'
+		),
+		(
+			'PRODUCT', 
+			'Product / Material Master Integration (OData v2)', 
+			'SAP_COM_0009', 
+			'v2', 
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product',
+			'CU_SAP_COM_0009',
+			'PowerofOne@123456789'
+		)
+		ON CONFLICT (service_code) DO UPDATE 
+		SET username = EXCLUDED.username, 
+		    password = EXCLUDED.password, 
+		    base_url = EXCLUDED.base_url,
+		    endpoint_path = EXCLUDED.endpoint_path, 
+		    odata_version = EXCLUDED.odata_version,
+		    updated_at = NOW();
+	`
+	_, err := r.Pool.Exec(ctx, createTableSQL)
+	return err
+}
+
+func (r *PostgresRepository) GetSAPEndpoints(ctx context.Context) ([]model.SAPEndpoint, error) {
+	if r.Pool == nil {
+		return nil, nil
+	}
+	_ = r.EnsureSAPEndpointsTable(ctx)
+
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, COALESCE(csrf_path, ''),
+		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at, created_at, updated_at
+		FROM sap_endpoints
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var endpoints []model.SAPEndpoint
+	for rows.Next() {
+		var ep model.SAPEndpoint
+		if err := rows.Scan(
+			&ep.ID, &ep.ServiceCode, &ep.ServiceName, &ep.ScenarioID, &ep.ODataVersion,
+			&ep.BaseURL, &ep.EndpointPath, &ep.CSRFPath, &ep.Username, &ep.Password,
+			&ep.IsActive, &ep.LastStatus, &ep.LastResponse, &ep.LastTestedAt, &ep.CreatedAt, &ep.UpdatedAt,
+		); err == nil {
+			endpoints = append(endpoints, ep)
+		}
+	}
+	return endpoints, nil
+}
+
+func (r *PostgresRepository) GetSAPEndpointByCode(ctx context.Context, code string) (*model.SAPEndpoint, error) {
+	if r.Pool == nil {
+		return nil, nil
+	}
+	_ = r.EnsureSAPEndpointsTable(ctx)
+
+	var ep model.SAPEndpoint
+	err := r.Pool.QueryRow(ctx, `
+		SELECT id, service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, COALESCE(csrf_path, ''),
+		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at, created_at, updated_at
+		FROM sap_endpoints
+		WHERE UPPER(service_code) = UPPER($1)
+	`, code).Scan(
+		&ep.ID, &ep.ServiceCode, &ep.ServiceName, &ep.ScenarioID, &ep.ODataVersion,
+		&ep.BaseURL, &ep.EndpointPath, &ep.CSRFPath, &ep.Username, &ep.Password,
+		&ep.IsActive, &ep.LastStatus, &ep.LastResponse, &ep.LastTestedAt, &ep.CreatedAt, &ep.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &ep, nil
+}
+
+func (r *PostgresRepository) SaveSAPEndpoint(ctx context.Context, ep *model.SAPEndpoint) error {
+	if r.Pool == nil {
+		return nil
+	}
+	_ = r.EnsureSAPEndpointsTable(ctx)
+
+	query := `
+		INSERT INTO sap_endpoints (
+			service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, csrf_path, username, password, is_active, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()
+		)
+		ON CONFLICT (service_code) DO UPDATE SET
+			service_name = EXCLUDED.service_name,
+			scenario_id = EXCLUDED.scenario_id,
+			odata_version = EXCLUDED.odata_version,
+			base_url = EXCLUDED.base_url,
+			endpoint_path = EXCLUDED.endpoint_path,
+			csrf_path = EXCLUDED.csrf_path,
+			username = EXCLUDED.username,
+			password = CASE WHEN EXCLUDED.password != '' THEN EXCLUDED.password ELSE sap_endpoints.password END,
+			is_active = EXCLUDED.is_active,
+			updated_at = NOW();
+	`
+	_, err := r.Pool.Exec(ctx, query,
+		ep.ServiceCode, ep.ServiceName, ep.ScenarioID, ep.ODataVersion,
+		ep.BaseURL, ep.EndpointPath, ep.CSRFPath, ep.Username, ep.Password, ep.IsActive,
+	)
+	return err
+}
+
+func (r *PostgresRepository) UpdateSAPEndpointStatus(ctx context.Context, code, status, response string) error {
+	if r.Pool == nil {
+		return nil
+	}
+	_, err := r.Pool.Exec(ctx, `
+		UPDATE sap_endpoints
+		SET last_status = $2, last_response = $3, last_tested_at = NOW(), updated_at = NOW()
+		WHERE UPPER(service_code) = UPPER($1)
+	`, code, status, response)
+	return err
+}
+
+// 8. Scheduler Configuration & Auto-Pull Control
+func (r *PostgresRepository) EnsureSchedulerConfigsTable(ctx context.Context) error {
+	if r.Pool == nil {
+		return nil
+	}
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS scheduler_configs (
+			id INT PRIMARY KEY DEFAULT 1,
+			pull_is_active BOOLEAN DEFAULT TRUE,
+			pull_interval INT DEFAULT 3,
+			push_is_active BOOLEAN DEFAULT TRUE,
+			push_interval INT DEFAULT 1,
+			is_active BOOLEAN DEFAULT TRUE,
+			batch_limit INT DEFAULT 1,
+			last_check_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+
+		DO $$ 
+		BEGIN 
+			IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scheduler_configs' AND column_name='is_active') THEN
+				ALTER TABLE scheduler_configs ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+			END IF;
+			IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scheduler_configs' AND column_name='pull_is_active') THEN
+				ALTER TABLE scheduler_configs ADD COLUMN pull_is_active BOOLEAN DEFAULT TRUE;
+			END IF;
+			IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scheduler_configs' AND column_name='batch_limit') THEN
+				ALTER TABLE scheduler_configs ADD COLUMN batch_limit INT DEFAULT 1;
+			END IF;
+			IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scheduler_configs' AND column_name='last_check_at') THEN
+				ALTER TABLE scheduler_configs ADD COLUMN last_check_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+			END IF;
+		END $$;
+
+		INSERT INTO scheduler_configs (id, pull_is_active, pull_interval, push_is_active, push_interval, is_active, batch_limit)
+		VALUES (1, TRUE, 3, TRUE, 1, TRUE, 1)
+		ON CONFLICT (id) DO NOTHING;
+	`
+	_, err := r.Pool.Exec(ctx, createTableSQL)
+	return err
+}
+
+func (r *PostgresRepository) IsAutoPullActive(ctx context.Context) (bool, int) {
+	// 1. Prioritas Utama: Environment Variable (.env)
+	envPull := os.Getenv("AUTO_PULL_ENABLED")
+	if envPull == "" {
+		envPull = os.Getenv("ENABLE_AUTO_PULL")
+	}
+	if envPull != "" {
+		if strings.EqualFold(envPull, "false") || envPull == "0" || strings.EqualFold(envPull, "off") || strings.EqualFold(envPull, "no") {
+			return false, 0
+		}
+	}
+
+	if r.Pool == nil {
+		return true, 1
+	}
+
+	_ = r.EnsureSchedulerConfigsTable(ctx)
+
+	// 2. Runtime Setting di Database PostgreSQL (Web Panel)
+	var isActive bool = true
+	var batchLimit int = 1
+	err := r.Pool.QueryRow(ctx, `
+		SELECT COALESCE(is_active, pull_is_active, true), COALESCE(batch_limit, 1)
+		FROM scheduler_configs
+		ORDER BY id ASC
+		LIMIT 1
+	`).Scan(&isActive, &batchLimit)
+	if err != nil {
+		return true, 1
+	}
+
+	return isActive, batchLimit
+}
+
+func (r *PostgresRepository) SetAutoPullActive(ctx context.Context, active bool) error {
+	if r.Pool == nil {
+		return nil
+	}
+	_ = r.EnsureSchedulerConfigsTable(ctx)
+
+	tag, err := r.Pool.Exec(ctx, `
+		UPDATE scheduler_configs
+		SET is_active = $1, pull_is_active = $1, last_check_at = NOW()
+		WHERE id = (SELECT id FROM scheduler_configs ORDER BY id ASC LIMIT 1)
+	`, active)
+	if err == nil && tag.RowsAffected() == 0 {
+		_, err = r.Pool.Exec(ctx, `
+			INSERT INTO scheduler_configs (id, pull_is_active, is_active, batch_limit, last_check_at)
+			VALUES (1, $1, $1, 1, NOW())
+			ON CONFLICT (id) DO UPDATE 
+			SET is_active = EXCLUDED.is_active, pull_is_active = EXCLUDED.pull_is_active, last_check_at = NOW()
+		`, active)
+	}
+	return err
+}
+
+

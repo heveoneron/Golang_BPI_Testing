@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "3-Tier Data Pipeline & Ingestion Flow",
+    "viewBox": [1070, 680],
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "views": [
+      {
+        "id": "e2e-pipeline",
+        "label": "End-to-End Ingestion",
+        "focus": ["eam_trans", "sql_queue", "poller_worker", "detail_validator", "pg_staging_table", "transform_mapper", "core_documents", "push_dispatcher", "sap_cloud_erp"],
+        "note": "Follow enterprise maintenance data from EAM queue to SAP Grow Cloud ERP."
+      },
+      {
+        "id": "staging-and-audit",
+        "label": "Staging Buffer and Audit Trail",
+        "focus": ["detail_validator", "pg_staging_table", "audit_logger", "core_documents"],
+        "note": "Examine the relational validation gate, immutable staging store, and audit logging."
+      },
+      {
+        "id": "dispatch-and-cloud",
+        "label": "Atomic Dispatch to SAP",
+        "focus": ["core_documents", "push_dispatcher", "sap_cloud_erp"],
+        "note": "Inspect state-locked document pickup and OData session transmission."
+      }
+    ]
+  },
+  "stages": [
+    { "label": "Source Queue" },
+    { "label": "Ingest & Validate" },
+    { "label": "Staging Engine" },
+    { "label": "Transform Core" },
+    { "label": "Cloud Dispatch" }
+  ],
+  "nodes": [
+    { "id": "eam_trans", "type": "external", "label": "Maximo EAM", "sublabel": "Maintenance Orders", "stage": 0, "row": 0, "width": 130, "tag": "Work & POs" },
+    { "id": "sql_queue", "type": "database", "label": "SQL Server Queue", "sublabel": "mxout_inter_trans", "stage": 0, "row": 1, "width": 130, "tag": "Pending State" },
+    { "id": "poller_worker", "type": "backend", "label": "Pull Worker", "sublabel": "Dual-Thread Engine", "stage": 1, "row": 0, "width": 130, "tag": "3-Min Ticker" },
+    { "id": "detail_validator", "type": "security", "label": "Orphan Check", "sublabel": "Verify Detail Lines", "stage": 1, "row": 1, "width": 130, "tag": "Integrity Guard" },
+    { "id": "pg_staging_table", "type": "database", "label": "PostgreSQL Staging", "sublabel": "staging_documents", "stage": 2, "row": 0, "width": 130, "tag": "Tier 1 Buffer" },
+    { "id": "audit_logger", "type": "security", "label": "Audit Trail Store", "sublabel": "integration_logs", "stage": 2, "row": 1, "width": 130, "tag": "Lifecycle Log" },
+    { "id": "transform_mapper", "type": "backend", "label": "Transform Mapper", "sublabel": "Schema Transformation", "stage": 3, "row": 0, "width": 130, "tag": "Tier 2 Core" },
+    { "id": "core_documents", "type": "database", "label": "Core Documents", "sublabel": "State Machine Store", "stage": 3, "row": 1, "width": 130, "tag": "Ready Queue" },
+    { "id": "push_dispatcher", "type": "backend", "label": "Push Dispatcher", "sublabel": "Atomic Delivery Engine", "stage": 4, "row": 0, "width": 130, "tag": "1-Min Ticker" },
+    { "id": "sap_cloud_erp", "type": "cloud", "label": "SAP Grow Cloud", "sublabel": "S/4HANA OData Services", "stage": 4, "row": 1, "width": 130, "tag": "HTTPS / OData" }
+  ],
+  "flows": [
+    { "id": "f1", "from": "eam_trans", "to": "sql_queue", "label": "Enqueue Records", "classification": "Transactional", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 24 },
+    { "id": "f2", "from": "sql_queue", "to": "poller_worker", "label": "Poll Active Batch", "classification": "Delta Extraction", "variant": "emphasis" },
+    { "id": "f3", "from": "poller_worker", "to": "detail_validator", "label": "Validate Relationships", "classification": "Integrity Check", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 24 },
+    { "id": "f4", "from": "detail_validator", "to": "pg_staging_table", "label": "Store Raw JSON", "classification": "Tier 1 Persist", "variant": "emphasis" },
+    { "id": "f5", "from": "pg_staging_table", "to": "audit_logger", "label": "Log Ingestion Trace", "classification": "Audit Logging", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 24 },
+    { "id": "f6", "from": "pg_staging_table", "to": "transform_mapper", "label": "Staged Payloads", "classification": "Data Transformation", "variant": "default", "labelDy": -40 },
+    { "id": "f7", "from": "transform_mapper", "to": "core_documents", "label": "Upsert Core Schema", "classification": "Tier 2 Persist", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 24 },
+    { "id": "f8", "from": "core_documents", "to": "push_dispatcher", "label": "Lock Pending Docs", "classification": "Atomic Poller", "variant": "emphasis" },
+    { "id": "f9", "from": "push_dispatcher", "to": "sap_cloud_erp", "label": "OData Session POST", "classification": "Cloud Posting", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 24 }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Ingestion & Validation Tier",
+      "items": [
+        "Pull worker polls delta queues without locking source operational tables",
+        "Orphan check verifies that every header has matching line item details",
+        "Incomplete records are marked processed without sending junk downstream"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Durable 3-Tier Staging",
+      "items": [
+        "Tier 1 stores raw unmodified JSON snapshots in staging_documents",
+        "Tier 2 converts payloads into canonical enterprise schema in documents",
+        "Comprehensive audit logging captures timestamps, latency, and status changes"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Atomic Delivery to SAP Grow",
+      "items": [
+        "Push dispatcher acquires row locks to prevent duplicate submissions",
+        "Automatic CSRF token handshake handles cookie sessions with SAP Cloud",
+        "Successful responses save SAP Document Numbers for cross-system trace"
+      ]
+    }
+  ]
+}

@@ -39,8 +39,13 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.LoadHTMLGlob("templates/*")
 	r.GET("/", func(c *gin.Context) { c.Redirect(302, "/login") })
 
-	// 1. Auth Domain
-	authRepo := repository.NewAuthRepository()
+	// 0. User Access Domain
+	userRepo := repository.NewUserRepository(db)
+	userService := services.NewUserService(userRepo)
+	userController := controllers.NewUserController(userService)
+
+	// 1. Auth Domain (Terhubung ke User Access Database)
+	authRepo := repository.NewAuthRepository(userRepo)
 	authService := services.NewAuthService(authRepo)
 	authController := controllers.NewAuthController(authService)
 
@@ -70,6 +75,16 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	glMappingService := services.NewGLMappingService(glMappingRepo)
 	glMappingController := controllers.NewGLMappingController(glMappingService)
 
+	// 7. SAP Integration Endpoints & Sandbox Domain
+	sapEndpointRepo := repository.NewSAPEndpointRepository(db)
+	sapEndpointService := services.NewSAPEndpointService(sapEndpointRepo)
+	sapEndpointController := controllers.NewSAPEndpointController(sapEndpointService)
+
+	// 8. Table-to-API Mapping Domain
+	tableMappingRepo := repository.NewTableAPIMappingRepository(db)
+	tableMappingService := services.NewTableAPIMappingService(tableMappingRepo, sapEndpointRepo)
+	tableMappingController := controllers.NewTableAPIMappingController(tableMappingService)
+
 	// ==========================================
 	// ROUTES MAPPING
 	// ==========================================
@@ -83,6 +98,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.GET("/dashboard", dashController.ShowDashboard)
 	r.POST("/sync/send", dashController.HandleSendToSAP)
 	r.POST("/sync/send-bulk", dashController.HandleBulkSendToSAP)
+	r.POST("/documents/delete", dashController.HandleDeleteDocument)
+	r.POST("/documents/delete-bulk", dashController.HandleBulkDelete)
+	r.POST("/documents/clear-all", dashController.HandleClearAll)
+	r.POST("/api/trigger-push", dashController.HandleTriggerPush)
+	r.POST("/api/ingest-po", dashController.HandleIngestTestPO)
 	r.GET("/api/documents/:parent_no/children", dashController.GetChildrenAPI)
 
 	// Proxy Audit Trail API (Sudah dinamis membaca BACKUP_API_URL dari .env)
@@ -93,11 +113,18 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/config", appConfigController.SaveConfig)
 	r.DELETE("/api/config/:key", appConfigController.DeleteConfig)
 
+	// SAP Integration Endpoints & Sandbox
+	r.GET("/sap-endpoints", sapEndpointController.ShowEndpoints)
+	r.POST("/api/sap-endpoints", sapEndpointController.HandleSaveEndpoint)
+	r.POST("/api/sap-endpoints/test", sapEndpointController.HandleTestHandshake)
+	r.POST("/api/sap-endpoints/execute-sandbox", sapEndpointController.HandleExecuteSandbox)
+
 	// Scheduler Config & Manual Pull
 	r.GET("/scheduler-config", schedController.ShowSchedulerConfig)
 	r.POST("/scheduler-config", schedController.UpdateSchedulerConfig)
 	r.POST("/scheduler/pull", schedController.ExecutePullNow)
 	r.GET("/scheduler/pull", schedController.ExecutePullNow)
+	r.POST("/scheduler/toggle", schedController.QuickToggleAutoPull)
 
 	// Backup Scheduler Config
 	r.GET("/backup-config", backupController.ShowConfigPage)
@@ -108,6 +135,19 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.GET("/gl-mapping", glMappingController.ShowPage)
 	r.POST("/api/gl-mapping", glMappingController.Save)
 	r.DELETE("/api/gl-mapping/:id", glMappingController.Delete)
+
+	// Table-to-API Mapping Matrix
+	r.GET("/table-api-mapping", tableMappingController.ShowMappings)
+	r.POST("/api/table-mapping", tableMappingController.HandleSaveMapping)
+	r.POST("/api/table-mapping/toggle/:id", tableMappingController.HandleToggleActive)
+	r.DELETE("/api/table-mapping/:id", tableMappingController.HandleDeleteMapping)
+
+	// User Access Management
+	r.GET("/users", userController.ShowUsers)
+	r.POST("/api/users", userController.CreateUser)
+	r.POST("/api/users/update", userController.UpdateUser)
+	r.POST("/api/users/toggle/:id", userController.ToggleActive)
+	r.DELETE("/api/users/:id", userController.DeleteUser)
 
 	return r
 }

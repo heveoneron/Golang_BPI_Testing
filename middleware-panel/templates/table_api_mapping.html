@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Table to SAP API Mapping - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 16px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .table-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 5px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .target-api-badge { background-color: #F0FDF4; color: #15803D; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid #BBF7D0; }
+        
+        .api-select { font-size: 13px; font-weight: 600; border-radius: 8px; border: 1px solid #CBD5E1; padding: 6px 12px; background-color: #F8FAFC; }
+        .api-select:focus { background-color: #ffffff; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-diagram-3-fill text-primary"></i> Table to SAP API Mapping Matrix</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Atur pemetaan antrean tabel Maximo ke endpoint layanan API SAP Grow S/4HANA Cloud</span>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/sap-endpoints" class="btn btn-outline-primary btn-sm rounded-3">
+                    <i class="bi bi-cloud-arrow-up-fill me-1"></i> SAP Services Registry
+                </a>
+                <button class="btn btn-primary btn-sm rounded-3 fw-bold shadow-sm" onclick="openAddModal()">
+                    <i class="bi bi-plus-circle-fill me-1"></i> Tambah Mapping Tabel
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>TOTAL MAPPED TABLES</span>
+                        <i class="bi bi-table text-primary fs-5"></i>
+                    </div>
+                    <div class="stat-val text-dark">{{ .TotalMappings }}</div>
+                    <span class="text-muted small">Tabel Maximo Terdaftar</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>ACTIVE PIPELINES</span>
+                        <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                    </div>
+                    <div class="stat-val text-success">{{ .ActiveCount }}</div>
+                    <span class="text-muted small">Rute Aktif Terhubung</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>OUTBOUND FLOW</span>
+                        <i class="bi bi-arrow-right-circle-fill text-info fs-5"></i>
+                    </div>
+                    <div class="stat-val text-info">{{ .OutboundCount }}</div>
+                    <span class="text-muted small">Maximo &rarr; SAP Grow</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>CONNECTED SAP APIS</span>
+                        <i class="bi bi-clouds-fill text-warning fs-5"></i>
+                    </div>
+                    <div class="stat-val text-warning">{{ len .Endpoints }}</div>
+                    <span class="text-muted small">PO, BP, Product Master</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section: Mapping Table Matrix -->
+        <div class="main-card">
+            <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-signpost-split-fill me-2 text-primary"></i>Daftar Pemetaan Tabel &rarr; SAP API</h5>
+                    <span class="text-muted" style="font-size: 12px;">Pilih secara langsung ke API SAP mana data dari tabel ini akan dialirkan</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom m-0">
+                    <thead>
+                        <tr>
+                            <th width="15%">Source Table (Maximo)</th>
+                            <th width="22%">Deskripsi Entitas</th>
+                            <th width="12%">Arah Aliran</th>
+                            <th width="23%">Target SAP API Endpoint</th>
+                            <th width="12%">Mode Trigger</th>
+                            <th width="8%">Status</th>
+                            <th width="8%" class="text-end">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Mappings }}
+                        <tr id="row-{{ .ID }}">
+                            <td>
+                                <span class="table-badge">
+                                    <i class="bi bi-database-fill"></i> {{ .SourceTable }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="fw-bold text-dark" style="font-size: 13.5px;">{{ .SourceDesc }}</div>
+                                <div class="text-muted small" style="font-size: 11.5px;">{{ .Notes }}</div>
+                            </td>
+                            <td>
+                                {{ if eq .Direction "OUTBOUND" }}
+                                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2.5 py-1.5 rounded-pill fw-semibold">
+                                    <i class="bi bi-arrow-right-short"></i> Maximo &rarr; SAP
+                                </span>
+                                {{ else }}
+                                <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 px-2.5 py-1.5 rounded-pill fw-semibold">
+                                    <i class="bi bi-arrow-left-short"></i> SAP &rarr; Maximo
+                                </span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <select class="form-select form-select-sm api-select flex-grow-1" id="select-target-{{ .ID }}" onchange="updateRowTarget('{{ .ID }}', this.value)">
+                                        {{ $current := .TargetServiceCode }}
+                                        {{ range $.Endpoints }}
+                                        <option value="{{ .ServiceCode }}" {{ if eq .ServiceCode $current }}selected{{ end }}>
+                                            [{{ .ServiceCode }}] {{ .ServiceName }} ({{ .ODataVersion }})
+                                        </option>
+                                        {{ end }}
+                                    </select>
+                                    <button class="btn btn-sm btn-outline-primary d-none" id="btn-save-{{ .ID }}" onclick="saveInlineChange('{{ .ID }}')" title="Simpan Perubahan">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </div>
+                            </td>
+                            <td>
+                                {{ if eq .SyncMode "BATCH_SCHEDULE" }}
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1 rounded-pill">
+                                    <i class="bi bi-clock-history me-1"></i> Poller (Scheduler)
+                                </span>
+                                {{ else if eq .SyncMode "REALTIME" }}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 rounded-pill">
+                                    <i class="bi bi-lightning-charge-fill me-1"></i> Real-Time
+                                </span>
+                                {{ else }}
+                                <span class="badge bg-warning bg-opacity-10 text-dark border border-warning border-opacity-25 px-2 py-1 rounded-pill">
+                                    <i class="bi bi-hand-index-thumb me-1"></i> Manual
+                                </span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input" type="checkbox" id="toggle-{{ .ID }}" {{ if .IsActive }}checked{{ end }} onchange="toggleMappingActive('{{ .ID }}')" style="cursor: pointer; width: 2.2rem; height: 1.2rem;">
+                                </div>
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="openEditModal('{{ .ID }}', '{{ .SourceTable }}', '{{ .SourceDesc }}', '{{ .TargetServiceCode }}', '{{ .Direction }}', '{{ .SyncMode }}', '{{ .Notes }}')" title="Edit Lengkap">
+                                        <i class="bi bi-pencil-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="confirmDelete('{{ .ID }}', '{{ .SourceTable }}')" title="Hapus Mapping">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                Belum ada mapping tabel yang dikonfigurasi. Klik tombol <b>"Tambah Mapping Tabel"</b> untuk membuat pemetaan baru.
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah / Edit Mapping -->
+    <div class="modal fade" id="mappingModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold" id="modalTitle"><i class="bi bi-diagram-3 me-2 text-primary"></i>Mapping Tabel &rarr; SAP API</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="mappingForm" onsubmit="saveMappingForm(event)">
+                        <input type="hidden" id="mappingId" value="">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Nama Tabel Sumber (Maximo)</label>
+                            <input type="text" id="sourceTable" class="form-control" placeholder="Contoh: ITEM, PO, COMPANIES, MATRECTRANS" required style="text-transform: uppercase;">
+                            <span class="text-muted small" style="font-size: 11px;">Nama tabel staging atau objek dokumen Maximo</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Deskripsi Entitas Bisnis</label>
+                            <input type="text" id="sourceDesc" class="form-control" placeholder="Contoh: Master Item & Material" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Hubungkan ke SAP API Endpoint</label>
+                            <select id="targetServiceCode" class="form-select" required>
+                                {{ range .Endpoints }}
+                                <option value="{{ .ServiceCode }}">[{{ .ServiceCode }}] {{ .ServiceName }} ({{ .ODataVersion }})</option>
+                                {{ end }}
+                            </select>
+                            <span class="text-muted small" style="font-size: 11px;">Endpoint SAP Grow yang menerima payload dari tabel ini</span>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Arah Aliran Data</label>
+                                <select id="direction" class="form-select">
+                                    <option value="OUTBOUND" selected>OUTBOUND (Maximo &rarr; SAP)</option>
+                                    <option value="INBOUND">INBOUND (SAP &rarr; Maximo)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Mode Sinkronisasi</label>
+                                <select id="syncMode" class="form-select">
+                                    <option value="BATCH_SCHEDULE" selected>Batch Poller (Scheduler)</option>
+                                    <option value="REALTIME">Real-Time Ingestion</option>
+                                    <option value="MANUAL">Manual Trigger</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Catatan / Keterangan Integrasi</label>
+                            <textarea id="notes" class="form-control" rows="2" placeholder="Catatan teknis transformasi atau perlakuan data..."></textarea>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="isActive" checked>
+                            <label class="form-check-label fw-bold small" for="isActive">Aktifkan Mapping Ini</label>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                            <button type="submit" class="btn btn-primary btn-sm fw-bold">
+                                <i class="bi bi-save me-1"></i> Simpan Mapping
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMessage = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMessage.innerHTML = `<i class="bi bi-${isSuccess ? 'check-circle' : 'exclamation-circle'}-fill"></i> ${message}`;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        function openAddModal() {
+            document.getElementById('mappingId').value = '';
+            document.getElementById('sourceTable').value = '';
+            document.getElementById('sourceTable').disabled = false;
+            document.getElementById('sourceDesc').value = '';
+            document.getElementById('direction').value = 'OUTBOUND';
+            document.getElementById('syncMode').value = 'BATCH_SCHEDULE';
+            document.getElementById('notes').value = '';
+            document.getElementById('isActive').checked = true;
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle me-2 text-primary"></i>Tambah Mapping Tabel Baru';
+            const modal = new bootstrap.Modal(document.getElementById('mappingModal'));
+            modal.show();
+        }
+
+        function openEditModal(id, source, desc, target, dir, mode, notes) {
+            document.getElementById('mappingId').value = id;
+            document.getElementById('sourceTable').value = source;
+            document.getElementById('sourceTable').disabled = false;
+            document.getElementById('sourceDesc').value = desc;
+            document.getElementById('targetServiceCode').value = target;
+            document.getElementById('direction').value = dir;
+            document.getElementById('syncMode').value = mode;
+            document.getElementById('notes').value = notes;
+            document.getElementById('isActive').checked = true;
+            document.getElementById('modalTitle').innerHTML = `<i class="bi bi-pencil-square me-2 text-primary"></i>Edit Mapping: ${source}`;
+            const modal = new bootstrap.Modal(document.getElementById('mappingModal'));
+            modal.show();
+        }
+
+        function updateRowTarget(id, newTarget) {
+            const saveBtn = document.getElementById(`btn-save-${id}`);
+            if (saveBtn) {
+                saveBtn.classList.remove('d-none');
+            }
+        }
+
+        async function saveInlineChange(id) {
+            const select = document.getElementById(`select-target-${id}`);
+            const newTarget = select.value;
+            const saveBtn = document.getElementById(`btn-save-${id}`);
+
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
+
+            try {
+                const resp = await fetch('/api/table-mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: parseInt(id),
+                        source_table: document.querySelector(`#row-${id} .table-badge`).innerText.trim(),
+                        target_service_code: newTarget,
+                        is_active: document.getElementById(`toggle-${id}`).checked
+                    })
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    saveBtn.classList.add('d-none');
+                } else {
+                    showToast(res.message || 'Gagal mengubah target API', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = `<i class="bi bi-check-lg"></i>`;
+            }
+        }
+
+        async function toggleMappingActive(id) {
+            try {
+                const resp = await fetch(`/api/table-mapping/toggle/${id}`, { method: 'POST' });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                } else {
+                    showToast(res.message || 'Gagal mengubah status', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+
+        async function confirmDelete(id, name) {
+            if (!confirm(`Apakah Anda yakin ingin menghapus mapping untuk tabel [${name}]?`)) {
+                return;
+            }
+            try {
+                const resp = await fetch(`/api/table-mapping/${id}`, { method: 'DELETE' });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    const row = document.getElementById(`row-${id}`);
+                    if (row) row.remove();
+                } else {
+                    showToast(res.message || 'Gagal menghapus', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+
+        async function saveMappingForm(e) {
+            e.preventDefault();
+            const idVal = document.getElementById('mappingId').value;
+            const payload = {
+                source_table: document.getElementById('sourceTable').value.toUpperCase().trim(),
+                source_desc: document.getElementById('sourceDesc').value.trim(),
+                target_service_code: document.getElementById('targetServiceCode').value,
+                direction: document.getElementById('direction').value,
+                sync_mode: document.getElementById('syncMode').value,
+                notes: document.getElementById('notes').value.trim(),
+                is_active: document.getElementById('isActive').checked
+            };
+            if (idVal !== '') {
+                payload.id = parseInt(idVal);
+            }
+
+            try {
+                const resp = await fetch('/api/table-mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal menyimpan', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+    </script>
+</body>
+</html>

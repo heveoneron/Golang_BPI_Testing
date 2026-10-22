@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Document Synchronization Sequence",
+    "viewBox": [880, 780],
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "ingest-phase",
+        "label": "Ingestion & Validation",
+        "focus": ["poller", "worker", "sql_queue", "pg_staging"],
+        "note": "Follow polling, relational validation check, and atomic write to PostgreSQL staging."
+      },
+      {
+        "id": "sap-handshake",
+        "label": "SAP Cloud Handshake",
+        "focus": ["worker", "sap_cloud", "pg_staging"],
+        "note": "Follow the two-step CSRF token handshake and transactional OData document posting."
+      },
+      {
+        "id": "full-sync",
+        "label": "End-to-End Transaction",
+        "focus": ["poller", "worker", "sql_queue", "pg_staging", "sap_cloud"],
+        "note": "Complete synchronization path from SQL Server outbound queue to SAP Grow Cloud."
+      }
+    ]
+  },
+  "participants": [
+    { "id": "poller", "type": "backend", "label": "Poller Daemon", "sublabel": "Ticker Engine" },
+    { "id": "worker", "type": "backend", "label": "Sync Service", "sublabel": "Go Core Engine" },
+    { "id": "sql_queue", "type": "database", "label": "SQL Server", "sublabel": "Outbound Queue" },
+    { "id": "pg_staging", "type": "database", "label": "PostgreSQL", "sublabel": "Staging & Core" },
+    { "id": "sap_cloud", "type": "cloud", "label": "SAP Cloud", "sublabel": "Grow S/4HANA" }
+  ],
+  "segments": [
+    { "from": 150, "to": 330, "label": "Queue Ingestion & Relational Gate" },
+    { "from": 350, "to": 510, "label": "Transform & Cloud Session Handshake" },
+    { "from": 530, "to": 690, "label": "Atomic Push & Audit Log" }
+  ],
+  "messages": [
+    { "id": "m1", "from": "poller", "to": "worker", "y": 180, "label": "Trigger Ingestion Tick", "variant": "emphasis" },
+    { "id": "m2", "from": "worker", "to": "sql_queue", "y": 215, "label": "SELECT Pending Queue Rows", "variant": "default" },
+    { "id": "m3", "from": "sql_queue", "to": "worker", "y": 250, "label": "Queue Headers + Detail Rows", "variant": "return" },
+    { "id": "m4", "from": "worker", "to": "pg_staging", "y": 285, "label": "Upsert staging_documents (Raw JSON)", "variant": "emphasis" },
+    { "id": "m5", "from": "pg_staging", "to": "worker", "y": 320, "label": "Staging ID Returned", "variant": "return" },
+    { "id": "m6", "from": "worker", "to": "pg_staging", "y": 370, "label": "Lock Pending Core Document", "variant": "security" },
+    { "id": "m7", "from": "worker", "to": "sap_cloud", "y": 415, "label": "GET Service (X-CSRF-Token: Fetch)", "variant": "security" },
+    { "id": "m8", "from": "sap_cloud", "to": "worker", "y": 455, "label": "200 OK + CSRF Token + Session Cookies", "variant": "return" },
+    { "id": "m9", "from": "worker", "to": "sap_cloud", "y": 550, "label": "POST /A_PurchaseOrder (Payload + Token)", "variant": "emphasis" },
+    { "id": "m10", "from": "sap_cloud", "to": "worker", "y": 595, "label": "201 Created (SAP Doc Number)", "variant": "return" },
+    { "id": "m11", "from": "worker", "to": "sql_queue", "y": 635, "label": "UPDATE Queue Status = 1 (Processed)", "variant": "default" },
+    { "id": "m12", "from": "worker", "to": "pg_staging", "y": 670, "label": "Record Audit Log & Status = SUCCESS", "variant": "security" }
+  ],
+  "activations": [
+    { "participant": "worker", "from": 180, "to": 680, "type": "backend" },
+    { "participant": "sql_queue", "from": 215, "to": 255, "type": "database" },
+    { "participant": "pg_staging", "from": 285, "to": 325, "type": "database" },
+    { "participant": "sap_cloud", "from": 415, "to": 460, "type": "cloud" },
+    { "participant": "sap_cloud", "from": 550, "to": 600, "type": "cloud" },
+    { "participant": "sql_queue", "from": 635, "to": 655, "type": "database" },
+    { "participant": "pg_staging", "from": 670, "to": 685, "type": "database" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Relational Queue Pull",
+      "items": [
+        "Poller worker extracts pending batches from SQL Server queue",
+        "Orphan verification ensures each header has matching detail items",
+        "Raw payload is safely stored in PostgreSQL staging_documents"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "SAP Cloud Session Handshake",
+      "items": [
+        "First call fetches a dynamic CSRF token and session cookies",
+        "Security credentials are kept in memory for the dispatch session",
+        "OData POST payload is submitted with valid CSRF and cookie headers"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Two-Phase Commitment",
+      "items": [
+        "Successful SAP responses yield an official SAP Document Number",
+        "Source SQL Server queue is updated to mark transaction processed",
+        "Complete payload and response are saved to PostgreSQL audit logs"
+      ]
+    }
+  ]
+}

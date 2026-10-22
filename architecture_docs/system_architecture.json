@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "BPI Enterprise Integration Platform",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "eam-to-sap-sync",
+        "label": "Maximo to SAP Data Sync",
+        "focus": ["maximo_eam", "sqlserver_stg", "pull_worker", "pg_staging", "transform_core", "push_worker", "sap_grow"],
+        "note": "Follow the primary transaction path from IBM Maximo EAM into SAP Grow Cloud."
+      },
+      {
+        "id": "operations-and-monitoring",
+        "label": "Operations and Web Panel",
+        "focus": ["web_panel", "swagger_api", "pg_staging"],
+        "note": "Observe real-time tracking, payload inspection, and manual triggers from the web panel."
+      },
+      {
+        "id": "staging-and-state-machine",
+        "label": "Staging Engine and State Storage",
+        "focus": ["pg_staging", "transform_core", "push_worker"],
+        "note": "Isolate the persistent multi-tier staging buffer and atomic state engine."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "maximo_eam",
+      "type": "external",
+      "label": "IBM Maximo EAM",
+      "sublabel": "Enterprise Asset Mgmt",
+      "pos": [40, 180],
+      "size": [140, 60],
+      "tag": "EAM Source"
+    },
+    {
+      "id": "sqlserver_stg",
+      "type": "database",
+      "label": "SQL Server DB",
+      "sublabel": "Queue & Staging Tables",
+      "pos": [40, 340],
+      "size": [140, 60],
+      "tag": "mxout_inter_trans"
+    },
+    {
+      "id": "pull_worker",
+      "type": "backend",
+      "label": "Pull Poller Service",
+      "sublabel": "Dual-Thread Engine :8085",
+      "pos": [260, 340],
+      "size": [150, 60],
+      "tag": "3-Min Ticker"
+    },
+    {
+      "id": "swagger_api",
+      "type": "backend",
+      "label": "Engine REST API",
+      "sublabel": "Swagger OpenAPI :8085",
+      "pos": [260, 180],
+      "size": [150, 60],
+      "tag": "OpenAPI 2.0"
+    },
+    {
+      "id": "web_panel",
+      "type": "frontend",
+      "label": "Web Operations Panel",
+      "sublabel": "Gin UI Server :8091",
+      "pos": [480, 180],
+      "size": [150, 60],
+      "tag": "Live Tracking"
+    },
+    {
+      "id": "pg_staging",
+      "type": "database",
+      "label": "PostgreSQL Staging",
+      "sublabel": "Durable Buffer :5432",
+      "pos": [480, 340],
+      "size": [150, 60],
+      "brand": "postgresql",
+      "tag": "Audit & Staging"
+    },
+    {
+      "id": "transform_core",
+      "type": "backend",
+      "label": "Transform Engine",
+      "sublabel": "Schema & Mapping Core",
+      "pos": [700, 240],
+      "size": [150, 60],
+      "tag": "Tier 2 Transform"
+    },
+    {
+      "id": "push_worker",
+      "type": "backend",
+      "label": "Push Dispatcher",
+      "sublabel": "OData Client Engine",
+      "pos": [700, 380],
+      "size": [150, 60],
+      "tag": "1-Min Ticker"
+    },
+    {
+      "id": "sap_grow",
+      "type": "cloud",
+      "label": "SAP Grow S/4HANA",
+      "sublabel": "Public Cloud OData",
+      "pos": [920, 380],
+      "size": [150, 60],
+      "tag": "HTTPS / OData"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Source Environment: Enterprise EAM",
+      "wraps": ["maximo_eam", "sqlserver_stg"]
+    },
+    {
+      "kind": "region",
+      "label": "Integration Hub: Golang Middleware Suite",
+      "wraps": ["swagger_api", "pull_worker", "web_panel", "pg_staging", "transform_core", "push_worker"]
+    },
+    {
+      "kind": "region",
+      "label": "Target Environment: Enterprise Cloud ERP",
+      "wraps": ["sap_grow"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "eam-to-sql",
+      "from": "maximo_eam",
+      "to": "sqlserver_stg",
+      "label": "Write Queue",
+      "variant": "default",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "sql-to-pull",
+      "from": "sqlserver_stg",
+      "to": "pull_worker",
+      "label": "Extract Delta",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pull-to-pg",
+      "from": "pull_worker",
+      "to": "pg_staging",
+      "label": "Tier 1 Ingest",
+      "variant": "emphasis"
+    },
+    {
+      "id": "panel-to-engine",
+      "from": "web_panel",
+      "to": "swagger_api",
+      "label": "Proxy API",
+      "variant": "dashed"
+    },
+    {
+      "id": "panel-to-pg",
+      "from": "web_panel",
+      "to": "pg_staging",
+      "label": "Read Metrics",
+      "variant": "default",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "pg-to-transform",
+      "from": "pg_staging",
+      "to": "transform_core",
+      "label": "Staged Docs",
+      "variant": "default"
+    },
+    {
+      "id": "transform-to-push",
+      "from": "transform_core",
+      "to": "push_worker",
+      "label": "Core Payload",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "push-to-sap",
+      "from": "push_worker",
+      "to": "sap_grow",
+      "label": "OData POST",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "EAM & Staging Source",
+      "items": [
+        "IBM Maximo generates maintenance documents and logs queue records",
+        "SQL Server holds outbound queues and interface detail tables",
+        "Automatic orphan validation ensures complete header and line records"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Dual-Thread Middleware Engine",
+      "items": [
+        "Independent Pull Worker extracts new records on a 3-minute ticker",
+        "PostgreSQL provides a durable 3-tier staging buffer with JSON snapshots",
+        "Push Dispatcher executes atomic delivery to SAP Grow with session management"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Operations & Enterprise Cloud",
+      "items": [
+        "Operations Web Panel gives real-time tracking, metrics, and manual triggers",
+        "Interactive payload inspector allows side-by-side comparison",
+        "SAP Grow S/4HANA Cloud receives verified transactions via OData services"
+      ]
+    }
+  ]
+}

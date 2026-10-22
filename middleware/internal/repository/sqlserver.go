@@ -16,17 +16,27 @@ type SQLServerRepository struct {
 
 type ExtractedRecord struct {
 	TransID       string
+	IfaceTbName   string
 	DocType       string
 	DocumentNo    string
 	PayloadJSON   json.RawMessage
 	LastUpdatedAt time.Time
 }
 
+// InboundControlRecord merepresentasikan data kontrol integrasi masuk ke Maximo (mxin_inter_trans)
+// sebagaimana didefinisikan pada makro STG_DATA_INSERT_MXIN di dokumen Doc Staging.
+type InboundControlRecord struct {
+	IfaceName     string
+	TransID       int64
+	Action        string
+	ExtSysName    string
+	TransLanguage string
+}
+
 func NewSQLServerRepository(db *sql.DB) *SQLServerRepository {
 	return &SQLServerRepository{DB: db}
 }
 
-// ExtractData menarik data antrean dari mxout_inter_trans dengan batas limit (default 1 untuk testing bertahap)
 // ExtractData menarik data antrean dari mxout_inter_trans dengan batas limit data valid.
 // Hanya data yang terbukti memiliki baris detail di tabel ifacetbname yang akan ditarik.
 func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]ExtractedRecord, error) {
@@ -48,7 +58,7 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 			SELECT TOP (%d) transid, ISNULL(ifacename, ''), ISNULL(ifacetbname, ''), ISNULL([action], '')
 			FROM mxout_inter_trans
 			WHERE (ax = 0 OR ax IS NULL)
-			ORDER BY transid ASC
+			ORDER BY transid DESC
 		`, batchSize)
 
 		rows, err := r.DB.QueryContext(ctx, query)
@@ -82,7 +92,7 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 			tbUpper := strings.ToUpper(strings.TrimSpace(it.ifacetbname))
 			if tbUpper == "" {
 				log.Printf("[SKIP] mxout_inter_trans transid=%d di-skip: ifacetbname kosong", it.transID)
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
 				processedInBatch++
 				continue
 			}
@@ -103,7 +113,7 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 
 			if extractErr != nil {
 				log.Printf("[WARN] Gagal query detail transid %d (%s): %v", it.transID, it.ifacetbname, extractErr)
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
 				processedInBatch++
 				continue
 			}
@@ -112,9 +122,14 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 			if rec == nil {
 				log.Printf("[SKIP] mxout_inter_trans transid=%d (%s) di-skip: TIDAK ADA data detail terkait di tabel dbo.[%s]", it.transID, it.ifacename, it.ifacetbname)
 				// Tandai ax = 1 agar antrean bergerak, TETAPI JANGAN kirim ke staging/SAP
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID))
+				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
 				processedInBatch++
 				continue
+			}
+
+			// Pastikan IfaceTbName selalu terisi sesuai antrean sumber
+			if rec.IfaceTbName == "" {
+				rec.IfaceTbName = it.ifacetbname
 			}
 
 			// Data valid ditemukan lengkap di kedua tabel!
@@ -133,12 +148,47 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 	return records, nil
 }
 
-// MarkProcessed menandai status ax = 1 pada mxout_inter_trans agar record tidak ditarik berulang
-func (r *SQLServerRepository) MarkProcessed(ctx context.Context, transID string) error {
+// MarkProcessed menandai status ax = 1 pada mxout_inter_trans agar record tidak ditarik berulang.
+// Menggunakan pasangan transid dan ifacetbname (persis seperti standar makro integrasi Maximo STG_MXOUT_UPDATE_START).
+func (r *SQLServerRepository) MarkProcessed(ctx context.Context, transID string, ifacetbname ...string) error {
 	if r.DB == nil {
 		return nil
 	}
+	tbName := ""
+	if len(ifacetbname) > 0 {
+		tbName = strings.TrimSpace(ifacetbname[0])
+	}
+
+	if tbName != "" {
+		_, err := r.DB.ExecContext(ctx, "UPDATE mxout_inter_trans SET ax = 1 WHERE transid = @p1 AND ifacetbname = @p2", transID, tbName)
+		return err
+	}
+
 	_, err := r.DB.ExecContext(ctx, "UPDATE mxout_inter_trans SET ax = 1 WHERE transid = @p1", transID)
+	return err
+}
+
+// InsertInboundControl mencatat transaksi masuk ke Maximo melalui tabel mxin_inter_trans
+// untuk skenario feedback status atau data dari SAP kembali ke Maximo (sesuai makro STG_DATA_INSERT_MXIN).
+func (r *SQLServerRepository) InsertInboundControl(ctx context.Context, rec InboundControlRecord) error {
+	if r.DB == nil {
+		return nil
+	}
+	if rec.Action == "" {
+		rec.Action = "INSERT"
+	}
+	if rec.ExtSysName == "" {
+		rec.ExtSysName = "SAP_GROW"
+	}
+	if rec.TransLanguage == "" {
+		rec.TransLanguage = "EN"
+	}
+
+	query := `
+		INSERT INTO mxin_inter_trans (ifacename, transid, [action], extsysname, translanguage)
+		VALUES (@p1, @p2, @p3, @p4, @p5)
+	`
+	_, err := r.DB.ExecContext(ctx, query, rec.IfaceName, rec.TransID, rec.Action, rec.ExtSysName, rec.TransLanguage)
 	return err
 }
 
@@ -240,6 +290,7 @@ func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, acti
 
 	return &ExtractedRecord{
 		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   "axmxpo",
 		DocType:       "PO",
 		DocumentNo:    poNum,
 		PayloadJSON:   payloadBytes,
@@ -323,6 +374,7 @@ func (r *SQLServerRepository) extractPR(ctx context.Context, transID int64, acti
 	payloadBytes, _ := json.Marshal(prPayload)
 	return &ExtractedRecord{
 		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   "axpr",
 		DocType:       "PR",
 		DocumentNo:    prNum,
 		PayloadJSON:   payloadBytes,
@@ -403,6 +455,7 @@ func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64,
 	payloadBytes, _ := json.Marshal(receiptPayload)
 	return &ExtractedRecord{
 		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   "axreceipt",
 		DocType:       "GRN",
 		DocumentNo:    docNo,
 		PayloadJSON:   payloadBytes,
@@ -480,6 +533,7 @@ func (r *SQLServerRepository) extractGeneric(ctx context.Context, transID int64,
 	payloadBytes, _ := json.Marshal(payload)
 	return &ExtractedRecord{
 		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   cleanTable,
 		DocType:       cleanTable,
 		DocumentNo:    docNo,
 		PayloadJSON:   payloadBytes,

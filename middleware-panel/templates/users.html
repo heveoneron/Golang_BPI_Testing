@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Access Management - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 16px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .user-avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; text-transform: uppercase; }
+        .role-admin { background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; font-weight: 700; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; }
+        .role-operator { background-color: #FAF5FF; color: #7E22CE; border: 1px solid #E9D5FF; font-weight: 700; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; }
+        .role-auditor { background-color: #F0FDFA; color: #0F766E; border: 1px solid #99F6E4; font-weight: 700; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-people-fill text-primary"></i> User Access Management</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Kelola akun pengguna, hak akses peran (Role), dan izin masuk Web Panel Middleware</span>
+            </div>
+            <div>
+                <button class="btn btn-primary btn-sm rounded-3 fw-bold shadow-sm" onclick="openAddUserModal()">
+                    <i class="bi bi-person-plus-fill me-1"></i> Tambah Pengguna Baru
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>TOTAL PENGGUNA</span>
+                        <i class="bi bi-people text-primary fs-5"></i>
+                    </div>
+                    <div class="stat-val text-dark">{{ .TotalUsers }}</div>
+                    <span class="text-muted small">Akun Terdaftar di Sistem</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>AKUN AKTIF</span>
+                        <i class="bi bi-person-check-fill text-success fs-5"></i>
+                    </div>
+                    <div class="stat-val text-success">{{ .ActiveCount }}</div>
+                    <span class="text-muted small">Dapat Login ke Panel</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>ADMINISTRATOR</span>
+                        <i class="bi bi-shield-lock-fill text-info fs-5"></i>
+                    </div>
+                    <div class="stat-val text-info">{{ .AdminCount }}</div>
+                    <span class="text-muted small">Akses Penuh Konfigurasi</span>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <span>OPERATOR &amp; AUDITOR</span>
+                        <i class="bi bi-person-badge-fill text-purple fs-5"></i>
+                    </div>
+                    <div class="stat-val" style="color: #7E22CE;">{{ .OperatorCount }}</div>
+                    <span class="text-muted small">Monitoring &amp; Trigger</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Table Card -->
+        <div class="main-card">
+            <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-person-lines-fill me-2 text-primary"></i>Daftar Pengguna Web Panel</h5>
+                    <span class="text-muted" style="font-size: 12px;">Data akun yang memiliki izin autentikasi ke panel monitoring middleware</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom m-0">
+                    <thead>
+                        <tr>
+                            <th width="25%">Pengguna</th>
+                            <th width="20%">Email</th>
+                            <th width="15%">Peran (Role)</th>
+                            <th width="15%">Login Terakhir</th>
+                            <th width="12%">Status</th>
+                            <th width="13%" class="text-end">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Users }}
+                        <tr id="user-row-{{ .ID }}">
+                            <td>
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="user-avatar">
+                                        {{ slice .Username 0 1 }}
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 14px;">
+                                            {{ .Username }}
+                                            {{ if eq .Username $.Username }}
+                                            <span class="badge bg-primary bg-opacity-10 text-primary small ms-1" style="font-size: 10px;">Anda</span>
+                                            {{ end }}
+                                        </div>
+                                        <div class="text-muted small" style="font-size: 12px;">{{ .FullName }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="text-muted mono-val">{{ if .Email }}{{ .Email }}{{ else }}-{{ end }}</span>
+                            </td>
+                            <td>
+                                {{ if eq .Role "admin" }}
+                                <span class="role-admin"><i class="bi bi-shield-check me-1"></i> Administrator</span>
+                                {{ else if eq .Role "operator" }}
+                                <span class="role-operator"><i class="bi bi-gear-fill me-1"></i> Operator</span>
+                                {{ else }}
+                                <span class="role-auditor"><i class="bi bi-eye-fill me-1"></i> Auditor</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <span class="text-muted small">
+                                    {{ if .LastLoginAt }}
+                                    <i class="bi bi-clock me-1 text-primary"></i> {{ .LastLoginAt.Format "02 Jan 2006 15:04" }}
+                                    {{ else }}
+                                    <span class="text-muted fst-italic">Belum pernah login</span>
+                                    {{ end }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="form-check form-switch m-0 d-flex align-items-center gap-2">
+                                    <input class="form-check-input" type="checkbox" id="user-toggle-{{ .ID }}" {{ if .IsActive }}checked{{ end }} onchange="toggleUserActive('{{ .ID }}')" style="cursor: pointer; width: 2.2rem; height: 1.2rem;">
+                                    <span class="small fw-semibold" id="user-status-text-{{ .ID }}">
+                                        {{ if .IsActive }}<span class="text-success">Aktif</span>{{ else }}<span class="text-muted">Mati</span>{{ end }}
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="openEditUserModal('{{ .ID }}', '{{ .Username }}', '{{ .FullName }}', '{{ .Email }}', '{{ .Role }}', {{ .IsActive }})" title="Edit Pengguna">
+                                        <i class="bi bi-pencil-fill"></i>
+                                    </button>
+                                    {{ if ne .Username $.Username }}
+                                    <button class="btn btn-outline-danger btn-sm" onclick="confirmDeleteUser('{{ .ID }}', '{{ .Username }}')" title="Hapus Pengguna">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                    {{ else }}
+                                    <button class="btn btn-outline-secondary btn-sm disabled" title="Tidak dapat menghapus akun sendiri" disabled>
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                    {{ end }}
+                                </div>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <i class="bi bi-people fs-2 d-block mb-2"></i>
+                                Belum ada data pengguna.
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah Pengguna Baru -->
+    <div class="modal fade" id="addUserModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill me-2 text-primary"></i>Tambah Pengguna Baru</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="addUserForm" onsubmit="saveNewUser(event)">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Username Login</label>
+                            <input type="text" id="newUsername" class="form-control" placeholder="Contoh: operator1" required autocomplete="off">
+                            <span class="text-muted small" style="font-size: 11px;">Digunakan untuk masuk ke Web Panel</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Nama Lengkap</label>
+                            <input type="text" id="newFullName" class="form-control" placeholder="Contoh: Budi Santoso" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Email (Opsional)</label>
+                            <input type="email" id="newEmail" class="form-control" placeholder="Contoh: budi@company.com">
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Password</label>
+                                <input type="password" id="newPassword" class="form-control" placeholder="Minimal 6 karakter" required minlength="4">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Peran (Role)</label>
+                                <select id="newRole" class="form-select" required>
+                                    <option value="operator" selected>Operator (Operasional)</option>
+                                    <option value="admin">Administrator (Penuh)</option>
+                                    <option value="auditor">Auditor (Lihat Saja)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="newIsActive" checked>
+                            <label class="form-check-label fw-bold small" for="newIsActive">Status Akun Aktif</label>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                            <button type="submit" class="btn btn-primary btn-sm fw-bold">
+                                <i class="bi bi-save me-1"></i> Simpan Pengguna
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Pengguna -->
+    <div class="modal fade" id="editUserModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold" id="editUserTitle"><i class="bi bi-pencil-square me-2 text-primary"></i>Edit Pengguna</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="editUserForm" onsubmit="saveEditUser(event)">
+                        <input type="hidden" id="editUserId" value="">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Username</label>
+                            <input type="text" id="editUsername" class="form-control bg-light" disabled>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Nama Lengkap</label>
+                            <input type="text" id="editFullName" class="form-control" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Email</label>
+                            <input type="email" id="editEmail" class="form-control">
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Reset Password (Opsional)</label>
+                                <input type="password" id="editPassword" class="form-control" placeholder="Kosongkan jika tidak diubah">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Peran (Role)</label>
+                                <select id="editRole" class="form-select" required>
+                                    <option value="operator">Operator (Operasional)</option>
+                                    <option value="admin">Administrator (Penuh)</option>
+                                    <option value="auditor">Auditor (Lihat Saja)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="editIsActive">
+                            <label class="form-check-label fw-bold small" for="editIsActive">Status Akun Aktif</label>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                            <button type="submit" class="btn btn-primary btn-sm fw-bold">
+                                <i class="bi bi-check-lg me-1"></i> Perbarui Data
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMessage = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMessage.innerHTML = `<i class="bi bi-${isSuccess ? 'check-circle' : 'exclamation-circle'}-fill"></i> ${message}`;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        function openAddUserModal() {
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newFullName').value = '';
+            document.getElementById('newEmail').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('newRole').value = 'operator';
+            document.getElementById('newIsActive').checked = true;
+            const modal = new bootstrap.Modal(document.getElementById('addUserModal'));
+            modal.show();
+        }
+
+        function openEditUserModal(id, username, fullName, email, role, isActive) {
+            document.getElementById('editUserId').value = id;
+            document.getElementById('editUsername').value = username;
+            document.getElementById('editFullName').value = fullName;
+            document.getElementById('editEmail').value = email;
+            document.getElementById('editRole').value = role;
+            document.getElementById('editPassword').value = '';
+            document.getElementById('editIsActive').checked = (isActive === true || isActive === 'true');
+            document.getElementById('editUserTitle').innerHTML = `<i class="bi bi-pencil-square me-2 text-primary"></i>Edit Pengguna: ${username}`;
+            const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+            modal.show();
+        }
+
+        async function saveNewUser(e) {
+            e.preventDefault();
+            const payload = {
+                username: document.getElementById('newUsername').value.trim(),
+                full_name: document.getElementById('newFullName').value.trim(),
+                email: document.getElementById('newEmail').value.trim(),
+                password: document.getElementById('newPassword').value,
+                role: document.getElementById('newRole').value,
+                is_active: document.getElementById('newIsActive').checked
+            };
+
+            try {
+                const resp = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal menambahkan pengguna', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+
+        async function saveEditUser(e) {
+            e.preventDefault();
+            const payload = {
+                id: parseInt(document.getElementById('editUserId').value),
+                full_name: document.getElementById('editFullName').value.trim(),
+                email: document.getElementById('editEmail').value.trim(),
+                role: document.getElementById('editRole').value,
+                password: document.getElementById('editPassword').value,
+                is_active: document.getElementById('editIsActive').checked
+            };
+
+            try {
+                const resp = await fetch('/api/users/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal memperbarui data', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+
+        async function toggleUserActive(id) {
+            try {
+                const resp = await fetch(`/api/users/toggle/${id}`, { method: 'POST' });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    const toggle = document.getElementById(`user-toggle-${id}`);
+                    const text = document.getElementById(`user-status-text-${id}`);
+                    if (toggle && text) {
+                        text.innerHTML = toggle.checked ? '<span class="text-success">Aktif</span>' : '<span class="text-muted">Mati</span>';
+                    }
+                } else {
+                    showToast(res.message || 'Gagal mengubah status', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+
+        async function confirmDeleteUser(id, username) {
+            if (!confirm(`Apakah Anda yakin ingin menghapus akun pengguna [${username}]? Tindakan ini tidak dapat dibatalkan.`)) {
+                return;
+            }
+            try {
+                const resp = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    const row = document.getElementById(`user-row-${id}`);
+                    if (row) row.remove();
+                } else {
+                    showToast(res.message || 'Gagal menghapus pengguna', false);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, false);
+            }
+        }
+    </script>
+</body>
+</html>

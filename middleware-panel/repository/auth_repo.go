@@ -25,17 +25,43 @@ type AuthRepository interface {
 	CheckLoginViaAPI(username, password string) (*MiddlewareLoginResponse, error)
 }
 
-type authRepo struct{}
+type authRepo struct {
+	userRepo UserRepository
+}
 
-func NewAuthRepository() AuthRepository {
-	return &authRepo{}
+func NewAuthRepository(userRepos ...UserRepository) AuthRepository {
+	var uRepo UserRepository
+	if len(userRepos) > 0 {
+		uRepo = userRepos[0]
+	}
+	return &authRepo{userRepo: uRepo}
 }
 
 func (r *authRepo) CheckLoginViaAPI(username, password string) (*MiddlewareLoginResponse, error) {
-	// Mengambil URL dari file .env jika ingin autentikasi via API eksternal
+	// 1. Cek autentikasi database User Access jika repository tersedia
+	if r.userRepo != nil {
+		user, err := r.userRepo.GetByUsername(username)
+		if err == nil && user != nil {
+			if !user.IsActive {
+				return nil, errors.New("Akun Anda telah dinonaktifkan. Silakan hubungi administrator.")
+			}
+			if r.userRepo.VerifyPassword(user, password) {
+				_ = r.userRepo.UpdateLastLogin(user.ID)
+				return &MiddlewareLoginResponse{
+					Status:  "success",
+					Token:   "bpi-panel-db-token-" + time.Now().Format("20060102150405"),
+					Expiry:  time.Now().Add(24 * time.Hour).Unix(),
+					Message: "Login berhasil sebagai " + user.Role + ".",
+				}, nil
+			}
+			return nil, errors.New("Username atau password salah.")
+		}
+	}
+
+	// 2. Mengambil URL dari file .env jika ingin autentikasi via API eksternal
 	apiURL := os.Getenv("LOGIN_API_URL")
 
-	// Jika LOGIN_API_URL tidak diatur di .env, gunakan autentikasi lokal admin (default: admin / admin)
+	// 3. Fallback kredensial lokal admin dari .env (default: admin / admin)
 	if apiURL == "" {
 		adminUser := os.Getenv("PANEL_ADMIN_USER")
 		if adminUser == "" {

@@ -34,6 +34,12 @@ func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 		api.POST("/trigger/push", ctrl.TriggerPush)
 		api.POST("/trigger/pull", ctrl.TriggerPull)
 		api.GET("/trigger/pull", ctrl.TriggerPull)
+		api.GET("/sap/endpoints", ctrl.GetSAPEndpoints)
+		api.POST("/sap/endpoints/test", ctrl.TestSAPEndpoint)
+		api.POST("/sap/endpoints", ctrl.SaveSAPEndpoint)
+		api.POST("/sap/execute-test", ctrl.ExecuteSAPTest)
+		api.GET("/scheduler/status", ctrl.GetSchedulerStatus)
+		api.POST("/scheduler/toggle", ctrl.ToggleAutoPull)
 	}
 
 	// Kompatibilitas dengan endpoint ShoeTown /admin/integration-logs

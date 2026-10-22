@@ -153,3 +153,29 @@ func TestRouter_IngestManualPO_InvalidPayload(t *testing.T) {
 		t.Errorf("POST /api/v1/ingest/po: expected 503 or 400, got %d", w.Code)
 	}
 }
+
+func TestRouter_SchedulerStatus_NoDB(t *testing.T) {
+	ctrl := controller.NewWebController(nil, nil)
+	r := SetupRouter(ctrl)
+
+	req, _ := http.NewRequest("GET", "/api/v1/scheduler/status", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /api/v1/scheduler/status: expected 503, got %d", w.Code)
+	}
+}
+
+func TestRouter_SchedulerToggle_NoDB(t *testing.T) {
+	ctrl := controller.NewWebController(nil, nil)
+	r := SetupRouter(ctrl)
+
+	req, _ := http.NewRequest("POST", "/api/v1/scheduler/toggle?active=false", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("POST /api/v1/scheduler/toggle: expected 503, got %d", w.Code)
+	}
+}

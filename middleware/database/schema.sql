@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS scheduler_configs (
     pull_interval INT DEFAULT 3,              -- Poller 3 menit
     push_is_active BOOLEAN DEFAULT TRUE,
     push_interval INT DEFAULT 1,              -- Push poller 1 menit
+    is_active BOOLEAN DEFAULT TRUE,           -- Kompatibilitas dengan middleware-panel toggle
+    batch_limit INT DEFAULT 1,                -- Limit data ditarik per siklus
     last_check_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -149,3 +151,65 @@ VALUES
     ('INT_BPI_GRN_01', NOW() - INTERVAL '1 day'),
     ('INT_BPI_ITEM_01', NOW() - INTERVAL '1 day')
 ON CONFLICT (interface_id) DO NOTHING;
+
+-- 8. TABEL SAP ENDPOINTS & MULTI-CREDENTIAL REGISTRY
+CREATE TABLE IF NOT EXISTS sap_endpoints (
+    id SERIAL PRIMARY KEY,
+    service_code VARCHAR(50) NOT NULL UNIQUE,     -- 'PO', 'BP', 'GRN', 'PR'
+    service_name VARCHAR(100) NOT NULL,           -- 'Purchase Order OData v4', 'Business Partner OData v2'
+    scenario_id VARCHAR(50) NOT NULL,             -- 'SAP_COM_0053', 'SAP_COM_0008'
+    odata_version VARCHAR(10) NOT NULL DEFAULT 'v4', -- 'v2' atau 'v4'
+    base_url TEXT NOT NULL DEFAULT 'https://my445160-api.s4hana.cloud.sap',
+    endpoint_path TEXT NOT NULL,
+    csrf_path TEXT,                               -- Path untuk fetch token (default = endpoint_path)
+    username VARCHAR(100) NOT NULL,
+    password TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_status VARCHAR(30) DEFAULT 'UNTESTED',   -- 'SUCCESS', 'FAILED', 'UNTESTED'
+    last_response TEXT,
+    last_tested_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Seed kredensial resmi SAP Grow untuk PO (OData v4) dan BP (OData v2)
+INSERT INTO sap_endpoints (service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, username, password)
+VALUES 
+(
+    'PO', 
+    'Purchase Order Integration (OData v4)', 
+    'SAP_COM_0053', 
+    'v4', 
+    'https://my445160-api.s4hana.cloud.sap',
+    '/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder',
+    'CU_SAP_COM_0053',
+    'PowerofOne@123456789'
+),
+(
+    'BP', 
+    'Business Partner Integration (OData v2)', 
+    'SAP_COM_0008', 
+    'v2', 
+    'https://my445160-api.s4hana.cloud.sap',
+    '/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner',
+    'CU_SAP_COM_0008',
+    'PowerofOne@123456789'
+),
+(
+    'PRODUCT', 
+    'Product / Material Master Integration (OData v2)', 
+    'SAP_COM_0009', 
+    'v2', 
+    'https://my445160-api.s4hana.cloud.sap',
+    '/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product',
+    'CU_SAP_COM_0009',
+    'PowerofOne@123456789'
+)
+ON CONFLICT (service_code) DO UPDATE 
+SET username = EXCLUDED.username, 
+    password = EXCLUDED.password, 
+    base_url = EXCLUDED.base_url,
+    endpoint_path = EXCLUDED.endpoint_path, 
+    odata_version = EXCLUDED.odata_version,
+    updated_at = NOW();
+

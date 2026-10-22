@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"middleware-panel/models"
 	"middleware-panel/services"
 	"net/http"
 	"os"
@@ -21,6 +22,37 @@ func NewSchedulerController(s services.SchedulerService) *SchedulerController {
 	return &SchedulerController{service: s}
 }
 
+func (c *SchedulerController) getMiddlewareSchedulerStatus() (bool, string, bool) {
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	resp, err := http.Get(middlewareURL + "/scheduler/status")
+	if err == nil && resp.StatusCode == http.StatusOK {
+		defer resp.Body.Close()
+		var res struct {
+			Status          string `json:"status"`
+			AutoPullEnabled bool   `json:"auto_pull_enabled"`
+			EnvSetting      string `json:"env_setting"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+			envVal := res.EnvSetting
+			if envVal == "" {
+				envVal = "true (default)"
+			}
+			isEnvHardOff := (envVal == "false" || envVal == "0" || envVal == "off" || envVal == "no")
+			return res.AutoPullEnabled, envVal, isEnvHardOff
+		}
+	}
+	// Fallback ke ENV lokal jika API belum nyala
+	envVal := os.Getenv("AUTO_PULL_ENABLED")
+	if envVal == "" {
+		envVal = "true (default)"
+	}
+	isEnvHardOff := (envVal == "false" || envVal == "0" || envVal == "off" || envVal == "no")
+	return !isEnvHardOff, envVal, isEnvHardOff
+}
+
 func (c *SchedulerController) ShowSchedulerConfig(ctx *gin.Context) {
 	session := sessions.Default(ctx)
 	if session.Get("user_id") == nil {
@@ -29,10 +61,15 @@ func (c *SchedulerController) ShowSchedulerConfig(ctx *gin.Context) {
 	}
 
 	schedConfig, _ := c.service.GetConfig()
+	effectiveActive, envSetting, isEnvHardOff := c.getMiddlewareSchedulerStatus()
+
 	ctx.HTML(http.StatusOK, "scheduler_config.html", gin.H{
-		"SchedConfig": schedConfig,
-		"Username":    session.Get("username"),
-		"ActiveMenu":  "scheduler",
+		"SchedConfig":     schedConfig,
+		"EffectiveActive": effectiveActive,
+		"EnvSetting":      envSetting,
+		"IsEnvHardOff":    isEnvHardOff,
+		"Username":        session.Get("username"),
+		"ActiveMenu":      "scheduler",
 	})
 }
 
@@ -59,11 +96,77 @@ func (c *SchedulerController) UpdateSchedulerConfig(ctx *gin.Context) {
 
 	schedConfig, _ := c.service.UpdateConfigFromForm(form)
 
+	// Sync perubahan ke middleware API jika ada
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	toggleURL := fmt.Sprintf("%s/scheduler/toggle?active=%v", middlewareURL, schedConfig.IsActive)
+	_, _ = http.Post(toggleURL, "application/json", nil)
+
+	effectiveActive, envSetting, isEnvHardOff := c.getMiddlewareSchedulerStatus()
+
 	ctx.HTML(http.StatusOK, "scheduler_config.html", gin.H{
-		"Success":     "Automation schedule has been updated successfully!",
-		"SchedConfig": schedConfig,
-		"Username":    session.Get("username"),
-		"ActiveMenu":  "scheduler",
+		"Success":         "Pengaturan Auto Get Data from Maximo berhasil disimpan!",
+		"SchedConfig":     schedConfig,
+		"EffectiveActive": effectiveActive,
+		"EnvSetting":      envSetting,
+		"IsEnvHardOff":    isEnvHardOff,
+		"Username":        session.Get("username"),
+		"ActiveMenu":      "scheduler",
+	})
+}
+
+// QuickToggleAutoPull mengubah status Auto-Pull secara instan melalui AJAX dari Panel
+func (c *SchedulerController) QuickToggleAutoPull(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		Active bool `json:"active"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		activeStr := ctx.DefaultQuery("active", "true")
+		req.Active = (activeStr == "true" || activeStr == "1" || activeStr == "on")
+	}
+
+	schedConfig, err := c.service.GetConfig()
+	if err != nil {
+		schedConfig = &models.SchedulerConfig{}
+	}
+	schedConfig.IsActive = req.Active
+	schedConfig.PullIsActive = req.Active
+	_, _ = c.service.UpdateConfigFromForm(map[string]interface{}{
+		"is_active": func() string {
+			if req.Active {
+				return "on"
+			}
+			return ""
+		}(),
+		"frequency":            schedConfig.Frequency,
+		"start_date":           schedConfig.StartDate,
+		"start_time":           schedConfig.StartTime,
+		"recur_every":          strconv.Itoa(schedConfig.RecurEvery),
+		"is_repeat_enabled":    func() string { if schedConfig.IsRepeatEnabled { return "on" }; return "" }(),
+		"repeat_interval_mins": strconv.Itoa(schedConfig.RepeatIntervalMins),
+		"batch_limit":          strconv.Itoa(schedConfig.BatchLimit),
+	})
+
+	// Teruskan perubahan ke Middleware Engine API jika terhubung
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	toggleURL := fmt.Sprintf("%s/scheduler/toggle?active=%v", middlewareURL, req.Active)
+	_, _ = http.Post(toggleURL, "application/json", nil)
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"active":  req.Active,
+		"message": fmt.Sprintf("Auto Get Data from Maximo berhasil diatur ke: %v", req.Active),
 	})
 }
 

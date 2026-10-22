@@ -103,25 +103,64 @@ type MaximoPOLine struct {
 	TaxCodePPN   string  `json:"TAXCODE1,omitempty" example:"V1"`
 }
 
-// Payload Struktur Target SAP Grow OData
+// SAPEndpoint merepresentasikan registry service endpoint & kredensial SAP
+type SAPEndpoint struct {
+	ID           int        `json:"id"`
+	ServiceCode  string     `json:"service_code"`
+	ServiceName  string     `json:"service_name"`
+	ScenarioID   string     `json:"scenario_id"`
+	ODataVersion string     `json:"odata_version"`
+	BaseURL      string     `json:"base_url"`
+	EndpointPath string     `json:"endpoint_path"`
+	CSRFPath     string     `json:"csrf_path"`
+	Username     string     `json:"username"`
+	Password     string     `json:"password,omitempty"`
+	IsActive     bool       `json:"is_active"`
+	LastStatus   string     `json:"last_status"`
+	LastResponse string     `json:"last_response"`
+	LastTestedAt *time.Time `json:"last_tested_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+// Payload Struktur Target SAP Grow OData v4 Purchase Order
 type SAPGrowPOPayload struct {
-	CompanyCode             string             `json:"CompanyCode"`
-	PurchasingOrganization  string             `json:"PurchasingOrganization"`
-	PurchasingGroup         string             `json:"PurchasingGroup"`
-	Supplier                string             `json:"Supplier"`
-	PurchaseOrderDate       string             `json:"PurchaseOrderDate"`
-	DocumentCurrency        string             `json:"DocumentCurrency"`
-	CorrespncExternalRefDoc string             `json:"CorrespncExternalReferenceDoc"` // Maximo PO Num
-	ToPurchaseOrderItem     []SAPGrowPOItem    `json:"to_PurchaseOrderItem"`
+	PurchaseOrderType       string          `json:"PurchaseOrderType"`
+	CompanyCode             string          `json:"CompanyCode"`
+	PurchasingOrganization  string          `json:"PurchasingOrganization"`
+	PurchasingGroup         string          `json:"PurchasingGroup"`
+	Supplier                string          `json:"Supplier"`
+	DocumentCurrency        string          `json:"DocumentCurrency"`
+	Language                string          `json:"Language"`
+	PurchaseOrderDate       string          `json:"PurchaseOrderDate"`
+	PaymentTerms            string          `json:"PaymentTerms"`
+	IncotermsClassification string          `json:"IncotermsClassification"`
+	IncotermsLocation1      string          `json:"IncotermsLocation1"`
+	PurchaseOrderItem       []SAPGrowPOItem `json:"_PurchaseOrderItem"`
 }
 
 type SAPGrowPOItem struct {
-	PurchaseOrderItem         string  `json:"PurchaseOrderItem"`
-	Material                  string  `json:"Material"`
-	OrderQuantity             string  `json:"OrderQuantity"`
-	PurchaseOrderQuantityUnit string  `json:"PurchaseOrderQuantityUnit"`
-	NetPriceAmount            string  `json:"NetPriceAmount"`
-	AccountAssignmentCategory string  `json:"AccountAssignmentCategory"` // 'K' untuk Cost Center
-	CostCenter                string  `json:"CostCenter"`
-	GLAccount                 string  `json:"GLAccount"`
+	PurchaseOrderItem         string `json:"PurchaseOrderItem"`
+	PurchaseOrderItemText     string `json:"PurchaseOrderItemText"`
+	Material                  string `json:"Material"`
+	Plant                     string `json:"Plant"`
+	StorageLocation           string `json:"StorageLocation"`
+	OrderQuantity             string `json:"OrderQuantity"`
+	PurchaseOrderQuantityUnit string `json:"PurchaseOrderQuantityUnit"`
+	NetPriceAmount            string `json:"NetPriceAmount"`
+	DocumentCurrency          string `json:"DocumentCurrency"`
+	NetPriceQuantity          string `json:"NetPriceQuantity"`
+	OrderPriceUnit            string `json:"OrderPriceUnit"`
+}
+
+// Payload Struktur Target SAP Grow OData v2 Business Partner
+type SAPGrowBPPayload struct {
+	Customer                string `json:"Customer,omitempty"`
+	Supplier                string `json:"Supplier,omitempty"`
+	BusinessPartnerCategory string `json:"BusinessPartnerCategory"`
+	BusinessPartnerFullName string `json:"BusinessPartnerFullName"`
+	BusinessPartnerName     string `json:"BusinessPartnerName"`
+	LegalForm               string `json:"LegalForm,omitempty"`
+	OrganizationBPName1     string `json:"OrganizationBPName1,omitempty"`
+	SearchTerm1             string `json:"SearchTerm1,omitempty"`
 }

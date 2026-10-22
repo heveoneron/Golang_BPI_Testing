@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BPI Testing Integration Middleware - Architecture & System Specifications</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-card: rgba(18, 24, 38, 0.75);
+      --bg-card-hover: rgba(28, 38, 60, 0.9);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(99, 102, 241, 0.4);
+      --accent-indigo: #6366f1;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      line-height: 1.6;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.1) 0%, transparent 45%);
+      background-attachment: fixed;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 3rem;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 2rem;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      margin-bottom: 1rem;
+    }
+
+    .badge-pill::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.75rem;
+    }
+
+    .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 820px;
+    }
+
+    /* Key Metrics Strip */
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .metric-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      backdrop-filter: blur(12px);
+      border-radius: 14px;
+      padding: 1.25rem 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .metric-card:hover {
+      border-color: var(--border-highlight);
+      transform: translateY(-2px);
+    }
+
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .metric-sub {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+    }
+
+    /* Section Title */
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 1.75rem;
+    }
+
+    .section-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .section-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Diagram Grid */
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1.75rem;
+      margin-bottom: 4rem;
+    }
+
+    .diagram-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      backdrop-filter: blur(16px);
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .diagram-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.6), transparent);
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    .diagram-card:hover {
+      border-color: var(--border-highlight);
+      background: var(--bg-card-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5);
+    }
+
+    .diagram-card:hover::before {
+      opacity: 1;
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .type-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+
+    .tag-architecture { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
+    .tag-dataflow { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.3); }
+    .tag-lifecycle { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .tag-sequence { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    .quality-badge {
+      font-size: 0.72rem;
+      color: var(--accent-emerald);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-weight: 600;
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.65rem;
+      color: var(--text-primary);
+    }
+
+    .card-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      flex-grow: 1;
+    }
+
+    .features-list {
+      list-style: none;
+      margin-bottom: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 1rem;
+    }
+
+    .features-list li {
+      margin-bottom: 0.45rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .features-list li::before {
+      content: '→';
+      color: var(--accent-indigo);
+      font-weight: bold;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent-indigo);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: #4f46e5;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+    }
+
+    /* Architecture Spec Table */
+    .specs-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 2rem;
+      backdrop-filter: blur(16px);
+      margin-bottom: 3.5rem;
+    }
+
+    .specs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .specs-table th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .specs-table td {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .specs-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .specs-table td strong {
+      color: var(--text-primary);
+    }
+
+    .code-badge {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      color: #38bdf8;
+    }
+
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge-pill">Enterprise Integration Architecture • 2026 Ready</div>
+      <h1>BPI Testing Integration Middleware</h1>
+      <p class="subtitle">
+        Dokumentasi arsitektur enterprise lengkap untuk pipeline integrasi Maximo EAM, 
+        PostgreSQL 3-Tier Staging, dan SAP Grow S/4HANA Cloud. Semua diagram interaktif 
+        dihasilkan menggunakan engine <strong>Archify</strong> dengan kepatuhan <em>Showcase Quality</em> 100%.
+      </p>
+    </header>
+
+    <!-- Metrics -->
+    <div class="metrics-bar">
+      <div class="metric-card">
+        <div class="metric-label">Pipeline Architecture</div>
+        <div class="metric-value">3-Tier Staging</div>
+        <div class="metric-sub">Raw JSON Buffer &rarr; Canonical Schema</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Integrity Guard</div>
+        <div class="metric-value">Orphan Check</div>
+        <div class="metric-sub">Header vs Detail Relationship Gate</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Cloud Target</div>
+        <div class="metric-value">SAP Grow Cloud</div>
+        <div class="metric-sub">HTTPS OData v2/v4 + CSRF Handshake</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Archify Diagrams</div>
+        <div class="metric-value">4 Showcase Artifacts</div>
+        <div class="metric-sub">9/9 Checks Passed &bull; Zero Warnings</div>
+      </div>
+    </div>
+
+    <!-- Section: Interactive Diagrams -->
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Diagram Interaktif Standalone</h2>
+        <p class="section-desc">Pilih diagram untuk membuka visualisasi interaktif dengan dark/light theme, trace motion, dan zoom/pan.</p>
+      </div>
+    </div>
+
+    <div class="diagram-grid">
+      <!-- Card 1: System Architecture -->
+      <div class="diagram-card">
+        <div class="card-top">
+          <span class="type-tag tag-architecture">Architecture</span>
+          <span class="quality-badge">✓ 9/9 Showcase OK</span>
+        </div>
+        <h3 class="card-title">System Component Architecture</h3>
+        <p class="card-desc">
+          Peta topologi menyeluruh yang menggambarkan batasan sistem antara Maximo EAM, SQL Server Queue, 
+          Go Dual-Thread Middleware, PostgreSQL Staging, dan SAP Grow S/4HANA Cloud.
+        </p>
+        <ul class="features-list">
+          <li>Boundary trust zone Maximo, Middleware, dan SAP Cloud</li>
+          <li>Dual-engine: Pull Poller (3m) &amp; Push Dispatcher (1m)</li>
+          <li>Web Panel (:8091) &amp; Swagger REST API (:8085)</li>
+        </ul>
+        <div class="card-actions">
+          <a href="system_architecture.html" class="btn btn-primary" target="_blank">Buka Visualisasi ↗</a>
+          <a href="system_architecture.json" class="btn btn-secondary" target="_blank">JSON Spec</a>
+        </div>
+      </div>
+
+      <!-- Card 2: 3-Tier Data Pipeline Flow -->
+      <div class="diagram-card">
+        <div class="card-top">
+          <span class="type-tag tag-dataflow">Dataflow</span>
+          <span class="quality-badge">✓ 9/9 Showcase OK</span>
+        </div>
+        <h3 class="card-title">3-Tier Data Pipeline &amp; Ingestion Flow</h3>
+        <p class="card-desc">
+          Aliran data 5-tahap dari deteksi antrian transaksi, relational orphan gate, 
+          Tier 1 raw JSON persistence di staging, canonical mapper di Tier 2, hingga dispatch SAP.
+        </p>
+        <ul class="features-list">
+          <li>5 Tahap pipeline terstruktur dari source ke cloud</li>
+          <li>Pemeriksaan integritas header dan detail baris item</li>
+          <li>Audit logging terintegrasi pada setiap step</li>
+        </ul>
+        <div class="card-actions">
+          <a href="data_pipeline_flow.html" class="btn btn-primary" target="_blank">Buka Visualisasi ↗</a>
+          <a href="data_pipeline_flow.json" class="btn btn-secondary" target="_blank">JSON Spec</a>
+        </div>
+      </div>
+
+      <!-- Card 3: Integration Document State Lifecycle -->
+      <div class="diagram-card">
+        <div class="card-top">
+          <span class="type-tag tag-lifecycle">Lifecycle</span>
+          <span class="quality-badge">✓ 9/9 Showcase OK</span>
+        </div>
+        <h3 class="card-title">Integration Document State Lifecycle</h3>
+        <p class="card-desc">
+          Mesin status (State Machine) dokumen dari deteksi di queue SQL Server hingga konfirmasi SAP, 
+          termasuk jalur penanganan anomali (orphan bypass, retry backoff, dan dead letter).
+        </p>
+        <ul class="features-list">
+          <li>Rel utama 5 fase (Detected &rarr; Validated &rarr; Staged &rarr; Ready &rarr; Confirmed)</li>
+          <li>Bypass orphan tanpa mencemari downstream data</li>
+          <li>Retry backoff controller dengan isolasi dead letter queue</li>
+        </ul>
+        <div class="card-actions">
+          <a href="sync_lifecycle.html" class="btn btn-primary" target="_blank">Buka Visualisasi ↗</a>
+          <a href="sync_lifecycle.json" class="btn btn-secondary" target="_blank">JSON Spec</a>
+        </div>
+      </div>
+
+      <!-- Card 4: Document Synchronization Sequence -->
+      <div class="diagram-card">
+        <div class="card-top">
+          <span class="type-tag tag-sequence">Sequence</span>
+          <span class="quality-badge">✓ 9/9 Showcase OK</span>
+        </div>
+        <h3 class="card-title">Document Synchronization Sequence</h3>
+        <p class="card-desc">
+          Urutan interaksi panggilan API detail, mencakup mekanisme atomic locking, pengambilan CSRF token 
+          dua arah, session cookie handshake, dan komitmen status dua fase.
+        </p>
+        <ul class="features-list">
+          <li>Dual-thread sequence: Pull ticker dan Push dispatcher</li>
+          <li>Handshake keamanan CSRF token dan session cookie SAP</li>
+          <li>Atomic locking menggunakan row-level concurrency lock</li>
+        </ul>
+        <div class="card-actions">
+          <a href="dispatch_sequence.html" class="btn btn-primary" target="_blank">Buka Visualisasi ↗</a>
+          <a href="dispatch_sequence.json" class="btn btn-secondary" target="_blank">JSON Spec</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Specifications Panel -->
+    <div class="specs-panel">
+      <h2 class="section-title">Ringkasan Konfigurasi &amp; Database Spec</h2>
+      <p class="section-desc">Pemetaan tabel, port servis, dan struktur staging yang digunakan pada project ini.</p>
+
+      <table class="specs-table">
+        <thead>
+          <tr>
+            <th>Komponen</th>
+            <th>Target &amp; Identifier</th>
+            <th>Deskripsi Peran</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>SQL Server Outbound Queue</strong></td>
+            <td><span class="code-badge">mxout_inter_trans</span></td>
+            <td>Tabel antrian utama dari Maximo EAM. Status pending disaring berdasarkan flag status = 0, lalu diupdate ke 1 setelah sukses.</td>
+          </tr>
+          <tr>
+            <td><strong>Interface Detail Tables</strong></td>
+            <td><span class="code-badge">stg_po, stg_pr, stg_receipt, stg_storeroom</span></td>
+            <td>Tabel detail transaksi yang direferensikan oleh kolom <span class="code-badge">ifacetbname</span> melalui foreign key <span class="code-badge">transid</span>.</td>
+          </tr>
+          <tr>
+            <td><strong>PostgreSQL Tier 1 Staging</strong></td>
+            <td><span class="code-badge">staging_documents</span></td>
+            <td>Penyimpanan raw snapshot JSON dari antrian untuk menjamin auditabilitas dan isolasi data sebelum ditransformasikan.</td>
+          </tr>
+          <tr>
+            <td><strong>PostgreSQL Tier 2 Canonical</strong></td>
+            <td><span class="code-badge">documents</span></td>
+            <td>Tabel inti siap kirim dalam format enterprise, dikelola oleh status machine (PENDING, PROCESSING, SUCCESS, FAILED).</td>
+          </tr>
+          <tr>
+            <td><strong>Audit Trail &amp; Telemetry</strong></td>
+            <td><span class="code-badge">integration_logs</span></td>
+            <td>Pencatatan riwayat eksekusi, payload kirim, response SAP, waktu latensi, dan pesan error secara transparan.</td>
+          </tr>
+          <tr>
+            <td><strong>Web Operations Panel</strong></td>
+            <td><span class="code-badge">http://localhost:8091</span></td>
+            <td>Dashboard monitoring operasional, trigger sinkronisasi manual (Ingest / Push), log viewer, dan manajemen antrian.</td>
+          </tr>
+          <tr>
+            <td><strong>Swagger REST API</strong></td>
+            <td><span class="code-badge">http://localhost:8085</span></td>
+            <td>REST API documentation dan programmatic ingestion endpoints untuk integrasi eksternal.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer>
+      &copy; 2026 BPI Testing Integration Architecture &bull; Soltius &bull; Generated with Archify Showcase Engine
+    </footer>
+  </div>
+</body>
+</html>

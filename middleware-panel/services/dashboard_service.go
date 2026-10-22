@@ -10,6 +10,9 @@ type DashboardService interface {
 	GetChildDocuments(parentNo string) ([]models.Document, error)
 	GetDocTypeOptions() ([]string, error)
 	GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error)
+	DeleteDocument(docType string, documentNo string) error
+	BulkDeleteDocuments(items []string) (int64, error)
+	ClearAllDocuments() error
 }
 
 type dashboardService struct {
@@ -50,4 +53,16 @@ func (s *dashboardService) GetDocTypeOptions() ([]string, error) {
 
 func (s *dashboardService) GetAuditTrail(docType string, documentNo string) ([]models.IntegrationLog, error) {
 	return s.repo.GetAuditTrail(docType, documentNo)
+}
+
+func (s *dashboardService) DeleteDocument(docType string, documentNo string) error {
+	return s.repo.DeleteDocument(docType, documentNo)
+}
+
+func (s *dashboardService) BulkDeleteDocuments(items []string) (int64, error) {
+	return s.repo.BulkDeleteDocuments(items)
+}
+
+func (s *dashboardService) ClearAllDocuments() error {
+	return s.repo.ClearAllDocuments()
 }

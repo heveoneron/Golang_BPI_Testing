@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Integration Document State Lifecycle",
+    "viewBox": [980, 680],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "golden-path",
+        "label": "Golden Ingestion Rail",
+        "focus": ["queued", "polled", "validated", "staged_core", "sap_confirmed"],
+        "note": "Standard sequential path from outbound queue detection to successful SAP Cloud persistence."
+      },
+      {
+        "id": "relational-gate",
+        "label": "Integrity Exception Gate",
+        "focus": ["validated", "orphan_skipped", "audit_closed"],
+        "note": "Orphaned queue entries without detail records are intercepted, audited, and marked processed without sending junk downstream."
+      },
+      {
+        "id": "resilience-and-archive",
+        "label": "Fault Recovery & Terminal Archive",
+        "focus": ["staged_core", "retry_backoff", "dead_letter", "sap_confirmed", "reconciliation", "synced_archive"],
+        "note": "Transient cloud errors trigger exponential retries, while confirmed documents complete end-to-end reconciliation."
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "main", "label": "Synchronization Pipeline" },
+    { "id": "waiting", "label": "Integrity & Audit Wait" },
+    { "id": "recovery", "label": "Delivery Fault & Retry" },
+    { "id": "terminal", "label": "Terminal Status" }
+  ],
+  "states": [
+    { "id": "queued", "type": "start", "label": "Queue Detected", "sublabel": "Pending in SQL Queue", "lane": "main", "col": 0, "step": "01", "tag": "entry" },
+    { "id": "polled", "type": "active", "label": "Batch Polled", "sublabel": "Worker Polling Engine", "lane": "main", "col": 1, "step": "02", "tag": "worker" },
+    { "id": "validated", "type": "decision", "label": "Relational Gate", "sublabel": "Header-Detail Verification", "lane": "main", "col": 2, "step": "03", "tag": "gate" },
+    { "id": "staged_core", "type": "active", "label": "Core Document", "sublabel": "Canonical Schema Ready", "lane": "main", "col": 3, "step": "04", "tag": "tier 2" },
+    { "id": "sap_confirmed", "type": "success", "label": "SAP Confirmed", "sublabel": "S/4HANA Document Created", "lane": "main", "col": 4, "step": "05", "tag": "success" },
+    { "id": "orphan_skipped", "type": "waiting", "label": "Orphan Bypassed", "sublabel": "Missing Detail Lines", "lane": "waiting", "col": 0, "tag": "bypassed" },
+    { "id": "retry_backoff", "type": "active", "label": "Retry Backoff", "sublabel": "Exponential Delay (Max 3)", "lane": "recovery", "col": 1, "tag": "retryable" },
+    { "id": "reconciliation", "type": "waiting", "label": "Audit Verify", "sublabel": "SAP Doc Verification", "lane": "waiting", "col": 2, "tag": "reconcile" },
+    { "id": "audit_closed", "type": "failure", "label": "Marked Skipped", "sublabel": "Bypassed with Audit Log", "lane": "terminal", "col": 0, "tag": "terminal" },
+    { "id": "dead_letter", "type": "failure", "label": "Dead Letter", "sublabel": "Max Retries Exhausted", "lane": "terminal", "col": 1, "tag": "terminal" },
+    { "id": "synced_archive", "type": "success", "label": "End-to-End Traced", "sublabel": "Cross-System Success", "lane": "terminal", "col": 2, "tag": "terminal" }
+  ],
+  "transitions": [
+    { "id": "t1", "from": "validated", "to": "orphan_skipped", "variant": "security", "route": "straight", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t2", "from": "orphan_skipped", "to": "audit_closed", "variant": "security", "route": "straight", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t3", "from": "staged_core", "to": "retry_backoff", "variant": "security", "route": "straight", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t4", "from": "retry_backoff", "to": "dead_letter", "variant": "security", "route": "straight", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t5", "from": "sap_confirmed", "to": "reconciliation", "variant": "dashed", "route": "straight", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t6", "from": "reconciliation", "to": "synced_archive", "variant": "emphasis", "route": "straight", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Ordered Synchronization Rail",
+      "items": [
+        "Records transition sequentially through five verified lifecycle phases",
+        "Each stage transition is atomic and recorded in audit integration logs",
+        "State progression is tracked from SQL queue detection to cloud persistence"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Integrity Guard & Concurrency",
+      "items": [
+        "Header records lacking relational detail rows are safely isolated",
+        "Isolated records are marked processed in SQL queue with audit log entry",
+        "Row-level locking (FOR UPDATE SKIP LOCKED) prevents duplicate SAP dispatch"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Fault Tolerance & Terminal States",
+      "items": [
+        "Network timeouts and 4xx/5xx SAP errors trigger retry backoff schedule",
+        "Records exceeding 3 failed attempts move to Dead Letter status for review",
+        "Terminal states provide end-to-end traceability for operational audits"
+      ]
+    }
+  ]
+}

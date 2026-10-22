@@ -110,3 +110,33 @@ SQL_CONN_STRING=sqlserver://sa:YourPassword123!@localhost:1433?database=MAXIMO_S
 > 2. Aktifkan **SQL Server and Windows Authentication mode** (Mixed Mode) di SQL Server Properties $\rightarrow$ Security.
 > 3. Restart service **SQL Server (MSSQLSERVER)**.
 > 4. Parameter `encrypt=disable` wajib disertakan jika sertifikat SSL lokal self-signed belum terdaftar di CA Windows.
+
+---
+
+## ⏱️ Pengaturan On / Off Auto Get Data from Maximo
+
+Fitur penarikan data antrean otomatis dari SQL Server Maximo (`mxout_inter_trans`) dapat dikontrol secara fleksibel melalui **Environment (`.env`)** maupun **Web Panel**:
+
+### 1. Kontrol via File Environment (`middleware/.env`)
+Tambahkan variabel berikut pada file `middleware/.env`:
+```env
+# Status Aktif/Nonaktif Background Pull Worker
+# Nilai: "true" (Aktif) atau "false" (Nonaktif/Mati)
+AUTO_PULL_ENABLED=true
+
+# Interval Penarikan Otomatis (Menit) & Limit Data per Tarikan
+PULL_INTERVAL_MINUTES=3
+PULL_BATCH_LIMIT=1
+```
+> **Catatan:** Jika `AUTO_PULL_ENABLED=false` diatur di `.env`, background poller langsung dilewati (*Hard Off*).
+
+### 2. Kontrol Dinamis via Web Panel (`http://localhost:8091/scheduler-config`)
+- Buka menu **Scheduler** pada Web Panel.
+- Terdapat toggle switch **"Auto Get Data from Maximo"** lengkap dengan badge indikator status (`AKTIF (ON)` / `NONAKTIF (OFF)`).
+- Status dapat disimpan via tombol **Save Configuration** atau tombol instan **Quick Toggle**.
+- Perubahan runtime ini tersimpan langsung di database PostgreSQL tabel `scheduler_configs`.
+
+### 3. Penarikan Manual (*Manual Pull*)
+Meskipun penarikan otomatis dalam keadaan **OFF / NONAKTIF**, pengguna tetap dapat melakukan penarikan data manual kapan saja secara terkontrol satu-per-satu melalui:
+- **Web Panel:** Tombol *"Tarik Data Sekarang"* di halaman `/scheduler-config` (dapat memilih limit data yang ingin ditarik).
+- **REST API:** Endpoint `POST /api/v1/trigger/pull?limit=1`.

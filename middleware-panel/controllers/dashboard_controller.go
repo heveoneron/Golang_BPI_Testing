@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"middleware-panel/services"
@@ -244,3 +245,197 @@ func (c *DashboardController) GetAuditTrailAPI(ctx *gin.Context) {
 		"data":   logs,
 	})
 }
+
+// --- DELETE DATA HANDLERS ---
+
+// HandleDeleteDocument menghapus 1 dokumen spesifik beserta staging & log-nya
+func (c *DashboardController) HandleDeleteDocument(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	var req struct {
+		DocType string `json:"doc_type" form:"doc_type"`
+		DocNo   string `json:"doc_no" form:"doc_no"`
+	}
+
+	// Coba bind form atau query
+	if err := ctx.ShouldBind(&req); err != nil || req.DocNo == "" {
+		// Fallback coba bind JSON body
+		var jsonReq struct {
+			DocType string `json:"doc_type"`
+			DocNo   string `json:"doc_no"`
+		}
+		if errJSON := ctx.ShouldBindJSON(&jsonReq); errJSON == nil {
+			req.DocType = jsonReq.DocType
+			req.DocNo = jsonReq.DocNo
+		}
+	}
+
+	if req.DocNo == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Nomor dokumen (doc_no) wajib diisi"})
+		return
+	}
+
+	if err := c.dashService.DeleteDocument(req.DocType, req.DocNo); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal menghapus dokumen: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": fmt.Sprintf("Dokumen %s (%s) berhasil dihapus beserta log terkait", req.DocNo, req.DocType),
+	})
+}
+
+// HandleBulkDelete menghapus banyak dokumen sekaligus yang dipilih checkbox
+func (c *DashboardController) HandleBulkDelete(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	var items []string
+
+	// Coba bind dari JSON body { "items": [...] }
+	var jsonBody struct {
+		Items []string `json:"items"`
+	}
+	if err := ctx.ShouldBindJSON(&jsonBody); err == nil && len(jsonBody.Items) > 0 {
+		items = jsonBody.Items
+	} else {
+		// Fallback dari form post "ids[]" atau "items[]"
+		ctx.Request.ParseForm()
+		items = ctx.PostFormArray("ids[]")
+		if len(items) == 0 {
+			items = ctx.PostFormArray("items[]")
+		}
+	}
+
+	if len(items) == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Pilih minimal satu dokumen untuk dihapus"})
+		return
+	}
+
+	deletedCount, err := c.dashService.BulkDeleteDocuments(items)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Terjadi kesalahan saat menghapus: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":        "success",
+		"message":       fmt.Sprintf("%d dokumen berhasil dihapus beserta seluruh log & staging terkait", deletedCount),
+		"deleted_count": deletedCount,
+	})
+}
+
+// HandleClearAll membersihkan seluruh data uji coba (documents, staging_documents, integration_logs)
+func (c *DashboardController) HandleClearAll(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	if err := c.dashService.ClearAllDocuments(); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal membersihkan data: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Seluruh data dokumen, staging, dan log integrasi berhasil dibersihkan",
+	})
+}
+
+// HandleTriggerPush memicu eksekusi push manual ke SAP Grow via middleware engine
+func (c *DashboardController) HandleTriggerPush(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	endpoint := fmt.Sprintf("%s/trigger/push", middlewareURL)
+
+	resp, err := http.Post(endpoint, "application/json", nil)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": fmt.Sprintf("Gagal menghubungi Middleware Engine di %s: %v", endpoint, err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"status":  "success",
+			"message": "Push trigger berhasil dikirim ke middleware engine",
+		})
+		return
+	}
+
+	ctx.JSON(resp.StatusCode, result)
+}
+
+// HandleIngestTestPO menyuntikkan payload PO simulasi ke middleware engine
+func (c *DashboardController) HandleIngestTestPO(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized. Silakan login kembali."})
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(ctx.Request.Body)
+	if err != nil || len(bodyBytes) == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Payload JSON tidak boleh kosong"})
+		return
+	}
+
+	// Validasi format JSON
+	var testJSON interface{}
+	if err := json.Unmarshal(bodyBytes, &testJSON); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Format JSON tidak valid: " + err.Error()})
+		return
+	}
+
+	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")
+	if middlewareURL == "" {
+		middlewareURL = "http://localhost:8085/api/v1"
+	}
+	endpoint := fmt.Sprintf("%s/ingest/po", middlewareURL)
+
+	resp, err := http.Post(endpoint, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": fmt.Sprintf("Gagal menghubungi Middleware Engine di %s: %v", endpoint, err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		ctx.JSON(resp.StatusCode, gin.H{
+			"status":  "success",
+			"message": "PO berhasil dikirim ke middleware engine",
+		})
+		return
+	}
+
+	ctx.JSON(resp.StatusCode, result)
+}
+
