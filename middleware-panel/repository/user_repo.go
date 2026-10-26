@@ -57,6 +57,19 @@ func (r *userRepo) Create(u *models.User) error {
 		return errors.New("Username sudah digunakan")
 	}
 
+	if u.AllowedMenus == "" {
+		switch u.Role {
+		case "admin":
+			u.AllowedMenus = "*"
+		case "operator":
+			u.AllowedMenus = "dashboard,swagger,exchange_rates,uom_mapping,scheduler"
+		case "auditor":
+			u.AllowedMenus = "dashboard,exchange_rates,uom_mapping"
+		default:
+			u.AllowedMenus = "dashboard"
+		}
+	}
+
 	// Hash password menggunakan bcrypt
 	if u.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
@@ -70,11 +83,12 @@ func (r *userRepo) Create(u *models.User) error {
 
 func (r *userRepo) Update(u *models.User, updatePassword bool) error {
 	updates := map[string]interface{}{
-		"full_name":  u.FullName,
-		"email":      u.Email,
-		"role":       u.Role,
-		"is_active":  u.IsActive,
-		"updated_at": time.Now(),
+		"full_name":     u.FullName,
+		"email":         u.Email,
+		"role":          u.Role,
+		"allowed_menus": u.AllowedMenus,
+		"is_active":     u.IsActive,
+		"updated_at":    time.Now(),
 	}
 
 	if updatePassword && u.Password != "" {
@@ -147,12 +161,13 @@ func (r *userRepo) SeedAdminUser() error {
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
 	defaultAdmin := models.User{
-		Username: adminUser,
-		Password: string(hash),
-		FullName: "System Administrator",
-		Email:    "admin@middleware.local",
-		Role:     "admin",
-		IsActive: true,
+		Username:     adminUser,
+		Password:     string(hash),
+		FullName:     "System Administrator",
+		Email:        "admin@middleware.local",
+		Role:         "admin",
+		AllowedMenus: "*",
+		IsActive:     true,
 	}
 
 	return r.db.Create(&defaultAdmin).Error

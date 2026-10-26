@@ -164,3 +164,70 @@ type SAPGrowBPPayload struct {
 	OrganizationBPName1     string `json:"OrganizationBPName1,omitempty"`
 	SearchTerm1             string `json:"SearchTerm1,omitempty"`
 }
+
+// TableAPIMapping mewakili pemetaan dinamis dari tabel Maximo ke service API SAP Grow
+type TableAPIMapping struct {
+	ID                uint      `json:"id"`
+	SourceTable       string    `json:"source_table"`
+	SourceDesc        string    `json:"source_desc"`
+	TargetServiceCode string    `json:"target_service_code"`
+	Direction         string    `json:"direction"`
+	SyncMode          string    `json:"sync_mode"`
+	IsActive          bool      `json:"is_active"`
+	Notes             string    `json:"notes"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// Model & Payload untuk Exchange Rate (Kurs Pajak Kemenkeu / Maximo)
+type ExchangeRatePeriod struct {
+	KMKNumber   string `json:"kmk_number"`
+	ValidFrom   string `json:"valid_from"`
+	ValidTo     string `json:"valid_to"`
+	DocumentURL string `json:"document_url"`
+}
+
+type ExchangeRateItem struct {
+	CurrencyCode string   `json:"currency_code"`
+	CurrencyName string   `json:"currency_name"`
+	Rate         float64  `json:"rate"`
+	Unit         int      `json:"unit"`
+	RatePerUnit  string   `json:"rate_per_unit"`
+	Change       *float64 `json:"change"`
+}
+
+type MaximoExchangeRatePayload struct {
+	Event  string             `json:"event"`
+	SentAt string             `json:"sent_at"`
+	Source string             `json:"source"`
+	Period ExchangeRatePeriod `json:"period"`
+	Rates  []ExchangeRateItem `json:"rates"`
+}
+
+type ExchangeRateRecord struct {
+	ID           int64     `json:"id"`
+	Event        string    `json:"event"`
+	Source       string    `json:"source"`
+	KMKNumber    string    `json:"kmk_number"`
+	ValidFrom    string    `json:"valid_from"`
+	ValidTo      string    `json:"valid_to"`
+	DocumentURL  string    `json:"document_url"`
+	CurrencyCode string    `json:"currency_code"`
+	CurrencyName string    `json:"currency_name"`
+	Rate         float64   `json:"rate"`
+	Unit         int       `json:"unit"`
+	RatePerUnit  float64   `json:"rate_per_unit"`
+	Change       *float64  `json:"change"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// UOMMapping mewakili pemetaan satuan ukuran dari Maximo ke SAP Grow
+type UOMMapping struct {
+	ID          int       `json:"id"`
+	MaximoUOM   string    `json:"maximo_uom"`
+	SAPUOM      string    `json:"sap_uom"`
+	Description string    `json:"description"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}

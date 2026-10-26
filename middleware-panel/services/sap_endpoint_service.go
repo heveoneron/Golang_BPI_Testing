@@ -17,7 +17,9 @@ type SAPEndpointService interface {
 	GetEndpointByCode(code string) (models.SAPEndpoint, error)
 	SaveEndpoint(ep *models.SAPEndpoint) error
 	TestHandshake(code string) (map[string]interface{}, error)
-	ExecuteSandbox(code, method string, payload interface{}) (map[string]interface{}, error)
+	ExecuteSandbox(code, method, customPath string, payload interface{}) (map[string]interface{}, error)
+	GetMaterialDocumentDetail(docNo, year string) (map[string]interface{}, error)
+	DeleteEndpoint(code string) error
 }
 
 type sapEndpointService struct {
@@ -72,11 +74,12 @@ func (s *sapEndpointService) TestHandshake(code string) (map[string]interface{},
 	return result, nil
 }
 
-func (s *sapEndpointService) ExecuteSandbox(code, method string, payload interface{}) (map[string]interface{}, error) {
+func (s *sapEndpointService) ExecuteSandbox(code, method, customPath string, payload interface{}) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("%s/sap/execute-test", s.getMiddlewareAPIURL())
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"service_code": code,
 		"method":       method,
+		"custom_path":  customPath,
 		"payload":      payload,
 	})
 
@@ -98,4 +101,30 @@ func (s *sapEndpointService) ExecuteSandbox(code, method string, payload interfa
 	}
 
 	return result, nil
+}
+
+func (s *sapEndpointService) GetMaterialDocumentDetail(docNo, year string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("%s/sap/material-document/%s?year=%s", s.getMiddlewareAPIURL(), docNo, year)
+	client := &http.Client{Timeout: 35 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("gagal menghubungi middleware engine: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return map[string]interface{}{
+			"status":    "error",
+			"message":   string(bodyBytes),
+			"http_code": resp.StatusCode,
+		}, nil
+	}
+
+	return result, nil
+}
+
+func (s *sapEndpointService) DeleteEndpoint(code string) error {
+	return s.repo.Delete(code)
 }

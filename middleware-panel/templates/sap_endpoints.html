@@ -69,7 +69,10 @@
                 <h3><i class="bi bi-cloud-arrow-up-fill text-primary"></i> SAP Grow Integration Endpoints</h3>
                 <span class="text-muted" style="font-size: 13.5px;">Multi-Credential Service Registry &amp; CSRF Handshake Sandbox</span>
             </div>
-            <div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm d-flex align-items-center gap-1 shadow-sm" style="border-radius: 8px; font-weight: 600;" onclick="openAddEndpointModal()">
+                    <i class="bi bi-plus-circle"></i> Tambah Layanan SAP
+                </button>
                 <a href="/swagger/index.html" target="_blank" class="btn btn-outline-secondary btn-sm" style="border-radius: 8px;">
                     <i class="bi bi-code-slash"></i> Swagger REST
                 </a>
@@ -82,6 +85,11 @@
                 <div>
                     <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-hdd-network me-2 text-primary"></i>Registered SAP Services</h5>
                     <span class="text-muted" style="font-size: 12px;">Setiap service memiliki Communication User dan OData version tersendiri di SAP Grow</span>
+                </div>
+                <div>
+                    <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" style="border-radius: 8px; font-weight: 600;" onclick="openAddEndpointModal()">
+                        <i class="bi bi-plus-circle"></i> Tambah Layanan Baru
+                    </button>
                 </div>
             </div>
 
@@ -145,8 +153,11 @@
                                     <button class="btn btn-handshake btn-sm" onclick="pingHandshake('{{ .ServiceCode }}')" id="btn-ping-{{ .ServiceCode }}">
                                         <i class="bi bi-arrow-repeat me-1"></i> Ping CSRF
                                     </button>
-                                    <button class="btn btn-edit-ep btn-sm" onclick="openEditModal('{{ .ServiceCode }}', '{{ .ServiceName }}', '{{ .ScenarioID }}', '{{ .ODataVersion }}', '{{ .BaseURL }}', '{{ .EndpointPath }}', '{{ .Username }}')">
+                                    <button class="btn btn-edit-ep btn-sm" onclick="openEditModal('{{ .ServiceCode }}', '{{ .ServiceName }}', '{{ .ScenarioID }}', '{{ .ODataVersion }}', '{{ .BaseURL }}', '{{ .EndpointPath }}', '{{ .Username }}')" title="Edit Konfigurasi">
                                         <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="deleteEndpoint('{{ .ServiceCode }}')" title="Hapus Layanan">
+                                        <i class="bi bi-trash"></i>
                                     </button>
                                 </div>
                             </td>
@@ -168,17 +179,29 @@
             <div class="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
                 <div>
                     <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-terminal me-2 text-primary"></i>Interactive SAP API Sandbox</h5>
-                    <span class="text-muted" style="font-size: 12px;">Uji coba kirim (POST) atau ambil (GET) data secara langsung ke server SAP Grow S/4HANA Cloud</span>
+                    <span class="text-muted" style="font-size: 12px;">Uji coba kirim (POST), ubah (PATCH), atau ambil (GET) data secara langsung ke server SAP Grow S/4HANA Cloud</span>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex flex-wrap gap-1">
                     <button class="btn btn-sm btn-outline-primary" onclick="loadSamplePayload('PO')">
-                        <i class="bi bi-file-earmark-code me-1"></i> Muat Sample PO (v4)
+                        <i class="bi bi-file-earmark-plus me-1"></i> PO Create (v4)
                     </button>
-                    <button class="btn btn-sm btn-outline-success" onclick="loadSamplePayload('BP')">
-                        <i class="bi bi-file-earmark-code me-1"></i> Muat Sample BP (v2)
+                    <button class="btn btn-sm btn-outline-warning text-dark" onclick="loadSamplePayload('PO_CHANGE_HEADER')">
+                        <i class="bi bi-pencil-square me-1"></i> Change PO Header (v4)
                     </button>
-                    <button class="btn btn-sm btn-outline-info" onclick="loadSamplePayload('PRODUCT')">
-                        <i class="bi bi-box-seam me-1"></i> Muat Sample Product (v2)
+                    <button class="btn btn-sm btn-outline-warning text-dark" onclick="loadSamplePayload('PO_CHANGE_ITEM')">
+                        <i class="bi bi-pencil-square me-1"></i> Change PO Item (v4)
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="loadSamplePayload('GR_WITH_PO')">
+                        <i class="bi bi-box-arrow-in-down me-1"></i> GR with PO (v2)
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadSamplePayload('GR_NON_PO')">
+                        <i class="bi bi-box-arrow-in-down-right me-1"></i> GR Non-PO (v2)
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="loadSamplePayload('BP')">
+                        <i class="bi bi-person-badge me-1"></i> BP (v2)
+                    </button>
+                    <button class="btn btn-sm btn-outline-dark" onclick="loadSamplePayload('PRODUCT')">
+                        <i class="bi bi-box-seam me-1"></i> Product (v2)
                     </button>
                 </div>
             </div>
@@ -188,21 +211,32 @@
                     <div class="col-md-4">
                         <label class="form-label fw-bold small">Target SAP Service</label>
                         <select id="sandboxService" class="form-select" onchange="onServiceChange()">
-                            <option value="PO" selected>PO - Purchase Order (OData v4 - CU_SAP_COM_0053)</option>
+                            <option value="PO" selected>PO - Purchase Order Create (OData v4 - CU_SAP_COM_0053)</option>
+                            <option value="PO_CHANGE_HEADER">PO_CHANGE_HEADER - Change PO Header (PATCH OData v4)</option>
+                            <option value="PO_CHANGE_ITEM">PO_CHANGE_ITEM - Change PO Item (PATCH OData v4)</option>
+                            <option value="GR_WITH_PO">GR_WITH_PO - Goods Receipt with PO (OData v2 - Y_BPI_CU_SAP_COM_0108)</option>
+                            <option value="GR_NON_PO">GR_NON_PO - Goods Receipt Non-PO (OData v2 - Y_BPI_CU_SAP_COM_0108)</option>
                             <option value="BP">BP - Business Partner (OData v2 - CU_SAP_COM_0008)</option>
                             <option value="PRODUCT">PRODUCT - Product / Material Master (OData v2 - CU_SAP_COM_0009)</option>
+                            <option value="MATERIAL_DOC_DETAIL">MATERIAL_DOC_DETAIL - Material Document Detail (OData v2)</option>
+                            <option value="GL_ACCOUNT_LINE_ITEMS">GL_ACCOUNT_LINE_ITEMS - G/L Account Line Items (OData v2 - Y_BPI_CU_SAP_COM_0303)</option>
                         </select>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label fw-bold small">HTTP Method</label>
                         <select id="sandboxMethod" class="form-select">
                             <option value="POST" selected>POST (Create)</option>
+                            <option value="PATCH">PATCH (Update)</option>
                             <option value="GET">GET (Fetch)</option>
                         </select>
                     </div>
-                    <div class="col-md-6 d-flex align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold small">Entity Key / Sub-Path / Query (Opsional)</label>
+                        <input type="text" id="sandboxCustomPath" class="form-control" placeholder="Contoh: ('4100000032') atau ?$top=5">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
                         <button class="btn btn-primary w-100 fw-bold" id="btnExecuteSandbox" onclick="executeSandbox()">
-                            <i class="bi bi-send-fill me-1"></i> Eksekusi Request ke SAP Grow
+                            <i class="bi bi-send-fill me-1"></i> Eksekusi
                         </button>
                     </div>
                 </div>
@@ -225,6 +259,99 @@
                 </div>
             </div>
         </div>
+
+        <!-- Section 3: Material Document & Goods Receipt Live Inspector -->
+        <div class="main-card mb-4">
+            <div class="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;"><i class="bi bi-search me-2 text-primary"></i>SAP Grow Material Document / Goods Receipt Live Inspector</h5>
+                    <span class="text-muted" style="font-size: 12px;">Query langsung nomor Material Document (GR) dari SAP Grow OData v2 beserta rincian item barangnya</span>
+                </div>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-1">OData v2 Client</span>
+            </div>
+            <div class="p-4">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold small">Nomor Material Document <span class="text-danger">*</span></label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-hash"></i></span>
+                            <input type="text" id="matDocInput" class="form-control font-monospace" placeholder="e.g. 202500000001 atau 5000000000" value="202500000001">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold small">Tahun Dokumen (Year)</label>
+                        <input type="text" id="matDocYearInput" class="form-control form-control-sm font-monospace" value="2025">
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-success btn-sm w-100 fw-bold" id="btnInspectMatDoc" onclick="inspectMaterialDocLive()">
+                            <i class="bi bi-box-arrow-up-right me-1"></i> Cek Detail ke SAP Live
+                        </button>
+                    </div>
+                    <div class="col-md-3 text-end text-muted small">
+                        Contoh: <code>202500000001</code> / <code>5000000000</code>
+                    </div>
+                </div>
+
+                <div id="matDocInspectContainer" class="d-none">
+                    <div class="card border rounded-3 p-3 mb-3 bg-light">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-3">
+                                <span class="text-muted small text-uppercase fw-bold">Nomor Dokumen:</span>
+                                <div id="resMatDocNo" class="fs-5 fw-bold text-primary font-monospace">-</div>
+                            </div>
+                            <div class="col-md-2">
+                                <span class="text-muted small text-uppercase fw-bold">Tahun:</span>
+                                <div id="resMatDocYear" class="fw-bold font-monospace">-</div>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small text-uppercase fw-bold">Header Text:</span>
+                                <div id="resMatDocHeader" class="fw-semibold text-dark">-</div>
+                            </div>
+                            <div class="col-md-3 text-end">
+                                <span id="matDocStatusBadge" class="badge bg-success px-3 py-2">LIVE SAP DATA</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold text-dark mt-3 mb-2"><i class="bi bi-list-check me-1"></i> Item Barang (Material Document Items)</h6>
+                    <div class="table-responsive bg-white rounded-3 border mb-3">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead class="table-light text-uppercase" style="font-size: 11px;">
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Kode Material</th>
+                                    <th>Movement Type</th>
+                                    <th>No PO (Ref)</th>
+                                    <th>PO Item</th>
+                                    <th>Plant</th>
+                                    <th>Storage Loc</th>
+                                    <th>Qty</th>
+                                    <th>Satuan (UOM)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="matDocItemsTableBody">
+                                <!-- Generated Dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="accordion" id="accordionRawMatDoc">
+                        <div class="accordion-item border rounded-3 overflow-hidden">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed py-2 px-3 bg-light text-dark fw-bold small" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRawMatDoc">
+                                    <i class="bi bi-code-slash me-2 text-primary"></i> Tampilkan Raw JSON Response dari SAP
+                                </button>
+                            </h2>
+                            <div id="collapseRawMatDoc" class="accordion-collapse collapse" data-bs-parent="#accordionRawMatDoc">
+                                <div class="accordion-body p-0">
+                                    <pre id="rawMatDocJSON" class="m-0 p-3" style="background-color: #0F172A; color: #38BDF8; font-size: 12px; max-height: 350px; overflow-y: auto;"></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal Edit Endpoint -->
@@ -237,23 +364,33 @@
                 </div>
                 <div class="modal-body p-4">
                     <form id="editEndpointForm" onsubmit="saveEndpoint(event)">
-                        <input type="hidden" id="editServiceCode">
-                        
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small">Service Name</label>
-                            <input type="text" id="editServiceName" class="form-control" required>
-                        </div>
                         <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="form-label fw-bold small">Service Code (ID Unik Layanan)</label>
+                                <input type="text" id="editServiceCode" class="form-control" placeholder="Contoh: INVOICE, PR, GRN" required style="text-transform: uppercase;">
+                                <div class="form-text" style="font-size: 11px;">Huruf kapital (misal: PO, BP, PRODUCT)</div>
+                            </div>
                             <div class="col-6">
                                 <label class="form-label fw-bold small">Scenario ID</label>
                                 <input type="text" id="editScenarioID" class="form-control" placeholder="SAP_COM_0053" required>
                             </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Service Name</label>
+                            <input type="text" id="editServiceName" class="form-control" placeholder="Contoh: Invoice Integration (OData v2)" required>
+                        </div>
+                        <div class="row mb-3">
                             <div class="col-6">
                                 <label class="form-label fw-bold small">OData Version</label>
                                 <select id="editODataVersion" class="form-select">
                                     <option value="v4">OData v4</option>
                                     <option value="v2">OData v2</option>
                                 </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold small">Communication User (Username)</label>
+                                <input type="text" id="editUsername" class="form-control" placeholder="CU_SAP_COM_0053" required>
                             </div>
                         </div>
                         <div class="mb-3">
@@ -262,19 +399,16 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Endpoint Path</label>
-                            <input type="text" id="editEndpointPath" class="form-control" required>
+                            <input type="text" id="editEndpointPath" class="form-control" placeholder="/sap/opu/odata/.../Entity" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label fw-bold small">Communication User (Username)</label>
-                            <input type="text" id="editUsername" class="form-control" placeholder="CU_SAP_COM_0053" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small">Password (Kosongkan jika tidak diubah)</label>
+                            <label class="form-label fw-bold small" id="editPasswordLabel">Password</label>
                             <input type="password" id="editPassword" class="form-control" placeholder="••••••••">
+                            <div class="form-text" id="editPasswordHelp" style="font-size: 11px;">Kosongkan jika tidak diubah saat edit.</div>
                         </div>
                         <div class="d-flex justify-content-end gap-2 mt-4">
                             <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-                            <button type="submit" class="btn btn-primary btn-sm fw-bold">Simpan Perubahan</button>
+                            <button type="submit" class="btn btn-primary btn-sm fw-bold"><i class="bi bi-save me-1"></i> Simpan Layanan</button>
                         </div>
                     </form>
                 </div>
@@ -403,6 +537,54 @@
             }
         };
 
+        const samplePOChangeHeader = {
+            "PaymentTerms": "0001"
+        };
+
+        const samplePOChangeItem = {
+            "PurchaseOrderItemText": "Testing API chenge PO Item Text"
+        };
+
+        const sampleGRWithPO = {
+            "DocumentDate": "/Date(1792108800000)/",
+            "PostingDate": "/Date(1792108800000)/",
+            "GoodsMovementCode": "01",
+            "MaterialDocumentHeaderText": "Testing GR with PO",
+            "to_MaterialDocumentItem": {
+                "results": [
+                    {
+                        "GoodsMovementType": "101",
+                        "GoodsMovementRefDocType": "B",
+                        "PurchaseOrder": "4500000010",
+                        "PurchaseOrderItem": "10",
+                        "Material": "PK0514",
+                        "Plant": "5110",
+                        "EntryUnit": "PC",
+                        "QuantityInEntryUnit": "1"
+                    }
+                ]
+            }
+        };
+
+        const sampleGRNonPO = {
+            "DocumentDate": "/Date(1792108800000)/",
+            "PostingDate": "/Date(1792108800000)/",
+            "GoodsMovementCode": "05",
+            "MaterialDocumentHeaderText": "Testing GR Non-PO Mvt 501",
+            "to_MaterialDocumentItem": {
+                "results": [
+                    {
+                        "GoodsMovementType": "501",
+                        "Material": "PK0514",
+                        "Plant": "5110",
+                        "StorageLocation": "511C",
+                        "EntryUnit": "PC",
+                        "QuantityInEntryUnit": "10"
+                    }
+                ]
+            }
+        };
+
         function showToast(message, isSuccess = true) {
             const toastEl = document.getElementById('liveToast');
             const toastMessage = document.getElementById('toastMessage');
@@ -415,12 +597,49 @@
         function loadSamplePayload(type) {
             const svcSelect = document.getElementById('sandboxService');
             svcSelect.value = type;
+            const methodSelect = document.getElementById('sandboxMethod');
             const payloadArea = document.getElementById('sandboxPayload');
+            const customPathInput = document.getElementById('sandboxCustomPath');
+
             if (type === 'PO') {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
                 payloadArea.value = JSON.stringify(samplePO, null, 2);
+            } else if (type === 'PO_CHANGE_HEADER') {
+                methodSelect.value = 'PATCH';
+                if (customPathInput) customPathInput.value = "('4100000032')";
+                payloadArea.value = JSON.stringify(samplePOChangeHeader, null, 2);
+            } else if (type === 'PO_CHANGE_ITEM') {
+                methodSelect.value = 'PATCH';
+                if (customPathInput) customPathInput.value = "(PurchaseOrder='4100000032',PurchaseOrderItem='1')";
+                payloadArea.value = JSON.stringify(samplePOChangeItem, null, 2);
+            } else if (type === 'GR_WITH_PO') {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
+                payloadArea.value = JSON.stringify(sampleGRWithPO, null, 2);
+            } else if (type === 'GR_NON_PO') {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
+                payloadArea.value = JSON.stringify(sampleGRNonPO, null, 2);
             } else if (type === 'PRODUCT') {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
                 payloadArea.value = JSON.stringify(sampleProduct, null, 2);
+            } else if (type === 'BP') {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
+                payloadArea.value = JSON.stringify(sampleBP, null, 2);
+            } else if (type === 'MATERIAL_DOC_DETAIL') {
+                methodSelect.value = 'GET';
+                if (customPathInput) customPathInput.value = "(MaterialDocumentYear='2025',MaterialDocument='5000000000')/to_MaterialDocumentItem";
+                payloadArea.value = '// GET Method: Payload tidak diperlukan, eksekusi akan membaca item detail langsung dari SAP.';
+            } else if (type === 'GL_ACCOUNT_LINE_ITEMS') {
+                methodSelect.value = 'GET';
+                if (customPathInput) customPathInput.value = "('.1~0E.2~5110.3~2026.4~PA00000010.5~000001.6~0E')";
+                payloadArea.value = '// GET Method: Payload tidak diperlukan, eksekusi akan membaca baris G/L langsung dari SAP.';
             } else {
+                methodSelect.value = 'POST';
+                if (customPathInput) customPathInput.value = '';
                 payloadArea.value = JSON.stringify(sampleBP, null, 2);
             }
         }
@@ -460,18 +679,73 @@
             }
         }
 
+        function openAddEndpointModal() {
+            document.getElementById('editModalTitle').innerHTML = '<i class="bi bi-plus-circle me-1 text-primary"></i> Tambah Layanan SAP Baru';
+            const codeInput = document.getElementById('editServiceCode');
+            codeInput.value = '';
+            codeInput.removeAttribute('readonly');
+            codeInput.classList.remove('bg-light');
+            
+            document.getElementById('editServiceName').value = '';
+            document.getElementById('editScenarioID').value = '';
+            document.getElementById('editODataVersion').value = 'v4';
+            document.getElementById('editBaseURL').value = 'https://my445160-api.s4hana.cloud.sap';
+            document.getElementById('editEndpointPath').value = '';
+            document.getElementById('editUsername').value = '';
+            
+            const passInput = document.getElementById('editPassword');
+            passInput.value = '';
+            passInput.setAttribute('required', 'required');
+            document.getElementById('editPasswordLabel').innerText = 'Password (Wajib untuk layanan baru)';
+            document.getElementById('editPasswordHelp').innerText = 'Password Communication User SAP.';
+            
+            const modal = new bootstrap.Modal(document.getElementById('editEndpointModal'));
+            modal.show();
+        }
+
         function openEditModal(code, name, scenario, version, baseURL, path, user) {
-            document.getElementById('editServiceCode').value = code;
+            document.getElementById('editModalTitle').innerHTML = `<i class="bi bi-pencil me-1 text-primary"></i> Edit Layanan SAP: <span class="text-primary">${code}</span>`;
+            const codeInput = document.getElementById('editServiceCode');
+            codeInput.value = code;
+            codeInput.setAttribute('readonly', 'readonly');
+            codeInput.classList.add('bg-light');
+            
             document.getElementById('editServiceName').value = name;
             document.getElementById('editScenarioID').value = scenario;
             document.getElementById('editODataVersion').value = version;
             document.getElementById('editBaseURL').value = baseURL;
             document.getElementById('editEndpointPath').value = path;
             document.getElementById('editUsername').value = user;
-            document.getElementById('editPassword').value = '';
-            document.getElementById('editModalTitle').innerText = `Edit Endpoint: ${code}`;
+            
+            const passInput = document.getElementById('editPassword');
+            passInput.value = '';
+            passInput.removeAttribute('required');
+            document.getElementById('editPasswordLabel').innerText = 'Password (Kosongkan jika tidak diubah)';
+            document.getElementById('editPasswordHelp').innerText = 'Biarkan kosong untuk tetap menggunakan password yang tersimpan.';
+            
             const modal = new bootstrap.Modal(document.getElementById('editEndpointModal'));
             modal.show();
+        }
+
+        async function deleteEndpoint(code) {
+            if (!confirm(`Apakah Anda yakin ingin menghapus layanan SAP '${code}'?\n\nPeringatan: Pemetaan tabel yang merujuk ke layanan ini mungkin perlu disesuaikan kembali.`)) {
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/api/sap-endpoints/${encodeURIComponent(code)}`, {
+                    method: 'DELETE'
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal menghapus endpoint', false);
+                }
+            } catch (err) {
+                showToast(`Error: ${err.message}`, false);
+            }
         }
 
         async function saveEndpoint(e) {
@@ -531,12 +805,14 @@
             respBox.innerText = 'Connecting to SAP Cloud ERP...';
 
             try {
+                const customPath = (document.getElementById('sandboxCustomPath')?.value || '').trim();
                 const resp = await fetch('/api/sap-endpoints/execute-sandbox', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         service_code: code,
                         method: method,
+                        custom_path: customPath,
                         payload: payloadObj
                     })
                 });
@@ -566,6 +842,91 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="bi bi-send-fill me-1"></i> Eksekusi Request ke SAP Grow`;
+            }
+        }
+
+        async function inspectMaterialDocLive() {
+            const docInput = document.getElementById('matDocInput');
+            const yearInput = document.getElementById('matDocYearInput');
+            const btn = document.getElementById('btnInspectMatDoc');
+            const container = document.getElementById('matDocInspectContainer');
+            const tableBody = document.getElementById('matDocItemsTableBody');
+            const rawPre = document.getElementById('rawMatDocJSON');
+
+            const docNo = docInput.value.trim();
+            const year = yearInput.value.trim() || '2025';
+
+            if (!docNo) {
+                showToast('Nomor Material Document wajib diisi', false);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Mengambil dari SAP...`;
+
+            try {
+                const resp = await fetch(`/api/sap/material-document/${encodeURIComponent(docNo)}?year=${encodeURIComponent(year)}`);
+                const res = await resp.json();
+
+                container.classList.remove('d-none');
+                rawPre.innerText = JSON.stringify(res, null, 2);
+
+                let header = {};
+                let items = [];
+
+                if (res.data && res.data.d) {
+                    header = res.data.d;
+                    if (header.to_MaterialDocumentItem && header.to_MaterialDocumentItem.results) {
+                        items = header.to_MaterialDocumentItem.results;
+                    }
+                } else if (res.data) {
+                    header = res.data;
+                    if (header.to_MaterialDocumentItem && header.to_MaterialDocumentItem.results) {
+                        items = header.to_MaterialDocumentItem.results;
+                    }
+                }
+
+                document.getElementById('resMatDocNo').innerText = header.MaterialDocument || docNo;
+                document.getElementById('resMatDocYear').innerText = header.MaterialDocumentYear || year;
+                document.getElementById('resMatDocHeader').innerText = header.MaterialDocumentHeaderText || header.DocumentHeaderText || '-';
+
+                tableBody.innerHTML = '';
+                if (items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">Tidak ada rincian item barang ditemukan untuk dokumen ini.</td></tr>`;
+                } else {
+                    items.forEach(it => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="fw-bold font-monospace">${it.MaterialDocumentItem || '-'}</td>
+                            <td><span class="badge bg-light text-primary border font-monospace">${it.Material || '-'}</span></td>
+                            <td><span class="badge bg-success-subtle text-success border border-success-subtle">${it.GoodsMovementType || it.GoodsMovementCode || '-'}</span></td>
+                            <td class="font-monospace">${it.PurchaseOrder || '-'}</td>
+                            <td class="font-monospace">${it.PurchaseOrderItem || '-'}</td>
+                            <td>${it.Plant || '-'}</td>
+                            <td>${it.StorageLocation || '-'}</td>
+                            <td class="fw-bold text-dark">${it.QuantityInEntryUnit || it.EntryUnitQuantity || '0'}</td>
+                            <td><span class="badge bg-info-subtle text-info border border-info-subtle">${it.EntryUnit || '-'}</span></td>
+                        `;
+                        tableBody.appendChild(tr);
+                    });
+                }
+
+                if (res.http_code >= 200 && res.http_code < 300) {
+                    document.getElementById('matDocStatusBadge').className = 'badge bg-success px-3 py-2';
+                    document.getElementById('matDocStatusBadge').innerText = `HTTP ${res.http_code} OK (SAP LIVE)`;
+                    showToast(`Data Material Document ${docNo} berhasil ditarik dari SAP!`, true);
+                } else {
+                    document.getElementById('matDocStatusBadge').className = 'badge bg-warning text-dark px-3 py-2';
+                    document.getElementById('matDocStatusBadge').innerText = `HTTP ${res.http_code || 200}`;
+                    showToast(`Respons SAP diterima: ${res.error || 'Periksa rincian data'}`, true);
+                }
+
+            } catch (err) {
+                showToast(`Gagal menghubungi server: ${err.message}`, false);
+                rawPre.innerText = 'Error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="bi bi-box-arrow-up-right me-1"></i> Cek Detail ke SAP Live`;
             }
         }
     </script>

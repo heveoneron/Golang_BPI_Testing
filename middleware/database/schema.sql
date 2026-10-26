@@ -213,3 +213,31 @@ SET username = EXCLUDED.username,
     odata_version = EXCLUDED.odata_version,
     updated_at = NOW();
 
+-- 9. TABEL PEMETAAN SUMBER TABEL MAXIMO KE TARGET API SAP GROW (Table-to-API Mapping Matrix)
+CREATE TABLE IF NOT EXISTS table_api_mappings (
+    id SERIAL PRIMARY KEY,
+    source_table VARCHAR(100) NOT NULL UNIQUE,     -- 'ITEM', 'PO', 'COMPANIES', 'MATRECTRANS', 'PR', 'AXUOM'
+    source_desc VARCHAR(255),
+    target_service_code VARCHAR(50) NOT NULL,      -- FK ke sap_endpoints: 'PRODUCT', 'PO', 'BP'
+    direction VARCHAR(30) DEFAULT 'OUTBOUND',
+    sync_mode VARCHAR(30) DEFAULT 'BATCH_SCHEDULE',
+    is_active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+INSERT INTO table_api_mappings (source_table, source_desc, target_service_code, direction, sync_mode, is_active, notes)
+VALUES
+    ('ITEM', 'Master Item, Material & Spare Parts', 'PRODUCT', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Sinkronisasi master data item/material ke SAP Grow API_PRODUCT_SRV'),
+    ('PO', 'Purchase Order Header & Lines', 'PO', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Dokumen pemesanan barang ke SAP Grow api_purchaseorder_2'),
+    ('COMPANIES', 'Vendor, Supplier & Business Partner', 'BP', 'OUTBOUND', 'REALTIME', true, 'Sinkronisasi mitra bisnis & supplier ke SAP Grow API_BUSINESS_PARTNER'),
+    ('MATRECTRANS', 'Goods Receipt (GRN) & Material Movements', 'PO', 'OUTBOUND', 'MANUAL', true, 'Penerimaan barang fisik dari gudang Maximo terhadap PO SAP Grow'),
+    ('PR', 'Purchase Requisition (Permintaan Pembelian)', 'PO', 'OUTBOUND', 'MANUAL', true, 'Pengajuan PR sebelum dikonversi menjadi PO di SAP'),
+    ('AXUOM', 'Unit of Measure (UOM) Standar', 'PRODUCT', 'OUTBOUND', 'MANUAL', true, 'Katalog satuan ukuran Maximo ke SAP Product Master UOM')
+ON CONFLICT (source_table) DO UPDATE
+SET target_service_code = EXCLUDED.target_service_code,
+    source_desc = EXCLUDED.source_desc,
+    updated_at = NOW();
+
+

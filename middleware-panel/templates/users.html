@@ -162,9 +162,16 @@
                                 <span class="role-admin"><i class="bi bi-shield-check me-1"></i> Administrator</span>
                                 {{ else if eq .Role "operator" }}
                                 <span class="role-operator"><i class="bi bi-gear-fill me-1"></i> Operator</span>
-                                {{ else }}
+                                {{ else if eq .Role "auditor" }}
                                 <span class="role-auditor"><i class="bi bi-eye-fill me-1"></i> Auditor</span>
+                                {{ else }}
+                                <span class="badge bg-secondary"><i class="bi bi-person-fill me-1"></i> Custom</span>
                                 {{ end }}
+                                <div class="mt-1">
+                                    <span class="badge bg-light text-primary border" style="font-size: 10.5px;">
+                                        <i class="bi bi-ui-checks-grid me-1"></i>{{ .GetMenuCount }} Menu Akses
+                                    </span>
+                                </div>
                             </td>
                             <td>
                                 <span class="text-muted small">
@@ -185,7 +192,7 @@
                             </td>
                             <td class="text-end">
                                 <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="openEditUserModal('{{ .ID }}', '{{ .Username }}', '{{ .FullName }}', '{{ .Email }}', '{{ .Role }}', {{ .IsActive }})" title="Edit Pengguna">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="openEditUserModal('{{ .ID }}', '{{ .Username }}', '{{ .FullName }}', '{{ .Email }}', '{{ .Role }}', '{{ .AllowedMenus }}', {{ .IsActive }})" title="Edit Pengguna">
                                         <i class="bi bi-pencil-fill"></i>
                                     </button>
                                     {{ if ne .Username $.Username }}
@@ -247,11 +254,89 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Peran (Role)</label>
-                                <select id="newRole" class="form-select" required>
+                                <select id="newRole" class="form-select" onchange="onRoleChange('new')" required>
                                     <option value="operator" selected>Operator (Operasional)</option>
                                     <option value="admin">Administrator (Penuh)</option>
                                     <option value="auditor">Auditor (Lihat Saja)</option>
+                                    <option value="custom">Kustom (Pilih Menu)</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Menu Permissions Grid -->
+                        <div class="mb-3 p-3 bg-light rounded-3 border">
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                                <label class="form-label fw-bold small m-0 text-dark">
+                                    <i class="bi bi-shield-lock-fill text-primary me-1"></i> Izin Akses Menu Navigasi
+                                </label>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('new', 'admin')">Semua</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('new', 'operator')">Operator</button>
+                                    <button type="button" class="btn btn-outline-info btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('new', 'auditor')">Auditor</button>
+                                    <button type="button" class="btn btn-outline-danger btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('new', 'none')">Reset</button>
+                                </div>
+                            </div>
+                            <div class="row g-2" id="newMenuCheckboxes">
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="dashboard" id="new_menu_dashboard" checked onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_dashboard"><i class="bi bi-grid-1x2-fill me-1 text-primary"></i> Tracking Data</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="swagger" id="new_menu_swagger" checked onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_swagger"><i class="bi bi-code-slash me-1 text-info"></i> Swagger OpenAPI</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="exchange_rates" id="new_menu_exchange_rates" checked onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_exchange_rates"><i class="bi bi-currency-exchange me-1 text-warning"></i> Exchange Rate</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="uom_mapping" id="new_menu_uom_mapping" checked onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_uom_mapping"><i class="bi bi-rulers me-1 text-success"></i> UOM Mapping</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="config" id="new_menu_config" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_config"><i class="bi bi-sliders me-1 text-secondary"></i> System Config</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="sap_endpoints" id="new_menu_sap_endpoints" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_sap_endpoints"><i class="bi bi-cloud-arrow-up-fill me-1 text-primary"></i> SAP Integration</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="table_mapping" id="new_menu_table_mapping" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="scheduler" id="new_menu_scheduler" checked onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_scheduler"><i class="bi bi-clock-history me-1 text-warning"></i> Scheduler</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="backup" id="new_menu_backup" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_backup"><i class="bi bi-database-check me-1 text-secondary"></i> Backup Config</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="users" id="new_menu_users" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_users"><i class="bi bi-people-fill me-1 text-danger"></i> User Access</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -306,11 +391,89 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Peran (Role)</label>
-                                <select id="editRole" class="form-select" required>
+                                <select id="editRole" class="form-select" onchange="onRoleChange('edit')" required>
                                     <option value="operator">Operator (Operasional)</option>
                                     <option value="admin">Administrator (Penuh)</option>
                                     <option value="auditor">Auditor (Lihat Saja)</option>
+                                    <option value="custom">Kustom (Pilih Menu)</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Menu Permissions Grid for Edit -->
+                        <div class="mb-3 p-3 bg-light rounded-3 border">
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                                <label class="form-label fw-bold small m-0 text-dark">
+                                    <i class="bi bi-shield-lock-fill text-primary me-1"></i> Izin Akses Menu Navigasi
+                                </label>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('edit', 'admin')">Semua</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('edit', 'operator')">Operator</button>
+                                    <button type="button" class="btn btn-outline-info btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('edit', 'auditor')">Auditor</button>
+                                    <button type="button" class="btn btn-outline-danger btn-xs py-0 px-2" style="font-size: 11px;" onclick="applyMenuPreset('edit', 'none')">Reset</button>
+                                </div>
+                            </div>
+                            <div class="row g-2" id="editMenuCheckboxes">
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="dashboard" id="edit_menu_dashboard" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_dashboard"><i class="bi bi-grid-1x2-fill me-1 text-primary"></i> Tracking Data</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="swagger" id="edit_menu_swagger" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_swagger"><i class="bi bi-code-slash me-1 text-info"></i> Swagger OpenAPI</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="exchange_rates" id="edit_menu_exchange_rates" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_exchange_rates"><i class="bi bi-currency-exchange me-1 text-warning"></i> Exchange Rate</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="uom_mapping" id="edit_menu_uom_mapping" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_uom_mapping"><i class="bi bi-rulers me-1 text-success"></i> UOM Mapping</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="config" id="edit_menu_config" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_config"><i class="bi bi-sliders me-1 text-secondary"></i> System Config</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="sap_endpoints" id="edit_menu_sap_endpoints" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_sap_endpoints"><i class="bi bi-cloud-arrow-up-fill me-1 text-primary"></i> SAP Integration</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="table_mapping" id="edit_menu_table_mapping" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="scheduler" id="edit_menu_scheduler" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_scheduler"><i class="bi bi-clock-history me-1 text-warning"></i> Scheduler</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="backup" id="edit_menu_backup" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_backup"><i class="bi bi-database-check me-1 text-secondary"></i> Backup Config</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="users" id="edit_menu_users" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_users"><i class="bi bi-people-fill me-1 text-danger"></i> User Access</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -342,25 +505,103 @@
             toast.show();
         }
 
+        const allMenuCodes = [
+            'dashboard', 'swagger', 'exchange_rates', 'uom_mapping',
+            'config', 'sap_endpoints', 'table_mapping', 'scheduler',
+            'backup', 'users'
+        ];
+
+        function applyMenuPreset(prefix, preset) {
+            const cbs = document.querySelectorAll(`.${prefix}-menu-cb`);
+            if (preset === 'admin') {
+                cbs.forEach(cb => cb.checked = true);
+                document.getElementById(`${prefix}Role`).value = 'admin';
+            } else if (preset === 'operator') {
+                const operatorMenus = ['dashboard', 'swagger', 'exchange_rates', 'uom_mapping', 'scheduler'];
+                cbs.forEach(cb => {
+                    cb.checked = operatorMenus.includes(cb.value);
+                });
+                document.getElementById(`${prefix}Role`).value = 'operator';
+            } else if (preset === 'auditor') {
+                const auditorMenus = ['dashboard', 'exchange_rates', 'uom_mapping'];
+                cbs.forEach(cb => {
+                    cb.checked = auditorMenus.includes(cb.value);
+                });
+                document.getElementById(`${prefix}Role`).value = 'auditor';
+            } else if (preset === 'none') {
+                cbs.forEach(cb => cb.checked = false);
+                document.getElementById(`${prefix}Role`).value = 'custom';
+            }
+        }
+
+        function onRoleChange(prefix) {
+            const role = document.getElementById(`${prefix}Role`).value;
+            if (role === 'admin') {
+                applyMenuPreset(prefix, 'admin');
+            } else if (role === 'operator') {
+                applyMenuPreset(prefix, 'operator');
+            } else if (role === 'auditor') {
+                applyMenuPreset(prefix, 'auditor');
+            }
+        }
+
+        function onCheckboxChange(prefix) {
+            const selected = getSelectedMenus(prefix);
+            const roleSelect = document.getElementById(`${prefix}Role`);
+            if (selected === '*') {
+                roleSelect.value = 'admin';
+            } else if (selected === 'dashboard,swagger,exchange_rates,uom_mapping,scheduler') {
+                roleSelect.value = 'operator';
+            } else if (selected === 'dashboard,exchange_rates,uom_mapping') {
+                roleSelect.value = 'auditor';
+            } else {
+                roleSelect.value = 'custom';
+            }
+        }
+
+        function getSelectedMenus(prefix) {
+            const cbs = document.querySelectorAll(`.${prefix}-menu-cb:checked`);
+            if (cbs.length === allMenuCodes.length) {
+                return '*';
+            }
+            const arr = [];
+            cbs.forEach(cb => arr.push(cb.value));
+            return arr.join(',');
+        }
+
+        function setSelectedMenus(prefix, allowedStr) {
+            const cbs = document.querySelectorAll(`.${prefix}-menu-cb`);
+            if (!allowedStr || allowedStr === '*' || allowedStr === 'all') {
+                cbs.forEach(cb => cb.checked = true);
+                return;
+            }
+            const allowedArr = allowedStr.split(',').map(s => s.trim());
+            cbs.forEach(cb => {
+                cb.checked = allowedArr.includes(cb.value);
+            });
+        }
+
         function openAddUserModal() {
             document.getElementById('newUsername').value = '';
             document.getElementById('newFullName').value = '';
             document.getElementById('newEmail').value = '';
             document.getElementById('newPassword').value = '';
             document.getElementById('newRole').value = 'operator';
+            applyMenuPreset('new', 'operator');
             document.getElementById('newIsActive').checked = true;
             const modal = new bootstrap.Modal(document.getElementById('addUserModal'));
             modal.show();
         }
 
-        function openEditUserModal(id, username, fullName, email, role, isActive) {
+        function openEditUserModal(id, username, fullName, email, role, allowedMenus, isActive) {
             document.getElementById('editUserId').value = id;
             document.getElementById('editUsername').value = username;
             document.getElementById('editFullName').value = fullName;
             document.getElementById('editEmail').value = email;
-            document.getElementById('editRole').value = role;
+            document.getElementById('editRole').value = role || 'operator';
             document.getElementById('editPassword').value = '';
             document.getElementById('editIsActive').checked = (isActive === true || isActive === 'true');
+            setSelectedMenus('edit', allowedMenus || (role === 'admin' ? '*' : 'dashboard,exchange_rates,uom_mapping'));
             document.getElementById('editUserTitle').innerHTML = `<i class="bi bi-pencil-square me-2 text-primary"></i>Edit Pengguna: ${username}`;
             const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
             modal.show();
@@ -374,6 +615,7 @@
                 email: document.getElementById('newEmail').value.trim(),
                 password: document.getElementById('newPassword').value,
                 role: document.getElementById('newRole').value,
+                allowed_menus: getSelectedMenus('new'),
                 is_active: document.getElementById('newIsActive').checked
             };
 
@@ -402,6 +644,7 @@
                 full_name: document.getElementById('editFullName').value.trim(),
                 email: document.getElementById('editEmail').value.trim(),
                 role: document.getElementById('editRole').value,
+                allowed_menus: getSelectedMenus('edit'),
                 password: document.getElementById('editPassword').value,
                 is_active: document.getElementById('editIsActive').checked
             };

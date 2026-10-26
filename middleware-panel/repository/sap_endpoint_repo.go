@@ -12,6 +12,7 @@ type SAPEndpointRepository interface {
 	GetByCode(code string) (models.SAPEndpoint, error)
 	Save(ep *models.SAPEndpoint) error
 	UpdateStatus(code, status, respMsg string) error
+	Delete(code string) error
 }
 
 type sapEndpointRepo struct {
@@ -68,4 +69,8 @@ func (r *sapEndpointRepo) UpdateStatus(code, status, respMsg string) error {
 			"last_tested_at": &now,
 			"updated_at":     now,
 		}).Error
+}
+
+func (r *sapEndpointRepo) Delete(code string) error {
+	return r.db.Where("UPPER(service_code) = UPPER(?)", code).Delete(&models.SAPEndpoint{}).Error
 }

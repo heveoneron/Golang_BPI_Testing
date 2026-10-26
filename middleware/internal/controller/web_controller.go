@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang-bpi-testing/internal/model"
@@ -318,17 +319,47 @@ func (c *WebController) GetIntegrationLogs(ctx *gin.Context) {
 			if meta != nil {
 				metaStr = *meta
 			}
+
+			// Pastikan jika log tujuan SAP GROW dan belum memiliki [Target API: ...], kita tambahkan URL API targetnya
+			if tgt == "SAP GROW" && !strings.Contains(metaStr, "[Target API:") {
+				targetService := dType
+				if targetService == "" && docType != "" {
+					targetService = docType
+				}
+				if targetService == "" {
+					targetService = "PO"
+				}
+				targetURL := "https://my445160-api.s4hana.cloud.sap/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
+				if mapping, _ := c.PGRepo.GetTableAPIMapping(ctx.Request.Context(), targetService); mapping != nil && mapping.TargetServiceCode != "" {
+					targetService = mapping.TargetServiceCode
+				}
+				if ep, _ := c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), targetService); ep != nil {
+					targetURL = fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
+				}
+				if strings.Contains(metaStr, "Successfully posted to SAP Grow") {
+					metaStr = strings.Replace(metaStr, "Successfully posted to SAP Grow", fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s]", targetService, targetURL), 1)
+				} else if metaStr != "" {
+					metaStr = fmt.Sprintf("%s [Target API: %s]", metaStr, targetURL)
+				}
+			}
+
+			var sapRespStr string
+			if tgt == "SAP GROW" && dNo != "" {
+				_ = c.PGRepo.Pool.QueryRow(ctx.Request.Context(), "SELECT COALESCE(sap_response::text, '') FROM documents WHERE document_no = $1", dNo).Scan(&sapRespStr)
+			}
+
 			logs = append(logs, map[string]interface{}{
-				"id":            id,
-				"trace_id":      traceID,
-				"source_system": src,
-				"target_system": tgt,
-				"document_type": dType,
-				"document_no":   dNo,
-				"status":        status,
-				"error_message": errStr,
-				"metadata":      metaStr,
-				"created_at":    createdAt,
+				"id":               id,
+				"trace_id":         traceID,
+				"source_system":    src,
+				"target_system":    tgt,
+				"document_type":    dType,
+				"document_no":      dNo,
+				"status":           status,
+				"error_message":    errStr,
+				"metadata":         metaStr,
+				"response_payload": sapRespStr,
+				"created_at":       createdAt,
 			})
 		}
 	}
@@ -350,14 +381,28 @@ func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docTy
 	}
 
 	var dType, dNo, groupID, status string
-	var sapDocNo, errMsg *string
+	var sapDocNo, errMsg, sapResp *string
 	var createdAt, updatedAt time.Time
-	err := c.PGRepo.Pool.QueryRow(ctx, `
-		SELECT doc_type, document_no, group_id, status, sap_document_no, error_message, created_at, updated_at
-		FROM documents
-		WHERE document_no = $1
-		LIMIT 1
-	`, docNo).Scan(&dType, &dNo, &groupID, &status, &sapDocNo, &errMsg, &createdAt, &updatedAt)
+	var query string
+	var args []interface{}
+	if docType != "" {
+		query = `
+			SELECT doc_type, document_no, group_id, status, sap_document_no, error_message, sap_response::text, created_at, updated_at
+			FROM documents
+			WHERE document_no = $1 AND doc_type = $2
+			LIMIT 1
+		`
+		args = []interface{}{docNo, docType}
+	} else {
+		query = `
+			SELECT doc_type, document_no, group_id, status, sap_document_no, error_message, sap_response::text, created_at, updated_at
+			FROM documents
+			WHERE document_no = $1
+			LIMIT 1
+		`
+		args = []interface{}{docNo}
+	}
+	err := c.PGRepo.Pool.QueryRow(ctx, query, args...).Scan(&dType, &dNo, &groupID, &status, &sapDocNo, &errMsg, &sapResp, &createdAt, &updatedAt)
 	if err != nil {
 		return logs
 	}
@@ -376,20 +421,34 @@ func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docTy
 	// 2. Log Sent / Processing to SAP
 	sapStatus := "SENT"
 	metaMsg := "Waiting for confirmation from SAP"
-	if status == "success" {
+
+	// Resolusi Target API URL secara dinamis dari table mapping & sap endpoints
+	targetService := dType
+	targetURL := "https://my445160-api.s4hana.cloud.sap/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
+	if mapping, _ := c.PGRepo.GetTableAPIMapping(ctx, dType); mapping != nil && mapping.TargetServiceCode != "" {
+		targetService = mapping.TargetServiceCode
+	}
+	if ep, _ := c.PGRepo.GetSAPEndpointByCode(ctx, targetService); ep != nil {
+		targetURL = fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
+	}
+
+	switch status {
+	case "success":
 		sapStatus = "SUCCESS"
-		metaMsg = "Document successfully posted to SAP Grow"
+		metaMsg = fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s]", targetService, targetURL)
 		if sapDocNo != nil && *sapDocNo != "" {
-			metaMsg = fmt.Sprintf("Document successfully posted to SAP Grow (SAP Doc: %s)", *sapDocNo)
+			metaMsg = fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s] (SAP Doc: %s)", targetService, targetURL, *sapDocNo)
 		}
-	} else if status == "error" || status == "error_data" || status == "error_conn" {
+	case "error", "error_data", "error_conn":
 		sapStatus = "FAILED"
 		if errMsg != nil {
-			metaMsg = *errMsg
+			metaMsg = fmt.Sprintf("[Target API: %s] %s", targetURL, *errMsg)
+		} else {
+			metaMsg = fmt.Sprintf("Failed processing document to SAP Grow [Target API: %s]", targetURL)
 		}
-	} else if status == "pending" || status == "requeued" {
+	case "pending", "requeued":
 		sapStatus = "PENDING"
-		metaMsg = "Queued in middleware buffer"
+		metaMsg = fmt.Sprintf("Queued in middleware buffer [Target API: %s]", targetURL)
 	}
 
 	upTime := updatedAt
@@ -398,14 +457,15 @@ func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docTy
 	}
 
 	logs = append(logs, map[string]interface{}{
-		"source_system": "MIDDLEWARE",
-		"target_system": "SAP GROW",
-		"document_type": dType,
-		"document_no":   dNo,
-		"status":        sapStatus,
-		"error_message": errMsg,
-		"metadata":      metaMsg,
-		"created_at":    upTime,
+		"source_system":    "MIDDLEWARE",
+		"target_system":    "SAP GROW",
+		"document_type":    dType,
+		"document_no":      dNo,
+		"status":           sapStatus,
+		"error_message":    errMsg,
+		"metadata":         metaMsg,
+		"response_payload": sapResp,
+		"created_at":       upTime,
 	})
 
 	return logs
@@ -429,7 +489,14 @@ func (c *WebController) HealthCheck(ctx *gin.Context) {
 // SAP ENDPOINTS & MULTI-CREDENTIAL HANDLERS
 // ==========================================
 
-// GetSAPEndpoints mengambil daftar semua endpoint SAP terdaftar
+// GetSAPEndpoints godoc
+// @Summary      Mengambil Daftar Semua Endpoint SAP Terdaftar
+// @Description  Menampilkan semua konfigurasi endpoint, skenario komunikasi, dan kredensial SAP S/4HANA Cloud
+// @Tags         SAP Endpoints
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  ErrorResponse
+// @Router       /sap/endpoints [get]
 func (c *WebController) GetSAPEndpoints(ctx *gin.Context) {
 	if c.PGRepo == nil {
 		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
@@ -448,7 +515,17 @@ func (c *WebController) GetSAPEndpoints(ctx *gin.Context) {
 	})
 }
 
-// TestSAPEndpoint menguji koneksi & token CSRF ke endpoint spesifik
+// TestSAPEndpoint godoc
+// @Summary      Uji Koneksi & Handshake CSRF Token ke SAP Grow
+// @Description  Melakukan uji coba konektivitas HTTP dan handshake pengambilan x-csrf-token dari server SAP S/4HANA Cloud
+// @Tags         SAP Endpoints
+// @Accept       json
+// @Produce      json
+// @Param        service_code  query     string  false  "Kode Layanan SAP (PO, BP, PRODUCT, dll)"
+// @Success      200           {object}  map[string]interface{}
+// @Failure      404           {object}  ErrorResponse
+// @Failure      502           {object}  map[string]interface{}
+// @Router       /sap/endpoints/test [post]
 func (c *WebController) TestSAPEndpoint(ctx *gin.Context) {
 	if c.PGRepo == nil || c.SyncSvc == nil || c.SyncSvc.SAPClient == nil {
 		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "SAP client service is not initialized"})
@@ -504,7 +581,17 @@ func (c *WebController) TestSAPEndpoint(ctx *gin.Context) {
 	})
 }
 
-// SaveSAPEndpoint menyimpan atau memperbarui kredensial endpoint SAP
+// SaveSAPEndpoint godoc
+// @Summary      Menyimpan atau Memperbarui Konfigurasi Endpoint SAP
+// @Description  Menyimpan atau mengupdate URL, OData Version, dan kredensial Communication User untuk integrasi SAP
+// @Tags         SAP Endpoints
+// @Accept       json
+// @Produce      json
+// @Param        endpoint  body      model.SAPEndpoint  true  "Data Konfigurasi Endpoint SAP"
+// @Success      200       {object}  map[string]interface{}
+// @Failure      400       {object}  ErrorResponse
+// @Failure      500       {object}  ErrorResponse
+// @Router       /sap/endpoints [post]
 func (c *WebController) SaveSAPEndpoint(ctx *gin.Context) {
 	if c.PGRepo == nil {
 		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
@@ -533,7 +620,16 @@ func (c *WebController) SaveSAPEndpoint(ctx *gin.Context) {
 	})
 }
 
-// ExecuteSAPTest mengeksekusi langsung payload test ke SAP Grow dari panel sandbox
+// ExecuteSAPTest godoc
+// @Summary      Eksekusi Payload Test ke SAP Grow (Sandbox Tester)
+// @Description  Mengirimkan payload HTTP POST / PATCH / GET langsung ke server SAP Grow S/4HANA Cloud dengan auto CSRF handshake & Basic Auth
+// @Tags         SAP Sandbox
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  ErrorResponse
+// @Failure      404  {object}  ErrorResponse
+// @Router       /sap/execute-test [post]
 func (c *WebController) ExecuteSAPTest(ctx *gin.Context) {
 	if c.PGRepo == nil || c.SyncSvc == nil || c.SyncSvc.SAPClient == nil {
 		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "SAP client service is not initialized"})
@@ -543,6 +639,7 @@ func (c *WebController) ExecuteSAPTest(ctx *gin.Context) {
 	var req struct {
 		ServiceCode string      `json:"service_code"`
 		Method      string      `json:"method"`
+		CustomPath  string      `json:"custom_path"`
 		Payload     interface{} `json:"payload"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -561,6 +658,16 @@ func (c *WebController) ExecuteSAPTest(ctx *gin.Context) {
 	if err != nil || ep == nil {
 		ctx.JSON(http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("Service '%s' tidak ditemukan di database", req.ServiceCode)})
 		return
+	}
+
+	if custom := strings.TrimSpace(req.CustomPath); custom != "" {
+		epCopy := *ep
+		if strings.HasPrefix(custom, "/") || strings.HasPrefix(custom, "(") || strings.HasPrefix(custom, "?") {
+			epCopy.EndpointPath = epCopy.EndpointPath + custom
+		} else {
+			epCopy.EndpointPath = epCopy.EndpointPath + "/" + custom
+		}
+		ep = &epCopy
 	}
 
 	var payloadBytes []byte
@@ -693,6 +800,192 @@ func (c *WebController) ToggleAutoPull(ctx *gin.Context) {
 		EnvSetting:      envPull,
 		BatchLimit:      limit,
 		Message:         fmt.Sprintf("Auto-pull status di database berhasil diatur ke: %v", targetActive),
+	})
+}
+
+// ReceiveExchangeRate godoc
+// @Summary      Menerima Update Kurs Pajak / Exchange Rate dari Maximo
+// @Description  Menerima payload kurs.updated dari Maximo/Kemenkeu, menyimpan ke exchange_rates, dan mencatat audit trail di integration_logs
+// @Tags         Exchange Rate
+// @Accept       json
+// @Produce      json
+// @Param        payload body      model.MaximoExchangeRatePayload  true  "Payload Kurs Pajak dari Maximo / Kemenkeu"
+// @Success      200     {object}  map[string]interface{}
+// @Failure      400     {object}  ErrorResponse
+// @Failure      500     {object}  ErrorResponse
+// @Router       /exchange-rate [post]
+func (c *WebController) ReceiveExchangeRate(ctx *gin.Context) {
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "PostgreSQL database pool is not connected"})
+		return
+	}
+
+	rawBytes, err := ctx.GetRawData()
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Failed reading request payload: " + err.Error()})
+		return
+	}
+
+	var payload model.MaximoExchangeRatePayload
+	if err := json.Unmarshal(rawBytes, &payload); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid JSON format: " + err.Error()})
+		return
+	}
+
+	if len(payload.Rates) == 0 {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Rates array cannot be empty"})
+		return
+	}
+
+	saved, err := c.PGRepo.SaveExchangeRates(ctx.Request.Context(), &payload, rawBytes)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":      "success",
+		"message":     fmt.Sprintf("Successfully processed %d exchange rates for KMK %s", saved, payload.Period.KMKNumber),
+		"event":       payload.Event,
+		"kmk_number":  payload.Period.KMKNumber,
+		"valid_from":  payload.Period.ValidFrom,
+		"valid_to":    payload.Period.ValidTo,
+		"rates_saved": saved,
+	})
+}
+
+// GetExchangeRates godoc
+// @Summary      Mengambil Daftar History Exchange Rate
+// @Tags         Exchange Rate
+// @Produce      json
+// @Router       /exchange-rates [get]
+func (c *WebController) GetExchangeRates(ctx *gin.Context) {
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	limit := 100
+	if l := ctx.Query("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil && val > 0 {
+			limit = val
+		}
+	}
+
+	rates, err := c.PGRepo.GetExchangeRates(ctx.Request.Context(), limit)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"total":  len(rates),
+		"data":   rates,
+	})
+}
+
+// GetUOMMappings godoc
+// @Summary      Mengambil Daftar Master Data Pemetaan UOM Maximo ke SAP
+// @Tags         UOM Mapping
+// @Produce      json
+// @Router       /uom-mappings [get]
+func (c *WebController) GetUOMMappings(ctx *gin.Context) {
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Database repository is not available"})
+		return
+	}
+
+	list, err := c.PGRepo.GetUOMMappings(ctx.Request.Context())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"total":  len(list),
+		"data":   list,
+	})
+}
+
+// GetSAPMaterialDocumentDetail godoc
+// @Summary      Mengecek Live Detail Material Document / Goods Receipt dari SAP Grow
+// @Tags         SAP Inspection
+// @Produce      json
+// @Param        doc_no   path      string  true  "Material Document No (e.g. 202500000001 or 5000000000)"
+// @Param        year     query     string  false "Material Document Year (default: 2025)"
+// @Router       /sap/material-document/{doc_no} [get]
+func (c *WebController) GetSAPMaterialDocumentDetail(ctx *gin.Context) {
+	docNo := ctx.Param("doc_no")
+	if docNo == "" {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Parameter doc_no is required"})
+		return
+	}
+
+	year := ctx.DefaultQuery("year", "2025")
+
+	// Ambil endpoint konfigurasi untuk Material Document
+	ep, err := c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), "MATERIAL_DOC_DETAIL")
+	if err != nil || ep == nil {
+		ep, err = c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), "GR_WITH_PO")
+	}
+
+	if ep == nil {
+		ep = &model.SAPEndpoint{
+			ServiceCode:  "MATERIAL_DOC_DETAIL",
+			ServiceName:  "Material Document Detail OData v2",
+			ScenarioID:   "SAP_COM_0108",
+			ODataVersion: "v2",
+			BaseURL:      "https://my445160-api.s4hana.cloud.sap",
+			EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
+			Username:     "Y_BPI_CU_SAP_COM_0108",
+			Password:     "PowerofOne@123456789",
+		}
+	}
+
+	customEP := *ep
+	if strings.Contains(docNo, "(") {
+		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader%s", docNo)
+	} else if len(docNo) == 12 && (strings.HasPrefix(docNo, "2024") || strings.HasPrefix(docNo, "2025") || strings.HasPrefix(docNo, "2026")) {
+		// Contoh nomor 12 digit: 202500000001 (Tahun 2025, Dokumen 00000001)
+		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", docNo[:4], docNo[4:])
+	} else {
+		// Standar composite key SAP OData v2: MaterialDocumentYear & MaterialDocument
+		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", year, docNo)
+	}
+
+	statusCode, sapDocNo, respBody, sapErr := c.SyncSvc.SAPClient.ExecuteOData(&customEP, "GET", nil)
+
+	errMsg := ""
+	if sapErr != nil {
+		errMsg = sapErr.Error()
+	}
+
+	var parsedBody interface{}
+	if err := json.Unmarshal([]byte(respBody), &parsedBody); err == nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"status":          "success",
+			"http_code":       statusCode,
+			"material_doc_no": docNo,
+			"year":            year,
+			"endpoint_path":   customEP.EndpointPath,
+			"sap_document_no": sapDocNo,
+			"data":            parsedBody,
+			"error":           errMsg,
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":          "success",
+		"http_code":       statusCode,
+		"material_doc_no": docNo,
+		"year":            year,
+		"endpoint_path":   customEP.EndpointPath,
+		"sap_document_no": sapDocNo,
+		"raw_response":    respBody,
+		"error":           errMsg,
 	})
 }
 

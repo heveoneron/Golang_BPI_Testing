@@ -31,22 +31,81 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.GetDocumentsResponse"
+                            "$ref": "#/definitions/controller.GetDocumentsResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     }
                 }
+            }
+        },
+        "/exchange-rate": {
+            "post": {
+                "description": "Menerima payload kurs.updated dari Maximo/Kemenkeu, menyimpan ke exchange_rates, dan mencatat audit trail di integration_logs",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Exchange Rate"
+                ],
+                "summary": "Menerima Update Kurs Pajak / Exchange Rate dari Maximo",
+                "parameters": [
+                    {
+                        "description": "Payload Kurs Pajak dari Maximo / Kemenkeu",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.MaximoExchangeRatePayload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/exchange-rates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Exchange Rate"
+                ],
+                "summary": "Mengambil Daftar History Exchange Rate",
+                "responses": {}
             }
         },
         "/health": {
@@ -63,7 +122,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.HealthResponse"
+                            "$ref": "#/definitions/controller.HealthResponse"
                         }
                     }
                 }
@@ -89,7 +148,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/golang-bpi-testing_internal_model.MaximoPOHeader"
+                            "$ref": "#/definitions/model.MaximoPOHeader"
                         }
                     }
                 ],
@@ -97,25 +156,291 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.IngestManualPOResponse"
+                            "$ref": "#/definitions/controller.IngestManualPOResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/integration-logs": {
+            "get": {
+                "description": "Mendapatkan riwayat audit trail pertukaran data Maximo \u003c-\u003e Middleware \u003c-\u003e SAP",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Logs"
+                ],
+                "summary": "Get integration audit trail logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter Document Type",
+                        "name": "document_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter Document No",
+                        "name": "document_no",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/sap/endpoints": {
+            "get": {
+                "description": "Menampilkan semua konfigurasi endpoint, skenario komunikasi, dan kredensial SAP S/4HANA Cloud",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SAP Endpoints"
+                ],
+                "summary": "Mengambil Daftar Semua Endpoint SAP Terdaftar",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Menyimpan atau mengupdate URL, OData Version, dan kredensial Communication User untuk integrasi SAP",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SAP Endpoints"
+                ],
+                "summary": "Menyimpan atau Memperbarui Konfigurasi Endpoint SAP",
+                "parameters": [
+                    {
+                        "description": "Data Konfigurasi Endpoint SAP",
+                        "name": "endpoint",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.SAPEndpoint"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/sap/endpoints/test": {
+            "post": {
+                "description": "Melakukan uji coba konektivitas HTTP dan handshake pengambilan x-csrf-token dari server SAP S/4HANA Cloud",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SAP Endpoints"
+                ],
+                "summary": "Uji Koneksi \u0026 Handshake CSRF Token ke SAP Grow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Kode Layanan SAP (PO, BP, PRODUCT, dll)",
+                        "name": "service_code",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/sap/execute-test": {
+            "post": {
+                "description": "Mengirimkan payload HTTP POST / PATCH / GET langsung ke server SAP Grow S/4HANA Cloud dengan auto CSRF handshake \u0026 Basic Auth",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SAP Sandbox"
+                ],
+                "summary": "Eksekusi Payload Test ke SAP Grow (Sandbox Tester)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/controller.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/sap/material-document/{doc_no}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SAP Inspection"
+                ],
+                "summary": "Mengecek Live Detail Material Document / Goods Receipt dari SAP Grow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Material Document No (e.g. 202500000001 or 5000000000)",
+                        "name": "doc_no",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Material Document Year (default: 2025)",
+                        "name": "year",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/scheduler/status": {
+            "get": {
+                "description": "Memeriksa status aktif/nonaktif fitur penarikan data otomatis dari Maximo (berdasarkan .env dan DB)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scheduler"
+                ],
+                "summary": "Cek Status Pengaturan Auto-Pull",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/controller.SchedulerStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/scheduler/toggle": {
+            "post": {
+                "description": "Mengubah status aktif/nonaktif auto get data from Maximo pada database runtime",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scheduler"
+                ],
+                "summary": "Ubah Status On/Off Auto-Pull di Database",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Status aktif (true/false)",
+                        "name": "active",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/controller.SchedulerStatusResponse"
                         }
                     }
                 }
@@ -143,13 +468,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.TriggerPullResponse"
+                            "$ref": "#/definitions/controller.TriggerPullResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     }
                 }
@@ -169,21 +494,252 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.TriggerPushResponse"
+                            "$ref": "#/definitions/controller.TriggerPushResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_controller.ErrorResponse"
+                            "$ref": "#/definitions/controller.ErrorResponse"
                         }
                     }
                 }
             }
+        },
+        "/uom-mappings": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "UOM Mapping"
+                ],
+                "summary": "Mengambil Daftar Master Data Pemetaan UOM Maximo ke SAP",
+                "responses": {}
+            }
         }
     },
     "definitions": {
-        "golang-bpi-testing_internal_model.MaximoPOHeader": {
+        "controller.DocumentItemDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-10-12T14:00:00Z"
+                },
+                "doc_type": {
+                    "type": "string",
+                    "example": "PO"
+                },
+                "document_no": {
+                    "type": "string",
+                    "example": "PO-BPI-2026-001"
+                },
+                "group_id": {
+                    "type": "string",
+                    "example": "GRP-PO-PO-BPI-2026-001"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+                },
+                "raw_payload": {
+                    "type": "object"
+                },
+                "retry_count": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "sap_document_no": {
+                    "type": "string",
+                    "example": "SAP-PO-1730000000"
+                },
+                "sap_payload": {
+                    "type": "object"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                }
+            }
+        },
+        "controller.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request body"
+                }
+            }
+        },
+        "controller.GetDocumentsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/controller.DocumentItemDTO"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "controller.HealthResponse": {
+            "type": "object",
+            "properties": {
+                "service": {
+                    "type": "string",
+                    "example": "BPI Maximo-SAP Grow Middleware"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "running"
+                }
+            }
+        },
+        "controller.IngestManualPOResponse": {
+            "type": "object",
+            "properties": {
+                "document_no": {
+                    "type": "string",
+                    "example": "PO-BPI-2026-001"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "PO successfully ingested into staging_documents and transformed to core documents"
+                },
+                "transformed": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "controller.SchedulerStatusResponse": {
+            "type": "object",
+            "properties": {
+                "auto_pull_enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "batch_limit": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "env_setting": {
+                    "type": "string",
+                    "example": "true"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Auto-pull status di database berhasil diatur"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "success"
+                }
+            }
+        },
+        "controller.TriggerPullResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Pull trigger executed successfully"
+                },
+                "pulled_count": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "transformed": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "controller.TriggerPushResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "Push trigger executed"
+                },
+                "pushed_count": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "model.ExchangeRateItem": {
+            "type": "object",
+            "properties": {
+                "change": {
+                    "type": "number"
+                },
+                "currency_code": {
+                    "type": "string"
+                },
+                "currency_name": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                },
+                "rate_per_unit": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "integer"
+                }
+            }
+        },
+        "model.ExchangeRatePeriod": {
+            "type": "object",
+            "properties": {
+                "document_url": {
+                    "type": "string"
+                },
+                "kmk_number": {
+                    "type": "string"
+                },
+                "valid_from": {
+                    "type": "string"
+                },
+                "valid_to": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.MaximoExchangeRatePayload": {
+            "type": "object",
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "period": {
+                    "$ref": "#/definitions/model.ExchangeRatePeriod"
+                },
+                "rates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.ExchangeRateItem"
+                    }
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.MaximoPOHeader": {
             "type": "object",
             "properties": {
                 "CURRENCYCODE": {
@@ -193,7 +749,7 @@ const docTemplate = `{
                 "LINES": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/golang-bpi-testing_internal_model.MaximoPOLine"
+                        "$ref": "#/definitions/model.MaximoPOLine"
                     }
                 },
                 "ORDERDATE": {
@@ -218,7 +774,7 @@ const docTemplate = `{
                 }
             }
         },
-        "golang-bpi-testing_internal_model.MaximoPOLine": {
+        "model.MaximoPOLine": {
             "type": "object",
             "properties": {
                 "BUDGETCODE": {
@@ -271,134 +827,56 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_controller.DocumentItemDTO": {
+        "model.SAPEndpoint": {
             "type": "object",
             "properties": {
+                "base_url": {
+                    "type": "string"
+                },
                 "created_at": {
-                    "type": "string",
-                    "example": "2026-10-12T14:00:00Z"
+                    "type": "string"
                 },
-                "doc_type": {
-                    "type": "string",
-                    "example": "PO"
+                "csrf_path": {
+                    "type": "string"
                 },
-                "document_no": {
-                    "type": "string",
-                    "example": "PO-BPI-2026-001"
-                },
-                "group_id": {
-                    "type": "string",
-                    "example": "GRP-PO-PO-BPI-2026-001"
+                "endpoint_path": {
+                    "type": "string"
                 },
                 "id": {
-                    "type": "string",
-                    "example": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+                    "type": "integer"
                 },
-                "raw_payload": {
-                    "type": "object"
+                "is_active": {
+                    "type": "boolean"
                 },
-                "retry_count": {
-                    "type": "integer",
-                    "example": 0
+                "last_response": {
+                    "type": "string"
                 },
-                "sap_document_no": {
-                    "type": "string",
-                    "example": "SAP-PO-1730000000"
+                "last_status": {
+                    "type": "string"
                 },
-                "sap_payload": {
-                    "type": "object"
+                "last_tested_at": {
+                    "type": "string"
                 },
-                "status": {
-                    "type": "string",
-                    "example": "pending"
-                }
-            }
-        },
-        "internal_controller.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string",
-                    "example": "invalid request body"
-                }
-            }
-        },
-        "internal_controller.GetDocumentsResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/internal_controller.DocumentItemDTO"
-                    }
+                "odata_version": {
+                    "type": "string"
                 },
-                "total": {
-                    "type": "integer",
-                    "example": 1
-                }
-            }
-        },
-        "internal_controller.HealthResponse": {
-            "type": "object",
-            "properties": {
-                "service": {
-                    "type": "string",
-                    "example": "BPI Maximo-SAP Grow Middleware"
+                "password": {
+                    "type": "string"
                 },
-                "status": {
-                    "type": "string",
-                    "example": "running"
-                }
-            }
-        },
-        "internal_controller.IngestManualPOResponse": {
-            "type": "object",
-            "properties": {
-                "document_no": {
-                    "type": "string",
-                    "example": "PO-BPI-2026-001"
+                "scenario_id": {
+                    "type": "string"
                 },
-                "message": {
-                    "type": "string",
-                    "example": "PO successfully ingested into staging_documents and transformed to core documents"
+                "service_code": {
+                    "type": "string"
                 },
-                "transformed": {
-                    "type": "integer",
-                    "example": 1
-                }
-            }
-        },
-        "internal_controller.TriggerPullResponse": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "example": 1
+                "service_name": {
+                    "type": "string"
                 },
-                "message": {
-                    "type": "string",
-                    "example": "Pull trigger executed successfully"
+                "updated_at": {
+                    "type": "string"
                 },
-                "pulled_count": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "transformed": {
-                    "type": "integer",
-                    "example": 1
-                }
-            }
-        },
-        "internal_controller.TriggerPushResponse": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "example": "Push trigger executed"
-                },
-                "pushed_count": {
-                    "type": "integer",
-                    "example": 1
+                "username": {
+                    "type": "string"
                 }
             }
         }

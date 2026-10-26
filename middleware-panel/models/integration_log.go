@@ -12,8 +12,9 @@ type IntegrationLog struct {
 	DocumentNo   string    `gorm:"column:document_no;type:varchar(100);index" json:"document_no"`
 	Status       string    `gorm:"column:status;type:varchar(30)" json:"status"` // SUCCESS, FAILED, SENT, RECEIVED
 	ErrorMessage *string   `gorm:"column:error_message;type:text" json:"error_message"`
-	Metadata     string    `gorm:"column:metadata;type:text" json:"metadata"`
-	CreatedAt    time.Time `gorm:"column:created_at;type:timestamp" json:"created_at"`
+	Metadata        string    `gorm:"column:metadata;type:text" json:"metadata"`
+	ResponsePayload *string   `gorm:"-" json:"response_payload,omitempty"`
+	CreatedAt       time.Time `gorm:"column:created_at;type:timestamp" json:"created_at"`
 }
 
 func (IntegrationLog) TableName() string {

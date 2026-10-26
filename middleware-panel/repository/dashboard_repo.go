@@ -285,69 +285,115 @@ func (r *dashboardRepo) GetAuditTrail(docType string, documentNo string) ([]mode
 	}
 	_ = query.Order("created_at ASC").Find(&logs).Error
 
-	// Fallback cerdas: Jika belum ada log di integration_logs untuk dokumen ini,
-	// buatkan log representatif dari lifecycle data di tabel documents agar button logs tidak kosong!
-	if len(logs) == 0 && documentNo != "" {
-		var doc models.Document
+	// Resolusi Target API URL helper function
+	resolveTargetAPI := func(dType string) (string, string) {
+		targetService := dType
+		if targetService == "" && docType != "" {
+			targetService = docType
+		}
+		if targetService == "" {
+			targetService = "PO"
+		}
+		var mapping models.TableAPIMapping
+		if err := r.db.Where("LOWER(source_table) = LOWER(?)", targetService).First(&mapping).Error; err == nil && mapping.TargetServiceCode != "" {
+			targetService = mapping.TargetServiceCode
+		}
+		var ep models.SAPEndpoint
+		targetURL := "https://my445160-api.s4hana.cloud.sap/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
+		if err := r.db.Where("service_code = ?", targetService).First(&ep).Error; err == nil && ep.BaseURL != "" {
+			targetURL = fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
+		}
+		return targetService, targetURL
+	}
+
+	// Ambil dokumen terkait dari documents untuk mendapatkan respon SAP aktual
+	var doc models.Document
+	docFound := false
+	if documentNo != "" {
 		docQuery := r.db.Model(&models.Document{}).Where("document_no = ?", documentNo)
 		if docType != "" {
 			docQuery = docQuery.Where("LOWER(doc_type) = LOWER(?)", docType)
 		}
-		if err := docQuery.First(&doc).Error; err != nil {
-			// Coba lagi tanpa filter docType
-			_ = r.db.Model(&models.Document{}).Where("document_no = ?", documentNo).First(&doc).Error
+		if err := docQuery.First(&doc).Error; err == nil {
+			docFound = true
+		} else {
+			if err := r.db.Model(&models.Document{}).Where("document_no = ?", documentNo).First(&doc).Error; err == nil {
+				docFound = true
+			}
+		}
+	}
+
+	// Enrich existing logs jika TargetSystem == "SAP GROW"
+	for i := range logs {
+		if logs[i].TargetSystem == "SAP GROW" {
+			if !strings.Contains(logs[i].Metadata, "[Target API:") {
+				targetService, targetURL := resolveTargetAPI(logs[i].DocumentType)
+				if strings.Contains(logs[i].Metadata, "Successfully posted to SAP Grow") {
+					logs[i].Metadata = strings.Replace(logs[i].Metadata, "Successfully posted to SAP Grow", fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s]", targetService, targetURL), 1)
+				} else if logs[i].Metadata != "" {
+					logs[i].Metadata = fmt.Sprintf("%s [Target API: %s]", logs[i].Metadata, targetURL)
+				}
+			}
+			if docFound && doc.SAPResponse != nil && *doc.SAPResponse != "" {
+				logs[i].ResponsePayload = doc.SAPResponse
+			}
+		}
+	}
+
+	// Fallback cerdas: Jika belum ada log di integration_logs untuk dokumen ini,
+	// buatkan log representatif dari lifecycle data di tabel documents agar button logs tidak kosong!
+	if len(logs) == 0 && docFound && doc.DocumentNo != "" {
+		// Step 1: Received dari Maximo ERP
+		logs = append(logs, models.IntegrationLog{
+			SourceSystem: "MAXIMO",
+			TargetSystem: "MIDDLEWARE",
+			DocumentType: doc.DocType,
+			DocumentNo:   doc.DocumentNo,
+			Status:       "RECEIVED",
+			Metadata:     fmt.Sprintf("Payload received from Maximo ERP (Group: %s)", doc.GroupID),
+			CreatedAt:    doc.CreatedAt,
+		})
+
+		// Step 2: Kirim / Status ke SAP Grow
+		sapStatus := "SENT"
+		targetSys := "SAP GROW"
+		metadataMsg := "Waiting for confirmation from SAP"
+		targetService, targetURL := resolveTargetAPI(doc.DocType)
+
+		if strings.EqualFold(doc.Status, "success") {
+			sapStatus = "SUCCESS"
+			metadataMsg = fmt.Sprintf("Document successfully posted to SAP Grow via %s [Target API: %s]", targetService, targetURL)
+			if doc.SAPDocumentNo != nil && *doc.SAPDocumentNo != "" {
+				metadataMsg = fmt.Sprintf("Document successfully posted to SAP Grow via %s [Target API: %s] (SAP Doc: %s)", targetService, targetURL, *doc.SAPDocumentNo)
+			}
+		} else if strings.Contains(strings.ToLower(doc.Status), "error") || strings.EqualFold(doc.Status, "failed") {
+			sapStatus = "FAILED"
+			if doc.ErrorMessage != nil && *doc.ErrorMessage != "" {
+				metadataMsg = fmt.Sprintf("[Target API: %s] %s", targetURL, *doc.ErrorMessage)
+			} else {
+				metadataMsg = fmt.Sprintf("Failed processing document to SAP Grow [Target API: %s]", targetURL)
+			}
+		} else if strings.EqualFold(doc.Status, "pending") || strings.EqualFold(doc.Status, "requeued") {
+			sapStatus = "PENDING"
+			metadataMsg = fmt.Sprintf("Queued in middleware buffer [Target API: %s]", targetURL)
 		}
 
-		if doc.DocumentNo != "" {
-			// Step 1: Received dari Maximo ERP
-			logs = append(logs, models.IntegrationLog{
-				SourceSystem: "MAXIMO",
-				TargetSystem: "MIDDLEWARE",
-				DocumentType: doc.DocType,
-				DocumentNo:   doc.DocumentNo,
-				Status:       "RECEIVED",
-				Metadata:     fmt.Sprintf("Payload received from Maximo ERP (Group: %s)", doc.GroupID),
-				CreatedAt:    doc.CreatedAt,
-			})
-
-			// Step 2: Kirim / Status ke SAP Grow
-			sapStatus := "SENT"
-			targetSys := "SAP GROW"
-			metadataMsg := "Waiting for confirmation from SAP"
-			if strings.EqualFold(doc.Status, "success") {
-				sapStatus = "SUCCESS"
-				metadataMsg = "Document successfully posted to SAP Grow"
-				if doc.SAPDocumentNo != nil && *doc.SAPDocumentNo != "" {
-					metadataMsg = fmt.Sprintf("Document successfully posted to SAP Grow (SAP Doc: %s)", *doc.SAPDocumentNo)
-				}
-			} else if strings.Contains(strings.ToLower(doc.Status), "error") || strings.EqualFold(doc.Status, "failed") {
-				sapStatus = "FAILED"
-				if doc.ErrorMessage != nil && *doc.ErrorMessage != "" {
-					metadataMsg = *doc.ErrorMessage
-				} else {
-					metadataMsg = "Failed processing document to SAP"
-				}
-			} else if strings.EqualFold(doc.Status, "pending") || strings.EqualFold(doc.Status, "requeued") {
-				sapStatus = "PENDING"
-				metadataMsg = "Queued in middleware buffer"
-			}
-
-			updatedTime := doc.UpdatedAt
-			if updatedTime.Equal(doc.CreatedAt) || updatedTime.Before(doc.CreatedAt) {
-				updatedTime = doc.CreatedAt.Add(1 * time.Second)
-			}
-
-			logs = append(logs, models.IntegrationLog{
-				SourceSystem: "MIDDLEWARE",
-				TargetSystem: targetSys,
-				DocumentType: doc.DocType,
-				DocumentNo:   doc.DocumentNo,
-				Status:       sapStatus,
-				ErrorMessage: doc.ErrorMessage,
-				Metadata:     metadataMsg,
-				CreatedAt:    updatedTime,
-			})
+		updatedTime := doc.UpdatedAt
+		if updatedTime.Equal(doc.CreatedAt) || updatedTime.Before(doc.CreatedAt) {
+			updatedTime = doc.CreatedAt.Add(1 * time.Second)
 		}
+
+		logs = append(logs, models.IntegrationLog{
+			SourceSystem:    "MIDDLEWARE",
+			TargetSystem:    targetSys,
+			DocumentType:    doc.DocType,
+			DocumentNo:      doc.DocumentNo,
+			Status:          sapStatus,
+			ErrorMessage:    doc.ErrorMessage,
+			Metadata:        metadataMsg,
+			ResponsePayload: doc.SAPResponse,
+			CreatedAt:       updatedTime,
+		})
 	}
 
 	return logs, nil

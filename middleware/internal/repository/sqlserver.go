@@ -80,6 +80,10 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 				items = append(items, it)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("error iterating mxout_inter_trans rows: %w", err)
+		}
 		rows.Close()
 
 		if len(items) == 0 {
@@ -260,6 +264,9 @@ func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, acti
 			"BUDGETYEAR":  bYear,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating axmxpo rows: %w", err)
+	}
 
 	// Jika tidak ada line/data detail sama sekali di axmxpo untuk transid ini
 	if isFirst || len(lines) == 0 {
@@ -350,6 +357,9 @@ func (r *SQLServerRepository) extractPR(ctx context.Context, transID int64, acti
 			"MAINACCOUNT": coa,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating axpr rows: %w", err)
+	}
 
 	// Jika tidak ada data detail sama sekali di axpr untuk transid ini
 	if isFirst || len(lines) == 0 {
@@ -426,6 +436,9 @@ func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64,
 			"ITEMNUM":   itm,
 			"QTY":       qty,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating axreceipt rows: %w", err)
 	}
 
 	// Jika tidak ada data detail sama sekali di axreceipt untuk transid ini
@@ -515,6 +528,9 @@ func (r *SQLServerRepository) extractGeneric(ctx context.Context, transID int64,
 			}
 		}
 		results = append(results, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating generic table rows: %w", err)
 	}
 
 	// JIKA TIDAK ADA DATA DETAIL (results kosong), JANGAN DIKIRIM!

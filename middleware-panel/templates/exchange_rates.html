@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exchange Rate Master - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 24px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 14px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .curr-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .kmk-badge { background-color: #F8FAFC; color: #475569; font-weight: 600; font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid #CBD5E1; }
+        .change-up { color: #16A34A; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 4px; }
+        .change-down { color: #DC2626; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 4px; }
+        .change-neutral { color: #94A3B8; font-weight: 600; font-size: 12.5px; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-currency-exchange text-primary"></i> Master Data Exchange Rate (Kurs Pajak)</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Penerimaan kurs valuta asing dari Maximo / Kemenkeu untuk konversi transaksi operasional PLTU</span>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                </button>
+                <button class="btn btn-primary btn-sm rounded-3 d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#uploadKursModal">
+                    <i class="bi bi-cloud-arrow-up-fill"></i> Upload / Test Kurs JSON
+                </button>
+            </div>
+        </div>
+
+        <!-- 4 Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Total Rekod Kurs</div>
+                    <div class="stat-val text-primary">{{ .Summary.TotalRecords }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-clock-history me-1"></i> Data historis tersimpan</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Mata Uang Terdaftar</div>
+                    <div class="stat-val text-success">{{ .Summary.TotalCurrencies }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-globe2 me-1"></i> Valuta aktif (USD, JPY, dll)</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Nomor KMK Terkini</div>
+                    <div class="stat-val text-dark" style="font-size: 18px; word-break: break-all;">{{ .Summary.LatestKMK }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-file-earmark-check me-1"></i> Keputusan Menkeu</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Sinkronisasi Terakhir</div>
+                    <div class="stat-val text-info" style="font-size: 16px;">{{ .Summary.LastUpdated.Format "02 Jan 2006 15:04" }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-check-circle-fill text-success me-1"></i> Status siap digunakan</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Maximo Integration API Specification Box -->
+        <div class="main-card mb-4 border-primary border-opacity-25 shadow-sm">
+            <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h5 class="m-0 fw-bold text-dark d-flex align-items-center gap-2" style="font-size: 15px;">
+                        <i class="bi bi-cpu-fill text-primary"></i> API Endpoint Ingestion Exchange Rate (untuk Maximo)
+                    </h5>
+                    <span class="text-muted" style="font-size: 12px;">Endpoint HTTP POST yang digunakan Maximo / Automation Script untuk mengirimkan update Kurs Pajak ke Middleware</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary fw-bold" onclick="copyApiUrl()">
+                        <i class="bi bi-clipboard me-1"></i> Salin URL Endpoint
+                    </button>
+                    <button class="btn btn-sm btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#uploadKursModal">
+                        <i class="bi bi-play-circle-fill me-1"></i> Uji Coba Hit API
+                    </button>
+                </div>
+            </div>
+            <div class="p-3 bg-white">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-7">
+                        <div class="d-flex align-items-center gap-2 p-2 rounded-2 bg-light border">
+                            <span class="badge bg-success fw-bold px-2 py-1" style="font-size: 11px;">POST</span>
+                            <code class="text-primary fw-bold" id="exchangeRateApiUrl" style="font-size: 13px;">http://localhost:8085/api/v1/exchange-rate</code>
+                            <button class="btn btn-link btn-sm text-secondary p-0 ms-auto" onclick="copyApiUrl()" title="Salin URL"><i class="bi bi-files"></i></button>
+                        </div>
+                        <div class="d-flex flex-wrap gap-3 mt-2 text-muted" style="font-size: 12px;">
+                            <span><i class="bi bi-check-circle-fill text-success me-1"></i><strong>Content-Type:</strong> application/json</span>
+                            <span><i class="bi bi-database-check text-info me-1"></i><strong>Penyimpanan:</strong> PostgreSQL <code>exchange_rates</code></span>
+                            <span><i class="bi bi-journal-text text-warning me-1"></i><strong>Audit Trail:</strong> <code>integration_logs</code></span>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="d-flex justify-content-md-end gap-2">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="toggleApiDetails()">
+                                <i class="bi bi-code-slash me-1"></i> <span id="toggleApiText">Lihat Contoh Payload &amp; cURL</span>
+                            </button>
+                            <a href="http://localhost:8085/swagger/index.html#/Exchange%20Rate/post_exchange_rate" target="_blank" class="btn btn-sm btn-outline-info">
+                                <i class="bi bi-box-arrow-up-right me-1"></i> Swagger Docs
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collapsible Payload & cURL Specs -->
+                <div id="apiDetailsSection" class="mt-3 pt-3 border-top" style="display: none;">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-secondary"><i class="bi bi-file-earmark-code me-1"></i>Contoh Payload JSON (Maximo / Kemenkeu):</span>
+                                <button class="btn btn-link btn-sm p-0 text-decoration-none small text-primary fw-bold" onclick="copySampleJSON()"><i class="bi bi-clipboard me-1"></i>Salin JSON</button>
+                            </div>
+                            <pre class="m-0 p-2 rounded-2" style="background-color: #0F172A; color: #38BDF8; font-size: 11.5px; max-height: 220px; overflow-y: auto;" id="samplePayloadBlock">{
+  "event": "kurs.updated",
+  "sent_at": "2026-10-22T13:54:00+07:00",
+  "source": "kemenkeu-kurs-pajak",
+  "period": {
+    "kmk_number": "CONTOH-KMK",
+    "valid_from": "2026-10-22",
+    "valid_to": "2026-10-28",
+    "document_url": "https://contoh-url-dokumen"
+  },
+  "rates": [
+    {
+      "currency_code": "USD",
+      "currency_name": "Dolar Amerika Serikat",
+      "rate": 16500,
+      "unit": 1,
+      "rate_per_unit": "16500.000000",
+      "change": 25
+    },
+    {
+      "currency_code": "JPY",
+      "currency_name": "Yen Jepang",
+      "rate": 11000,
+      "unit": 100,
+      "rate_per_unit": "110.000000",
+      "change": null
+    }
+  ]
+}</pre>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-secondary"><i class="bi bi-terminal me-1"></i>Contoh cURL Command:</span>
+                                <button class="btn btn-link btn-sm p-0 text-decoration-none small text-primary fw-bold" onclick="copyCurlCommand()"><i class="bi bi-clipboard me-1"></i>Salin cURL</button>
+                            </div>
+                            <pre class="m-0 p-2 rounded-2" style="background-color: #0F172A; color: #A7F3D0; font-size: 11.5px; max-height: 220px; overflow-y: auto;" id="sampleCurlBlock">curl -X POST http://localhost:8085/api/v1/exchange-rate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "kurs.updated",
+    "sent_at": "2026-10-22T13:54:00+07:00",
+    "source": "kemenkeu-kurs-pajak",
+    "period": {
+      "kmk_number": "KMK-123/2026",
+      "valid_from": "2026-10-22",
+      "valid_to": "2026-10-28"
+    },
+    "rates": [
+      {
+        "currency_code": "USD",
+        "currency_name": "Dolar Amerika Serikat",
+        "rate": 16500,
+        "unit": 1,
+        "rate_per_unit": "16500.000000",
+        "change": 25
+      }
+    ]
+  }'</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="main-card p-3 mb-4">
+            <form method="GET" action="/exchange-rates" class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" name="q" class="form-control border-start-0" placeholder="Cari kode mata uang (USD, JPY), nama, atau KMK..." value="{{ .Search }}">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-secondary btn-sm w-100 rounded-2">
+                        <i class="bi bi-funnel-fill me-1"></i> Filter Data
+                    </button>
+                </div>
+                {{ if .Search }}
+                <div class="col-md-2">
+                    <a href="/exchange-rates" class="btn btn-outline-danger btn-sm rounded-2">Reset Filter</a>
+                </div>
+                {{ end }}
+                <div class="col text-end text-muted" style="font-size: 12.5px;">
+                    Menampilkan <strong>{{ len .Rates }}</strong> rekod terkini
+                </div>
+            </form>
+        </div>
+
+        <!-- Data Table -->
+        <div class="main-card">
+            <div class="table-responsive">
+                <table class="table table-custom mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">ID</th>
+                            <th>Mata Uang</th>
+                            <th>Kurs (IDR)</th>
+                            <th>Satuan (Unit)</th>
+                            <th>Nilai Per Satuan</th>
+                            <th>Perubahan</th>
+                            <th>Nomor KMK</th>
+                            <th>Periode Berlaku</th>
+                            <th>Sumber</th>
+                            <th>Dicatat Pada</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Rates }}
+                        <tr>
+                            <td class="text-muted fw-bold">{{ .ID }}</td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="curr-badge">{{ .CurrencyCode }}</span>
+                                    <span class="fw-semibold">{{ .CurrencyName }}</span>
+                                </div>
+                            </td>
+                            <td class="fw-bold text-dark font-monospace" style="font-size: 14px;">
+                                Rp {{ printf "%.2f" .Rate }}
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-secondary border px-2 py-1">{{ .Unit }}</span>
+                            </td>
+                            <td class="font-monospace text-primary fw-semibold">
+                                Rp {{ printf "%.4f" .RatePerUnitVal }}
+                            </td>
+                            <td>
+                                {{ if .HasChange }}
+                                    {{ if gt .ChangeVal 0.0 }}
+                                    <span class="change-up"><i class="bi bi-arrow-up-right"></i> +{{ printf "%.2f" .ChangeVal }}</span>
+                                    {{ else if lt .ChangeVal 0.0 }}
+                                    <span class="change-down"><i class="bi bi-arrow-down-right"></i> {{ printf "%.2f" .ChangeVal }}</span>
+                                    {{ else }}
+                                    <span class="change-neutral">0.00</span>
+                                    {{ end }}
+                                {{ else }}
+                                <span class="change-neutral">-</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                {{ if .KMKNumber }}
+                                    {{ if .DocumentURL }}
+                                    <a href="{{ .DocumentURL }}" target="_blank" class="kmk-badge text-decoration-none">
+                                        <i class="bi bi-link-45deg"></i> {{ .KMKNumber }}
+                                    </a>
+                                    {{ else }}
+                                    <span class="kmk-badge">{{ .KMKNumber }}</span>
+                                    {{ end }}
+                                {{ else }}
+                                <span class="text-muted">-</span>
+                                {{ end }}
+                            </td>
+                            <td style="font-size: 12.5px;">
+                                {{ if .ValidFrom }}
+                                <div class="text-nowrap"><i class="bi bi-calendar-event me-1 text-muted"></i>{{ .ValidFrom.Format "2006-01-02" }} s/d {{ if .ValidTo }}{{ .ValidTo.Format "2006-01-02" }}{{ else }}~{{ end }}</div>
+                                {{ else }}
+                                <span class="text-muted">-</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ .Source }}</span>
+                            </td>
+                            <td class="text-muted" style="font-size: 12px;">
+                                {{ .CreatedAt.Format "2006-01-02 15:04" }}
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="10" class="text-center py-5 text-muted">
+                                <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
+                                Belum ada data Exchange Rate tercatat. Klik tombol <strong>Upload / Test Kurs JSON</strong> untuk mengisi data awal.
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload & Test Kurs Modal -->
+    <div class="modal fade" id="uploadKursModal" tabindex="-1" aria-labelledby="uploadKursModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom px-4 pt-4 pb-3">
+                    <h5 class="modal-title fw-bold" id="uploadKursModalLabel">
+                        <i class="bi bi-cloud-arrow-up-fill text-primary me-2"></i> Upload / Test Exchange Rate JSON
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <p class="text-muted" style="font-size: 13px;">
+                        Tempelkan struktur payload webhook <code>kurs.updated</code> yang dikirim oleh Maximo / Kemenkeu untuk disimulasikan dan disimpan ke database PostgreSQL.
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0" style="font-size: 13px;">Payload JSON (kurs.updated):</label>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 11px;" onclick="loadSampleKurs()">
+                            <i class="bi bi-magic me-1"></i> Muat Template Default
+                        </button>
+                    </div>
+                    <textarea id="kursPayloadTextarea" class="form-control font-monospace" rows="14" style="font-size: 12.5px; background-color: #0F172A; color: #38BDF8; border-radius: 8px;"></textarea>
+                    
+                    <div id="uploadFeedbackAlert" class="alert d-none mt-3 mb-0 py-2 px-3" style="font-size: 13px;"></div>
+                </div>
+                <div class="modal-footer border-top px-4 py-3">
+                    <button type="button" class="btn btn-light rounded-3" data-bs-dismiss="modal">Tutup</button>
+                    <button type="button" class="btn btn-primary rounded-3 px-4" id="btnSubmitKurs" onclick="submitKursJSON()">
+                        <i class="bi bi-send-fill me-1"></i> Simpan ke Database
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const sampleKursJSON = {
+            "event": "kurs.updated",
+            "sent_at": "2026-10-22T13:54:00+07:00",
+            "source": "kemenkeu-kurs-pajak",
+            "period": {
+                "kmk_number": "CONTOH-KMK",
+                "valid_from": "2026-10-22",
+                "valid_to": "2026-10-28",
+                "document_url": "https://contoh-url-dokumen"
+            },
+            "rates": [
+                {
+                    "currency_code": "USD",
+                    "currency_name": "Dolar Amerika Serikat",
+                    "rate": 16500,
+                    "unit": 1,
+                    "rate_per_unit": "16500.000000",
+                    "change": 25
+                },
+                {
+                    "currency_code": "JPY",
+                    "currency_name": "Yen Jepang",
+                    "rate": 11000,
+                    "unit": 100,
+                    "rate_per_unit": "110.000000",
+                    "change": null
+                },
+                {
+                    "currency_code": "EUR",
+                    "currency_name": "Euro Eropa",
+                    "rate": 17850,
+                    "unit": 1,
+                    "rate_per_unit": "17850.000000",
+                    "change": -40
+                },
+                {
+                    "currency_code": "SGD",
+                    "currency_name": "Dolar Singapura",
+                    "rate": 12450,
+                    "unit": 1,
+                    "rate_per_unit": "12450.000000",
+                    "change": 10
+                }
+            ]
+        };
+
+        function loadSampleKurs() {
+            document.getElementById('kursPayloadTextarea').value = JSON.stringify(sampleKursJSON, null, 2);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSampleKurs();
+        });
+
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMsg = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMsg.innerHTML = '<i class="bi ' + (isSuccess ? 'bi-check-circle-fill' : 'bi-exclamation-octagon-fill') + '"></i> ' + message;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        async function submitKursJSON() {
+            const textarea = document.getElementById('kursPayloadTextarea');
+            const alertBox = document.getElementById('uploadFeedbackAlert');
+            const btn = document.getElementById('btnSubmitKurs');
+
+            let raw = textarea.value.trim();
+            if (!raw) {
+                alertBox.className = 'alert alert-danger mt-3 py-2 px-3';
+                alertBox.innerText = 'Payload JSON tidak boleh kosong';
+                alertBox.classList.remove('d-none');
+                return;
+            }
+
+            try {
+                JSON.parse(raw);
+            } catch (e) {
+                alertBox.className = 'alert alert-danger mt-3 py-2 px-3';
+                alertBox.innerText = 'Format JSON tidak valid: ' + e.message;
+                alertBox.classList.remove('d-none');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Menyimpan...';
+            alertBox.classList.add('d-none');
+
+            try {
+                const resp = await fetch('/api/exchange-rates/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: raw
+                });
+
+                const data = await resp.json();
+                if (resp.ok && data.status === 'success') {
+                    showToast(data.message, true);
+                    alertBox.className = 'alert alert-success mt-3 py-2 px-3';
+                    alertBox.innerText = data.message;
+                    alertBox.classList.remove('d-none');
+
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1200);
+                } else {
+                    const err = data.message || 'Gagal menyimpan data';
+                    alertBox.className = 'alert alert-danger mt-3 py-2 px-3';
+                    alertBox.innerText = err;
+                    alertBox.classList.remove('d-none');
+                    showToast(err, false);
+                }
+            } catch (err) {
+                alertBox.className = 'alert alert-danger mt-3 py-2 px-3';
+                alertBox.innerText = 'Network error: ' + err.message;
+                alertBox.classList.remove('d-none');
+                showToast('Network error: ' + err.message, false);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Simpan ke Database';
+            }
+        }
+
+        function copyApiUrl() {
+            const url = document.getElementById('exchangeRateApiUrl').innerText.trim();
+            navigator.clipboard.writeText(url).then(() => {
+                showToast('URL Endpoint berhasil disalin ke clipboard: ' + url, true);
+            }).catch(() => {
+                showToast('Gagal menyalin URL otomatis', false);
+            });
+        }
+
+        function copySampleJSON() {
+            const jsonText = document.getElementById('samplePayloadBlock').innerText.trim();
+            navigator.clipboard.writeText(jsonText).then(() => {
+                showToast('Contoh Payload JSON berhasil disalin!', true);
+            }).catch(() => {
+                showToast('Gagal menyalin JSON', false);
+            });
+        }
+
+        function copyCurlCommand() {
+            const curlText = document.getElementById('sampleCurlBlock').innerText.trim();
+            navigator.clipboard.writeText(curlText).then(() => {
+                showToast('Contoh cURL command berhasil disalin!', true);
+            }).catch(() => {
+                showToast('Gagal menyalin cURL', false);
+            });
+        }
+
+        function toggleApiDetails() {
+            const section = document.getElementById('apiDetailsSection');
+            const label = document.getElementById('toggleApiText');
+            if (section.style.display === 'none' || section.style.display === '') {
+                section.style.display = 'block';
+                label.innerText = 'Sembunyikan Contoh Payload & cURL';
+            } else {
+                section.style.display = 'none';
+                label.innerText = 'Lihat Contoh Payload & cURL';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -45,7 +45,7 @@ func NewSAPClient(baseURL, user, pass string) *SAPClient {
 func (s *SAPClient) TestConnection(ep *model.SAPEndpoint) (string, int64, error) {
 	start := time.Now()
 
-	if ep.BaseURL == "" || ep.BaseURL == "MOCK" || s.BaseURL == "MOCK" {
+	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
 		latency := time.Since(start).Milliseconds() + 35
 		return "mock-csrf-token-handshake-ok", latency, nil
 	}
@@ -98,7 +98,7 @@ func (s *SAPClient) TestConnection(ep *model.SAPEndpoint) (string, int64, error)
 
 // ExecuteOData mengeksekusi request OData (v2 atau v4) dengan otomatis Fetch CSRF Token & Basic Auth per endpoint
 func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJSON []byte) (int, string, string, error) {
-	if ep.BaseURL == "" || ep.BaseURL == "MOCK" || s.BaseURL == "MOCK" {
+	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
 		docNo := fmt.Sprintf("SAP-%s-%d", ep.ServiceCode, time.Now().Unix())
 		mockResp := map[string]interface{}{
 			"Service":          ep.ServiceName,
@@ -134,27 +134,30 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 		password = s.Password
 	}
 
-	// 1. Fetch CSRF Token & Session Cookies
-	reqGet, err := http.NewRequest("GET", csrfURL, nil)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("failed create csrf request: %w", err)
-	}
-	reqGet.SetBasicAuth(username, password)
-	reqGet.Header.Set("x-csrf-token", "fetch")
-	reqGet.Header.Set("Accept", "application/json")
+	var csrfToken string
+	if method != "GET" {
+		// 1. Fetch CSRF Token & Session Cookies
+		reqGet, err := http.NewRequest("GET", csrfURL, nil)
+		if err != nil {
+			return 0, "", "", fmt.Errorf("failed create csrf request: %w", err)
+		}
+		reqGet.SetBasicAuth(username, password)
+		reqGet.Header.Set("x-csrf-token", "fetch")
+		reqGet.Header.Set("Accept", "application/json")
 
-	respGet, err := s.HTTP.Do(reqGet)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("network error fetching csrf token: %w", err)
-	}
-	defer respGet.Body.Close()
+		respGet, err := s.HTTP.Do(reqGet)
+		if err != nil {
+			return 0, "", "", fmt.Errorf("network error fetching csrf token: %w", err)
+		}
+		defer respGet.Body.Close()
 
-	csrfToken := respGet.Header.Get("x-csrf-token")
-	if csrfToken == "" {
-		csrfToken = "test-token"
+		csrfToken = respGet.Header.Get("x-csrf-token")
+		if csrfToken == "" {
+			csrfToken = "test-token"
+		}
 	}
 
-	// 2. Kirim Request Utama (POST / GET)
+	// 2. Kirim Request Utama (POST / GET / PATCH)
 	var reqBody io.Reader
 	if len(payloadJSON) > 0 {
 		reqBody = strings.NewReader(string(payloadJSON))
@@ -185,6 +188,9 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 
 	// 3. Ekstrak Document Number berdasarkan OData Version
 	sapDocNo := fmt.Sprintf("SAP-%s-%d", ep.ServiceCode, time.Now().Unix())
+	if respMain.StatusCode == http.StatusNoContent {
+		sapDocNo = fmt.Sprintf("SAP-%s-UPDATED", ep.ServiceCode)
+	}
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &respMap); err == nil {
 		if ep.ODataVersion == "v2" {
@@ -210,7 +216,7 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 		}
 	}
 
-	if respMain.StatusCode != http.StatusCreated && respMain.StatusCode != http.StatusOK {
+	if respMain.StatusCode != http.StatusCreated && respMain.StatusCode != http.StatusOK && respMain.StatusCode != http.StatusNoContent && respMain.StatusCode != http.StatusAccepted {
 		return respMain.StatusCode, sapDocNo, respStr, fmt.Errorf("SAP Error status %d: %s", respMain.StatusCode, respStr)
 	}
 

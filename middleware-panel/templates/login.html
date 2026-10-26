@@ -263,6 +263,9 @@
                 if (data.status === 'success') {
                     showToast(data.message, "success");
                     
+                    localStorage.setItem('user_role', data.role || 'admin');
+                    localStorage.setItem('allowed_menus', data.allowed_menus || '*');
+
                     btn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i> Success';
                     btn.classList.replace('btn-primary', 'btn-success');
                     

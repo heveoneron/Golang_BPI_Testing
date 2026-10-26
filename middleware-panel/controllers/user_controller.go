@@ -69,12 +69,13 @@ func (c *UserController) CreateUser(ctx *gin.Context) {
 	}
 
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		FullName string `json:"full_name"`
-		Email    string `json:"email"`
-		Role     string `json:"role"`
-		IsActive bool   `json:"is_active"`
+		Username     string `json:"username"`
+		Password     string `json:"password"`
+		FullName     string `json:"full_name"`
+		Email        string `json:"email"`
+		Role         string `json:"role"`
+		AllowedMenus string `json:"allowed_menus"`
+		IsActive     bool   `json:"is_active"`
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -83,16 +84,18 @@ func (c *UserController) CreateUser(ctx *gin.Context) {
 		req.FullName = ctx.PostForm("full_name")
 		req.Email = ctx.PostForm("email")
 		req.Role = ctx.PostForm("role")
+		req.AllowedMenus = ctx.PostForm("allowed_menus")
 		req.IsActive = (ctx.PostForm("is_active") == "true" || ctx.PostForm("is_active") == "on" || ctx.PostForm("is_active") == "1")
 	}
 
 	user := models.User{
-		Username: req.Username,
-		Password: req.Password,
-		FullName: req.FullName,
-		Email:    req.Email,
-		Role:     req.Role,
-		IsActive: req.IsActive,
+		Username:     req.Username,
+		Password:     req.Password,
+		FullName:     req.FullName,
+		Email:        req.Email,
+		Role:         req.Role,
+		AllowedMenus: req.AllowedMenus,
+		IsActive:     req.IsActive,
 	}
 
 	if err := c.svc.CreateUser(&user); err != nil {
@@ -114,12 +117,13 @@ func (c *UserController) UpdateUser(ctx *gin.Context) {
 	}
 
 	var req struct {
-		ID       uint   `json:"id"`
-		FullName string `json:"full_name"`
-		Email    string `json:"email"`
-		Role     string `json:"role"`
-		Password string `json:"password"`
-		IsActive bool   `json:"is_active"`
+		ID           uint   `json:"id"`
+		FullName     string `json:"full_name"`
+		Email        string `json:"email"`
+		Role         string `json:"role"`
+		AllowedMenus string `json:"allowed_menus"`
+		Password     string `json:"password"`
+		IsActive     bool   `json:"is_active"`
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -128,6 +132,7 @@ func (c *UserController) UpdateUser(ctx *gin.Context) {
 		req.FullName = ctx.PostForm("full_name")
 		req.Email = ctx.PostForm("email")
 		req.Role = ctx.PostForm("role")
+		req.AllowedMenus = ctx.PostForm("allowed_menus")
 		req.Password = ctx.PostForm("password")
 		req.IsActive = (ctx.PostForm("is_active") == "true" || ctx.PostForm("is_active") == "on" || ctx.PostForm("is_active") == "1")
 	}
@@ -138,11 +143,12 @@ func (c *UserController) UpdateUser(ctx *gin.Context) {
 	}
 
 	user := models.User{
-		FullName: req.FullName,
-		Email:    req.Email,
-		Role:     req.Role,
-		Password: req.Password,
-		IsActive: req.IsActive,
+		FullName:     req.FullName,
+		Email:        req.Email,
+		Role:         req.Role,
+		AllowedMenus: req.AllowedMenus,
+		Password:     req.Password,
+		IsActive:     req.IsActive,
 	}
 	user.ID = req.ID
 

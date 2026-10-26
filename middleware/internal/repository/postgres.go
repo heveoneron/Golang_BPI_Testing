@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"golang-bpi-testing/internal/model"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -306,17 +307,77 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Product / Material Master Integration (OData v2)', 
 			'SAP_COM_0009', 
 			'v2', 
+			'https://my445160-api.s4hana.cloud.sap', 
+			'/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product', 
+			'CU_SAP_COM_0009', 
+			'PowerofOne@123456789'
+		),
+		(
+			'PO_CHANGE_HEADER',
+			'Purchase Order Change Header (PATCH OData v4)',
+			'SAP_COM_0053',
+			'v4',
 			'https://my445160-api.s4hana.cloud.sap',
-			'/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product',
-			'CU_SAP_COM_0009',
+			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder',
+			'CU_SAP_COM_0053',
+			'PowerofOne@123456789'
+		),
+		(
+			'PO_CHANGE_ITEM',
+			'Purchase Order Change Item (PATCH OData v4)',
+			'SAP_COM_0053',
+			'v4',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrderItem',
+			'CU_SAP_COM_0053',
+			'PowerofOne@123456789'
+		),
+		(
+			'GR_WITH_PO',
+			'Goods Receipt / Material Document with PO (OData v2)',
+			'SAP_COM_0108',
+			'v2',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
+			'Y_BPI_CU_SAP_COM_0108',
+			'PowerofOne@123456789'
+		),
+		(
+			'GR_NON_PO',
+			'Goods Receipt Non PO (OData v2)',
+			'SAP_COM_0108',
+			'v2',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
+			'Y_BPI_CU_SAP_COM_0108',
+			'PowerofOne@123456789'
+		),
+		(
+			'MATERIAL_DOC_DETAIL',
+			'Material Document Header & Item Query (OData v2)',
+			'SAP_COM_0108',
+			'v2',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
+			'Y_BPI_CU_SAP_COM_0108',
+			'PowerofOne@123456789'
+		),
+		(
+			'GL_ACCOUNT_LINE_ITEMS',
+			'G/L Account Line Items Query (OData v2)',
+			'SAP_COM_0303',
+			'v2',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_GLACCOUNTLINEITEM/GLAccountLineItem',
+			'Y_BPI_CU_SAP_COM_0303',
 			'PowerofOne@123456789'
 		)
 		ON CONFLICT (service_code) DO UPDATE 
 		SET username = EXCLUDED.username, 
 		    password = EXCLUDED.password, 
-		    base_url = EXCLUDED.base_url,
+		    base_url = EXCLUDED.base_url, 
 		    endpoint_path = EXCLUDED.endpoint_path, 
-		    odata_version = EXCLUDED.odata_version,
+		    odata_version = EXCLUDED.odata_version, 
 		    updated_at = NOW();
 	`
 	_, err := r.Pool.Exec(ctx, createTableSQL)
@@ -331,7 +392,8 @@ func (r *PostgresRepository) GetSAPEndpoints(ctx context.Context) ([]model.SAPEn
 
 	rows, err := r.Pool.Query(ctx, `
 		SELECT id, service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, COALESCE(csrf_path, ''),
-		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at, created_at, updated_at
+		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at,
+		       COALESCE(created_at, NOW()), COALESCE(updated_at, NOW())
 		FROM sap_endpoints
 		ORDER BY id ASC
 	`)
@@ -363,7 +425,8 @@ func (r *PostgresRepository) GetSAPEndpointByCode(ctx context.Context, code stri
 	var ep model.SAPEndpoint
 	err := r.Pool.QueryRow(ctx, `
 		SELECT id, service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, COALESCE(csrf_path, ''),
-		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at, created_at, updated_at
+		       username, password, is_active, COALESCE(last_status, 'UNTESTED'), COALESCE(last_response, ''), last_tested_at,
+		       COALESCE(created_at, NOW()), COALESCE(updated_at, NOW())
 		FROM sap_endpoints
 		WHERE UPPER(service_code) = UPPER($1)
 	`, code).Scan(
@@ -515,6 +578,217 @@ func (r *PostgresRepository) SetAutoPullActive(ctx context.Context, active bool)
 		`, active)
 	}
 	return err
+}
+
+// 9. Dynamic Table to SAP API Mappings
+func (r *PostgresRepository) EnsureTableAPIMappingsTable(ctx context.Context) error {
+	if r.Pool == nil {
+		return nil
+	}
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS table_api_mappings (
+			id SERIAL PRIMARY KEY,
+			source_table VARCHAR(100) NOT NULL UNIQUE,
+			source_desc VARCHAR(255),
+			target_service_code VARCHAR(50) NOT NULL,
+			direction VARCHAR(30) DEFAULT 'OUTBOUND',
+			sync_mode VARCHAR(30) DEFAULT 'BATCH_SCHEDULE',
+			is_active BOOLEAN DEFAULT TRUE,
+			notes TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+
+		INSERT INTO table_api_mappings (source_table, source_desc, target_service_code, direction, sync_mode, is_active, notes)
+		VALUES
+			('ITEM', 'Master Item, Material & Spare Parts', 'PRODUCT', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Sinkronisasi master data item/material ke SAP Grow API_PRODUCT_SRV'),
+			('PO', 'Purchase Order Header & Lines', 'PO', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Dokumen pemesanan barang ke SAP Grow api_purchaseorder_2'),
+			('COMPANIES', 'Vendor, Supplier & Business Partner', 'BP', 'OUTBOUND', 'REALTIME', true, 'Sinkronisasi mitra bisnis & supplier ke SAP Grow API_BUSINESS_PARTNER'),
+			('MATRECTRANS', 'Goods Receipt (GRN) & Material Movements', 'PO', 'OUTBOUND', 'MANUAL', true, 'Penerimaan barang fisik dari gudang Maximo terhadap PO SAP Grow'),
+			('PR', 'Purchase Requisition (Permintaan Pembelian)', 'PO', 'OUTBOUND', 'MANUAL', true, 'Pengajuan PR sebelum dikonversi menjadi PO di SAP'),
+			('AXUOM', 'Unit of Measure (UOM) Standar', 'PRODUCT', 'OUTBOUND', 'MANUAL', true, 'Katalog satuan ukuran Maximo ke SAP Product Master UOM')
+		ON CONFLICT (source_table) DO NOTHING;
+	`
+	_, err := r.Pool.Exec(ctx, createTableSQL)
+	return err
+}
+
+func (r *PostgresRepository) GetTableAPIMapping(ctx context.Context, sourceTableOrDocType string) (*model.TableAPIMapping, error) {
+	if r.Pool == nil || strings.TrimSpace(sourceTableOrDocType) == "" {
+		return nil, nil
+	}
+	_ = r.EnsureTableAPIMappingsTable(ctx)
+
+	cleanCode := strings.ToUpper(strings.TrimSpace(sourceTableOrDocType))
+	strippedCode := cleanCode
+	if strings.HasPrefix(cleanCode, "AX") && len(cleanCode) > 2 {
+		strippedCode = cleanCode[2:]
+	}
+	if strings.HasPrefix(strippedCode, "MX") && len(strippedCode) > 2 {
+		strippedCode = strippedCode[2:]
+	}
+
+	var m model.TableAPIMapping
+	err := r.Pool.QueryRow(ctx, `
+		SELECT id, source_table, COALESCE(source_desc, ''), target_service_code,
+		       COALESCE(direction, 'OUTBOUND'), COALESCE(sync_mode, 'BATCH_SCHEDULE'),
+		       is_active, COALESCE(notes, ''), created_at, updated_at
+		FROM table_api_mappings
+		WHERE UPPER(source_table) = $1 
+		   OR UPPER(source_table) = $2 
+		   OR (UPPER(source_table) = 'PO' AND $1 IN ('PO', 'AXMXPO', 'MXPO'))
+		   OR (UPPER(source_table) = 'ITEM' AND $1 IN ('ITEM', 'AXITEM'))
+		   OR (UPPER(source_table) = 'COMPANIES' AND $1 IN ('COMPANIES', 'VENDOR', 'AXVENDOR', 'BP'))
+		   OR (UPPER(source_table) = 'MATRECTRANS' AND $1 IN ('MATRECTRANS', 'RECEIPT', 'AXRECEIPT', 'GRN'))
+		   OR (UPPER(source_table) = 'PR' AND $1 IN ('PR', 'AXPR'))
+		   OR (UPPER(source_table) = 'AXUOM' AND $1 IN ('AXUOM', 'UOM'))
+		LIMIT 1
+	`, cleanCode, strippedCode).Scan(
+		&m.ID, &m.SourceTable, &m.SourceDesc, &m.TargetServiceCode,
+		&m.Direction, &m.SyncMode, &m.IsActive, &m.Notes, &m.CreatedAt, &m.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// 10. Exchange Rate Operations
+func (r *PostgresRepository) SaveExchangeRates(ctx context.Context, payload *model.MaximoExchangeRatePayload, rawJSON []byte) (int, error) {
+	if r.Pool == nil {
+		return 0, fmt.Errorf("postgres pool not available")
+	}
+
+	saved := 0
+	for _, rate := range payload.Rates {
+		ratePerUnitFloat, _ := strconv.ParseFloat(rate.RatePerUnit, 64)
+		if ratePerUnitFloat == 0 && rate.Unit > 0 {
+			ratePerUnitFloat = rate.Rate / float64(rate.Unit)
+		}
+
+		var validFrom interface{} = nil
+		if payload.Period.ValidFrom != "" {
+			validFrom = payload.Period.ValidFrom
+		}
+		var validTo interface{} = nil
+		if payload.Period.ValidTo != "" {
+			validTo = payload.Period.ValidTo
+		}
+
+		_, err := r.Pool.Exec(ctx, `
+			INSERT INTO exchange_rates (
+				event, source, kmk_number, valid_from, valid_to, document_url,
+				currency_code, currency_name, rate, unit, rate_per_unit, change, raw_payload, created_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()
+			)
+		`,
+			payload.Event,
+			payload.Source,
+			payload.Period.KMKNumber,
+			validFrom,
+			validTo,
+			payload.Period.DocumentURL,
+			rate.CurrencyCode,
+			rate.CurrencyName,
+			rate.Rate,
+			rate.Unit,
+			ratePerUnitFloat,
+			rate.Change,
+			rawJSON,
+		)
+		if err != nil {
+			return saved, fmt.Errorf("failed inserting exchange rate %s: %w", rate.CurrencyCode, err)
+		}
+		saved++
+	}
+
+	// Insert audit trail log ke integration_logs
+	meta := fmt.Sprintf(`{"kmk_number":"%s","rates_count":%d,"source":"%s"}`, payload.Period.KMKNumber, len(payload.Rates), payload.Source)
+	_ = r.InsertIntegrationLog(ctx, uuid.New().String(), "MAXIMO", "POSTGRESQL", "EXCHANGE_RATE", payload.Period.KMKNumber, "SUCCESS", "", meta)
+
+	return saved, nil
+}
+
+func (r *PostgresRepository) GetExchangeRates(ctx context.Context, limit int) ([]model.ExchangeRateRecord, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, COALESCE(event, ''), COALESCE(source, ''), COALESCE(kmk_number, ''),
+		       COALESCE(TO_CHAR(valid_from, 'YYYY-MM-DD'), ''),
+		       COALESCE(TO_CHAR(valid_to, 'YYYY-MM-DD'), ''),
+		       COALESCE(document_url, ''), currency_code, COALESCE(currency_name, ''),
+		       rate, COALESCE(unit, 1), COALESCE(rate_per_unit, 0), change, created_at
+		FROM exchange_rates
+		ORDER BY id DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []model.ExchangeRateRecord
+	for rows.Next() {
+		var rec model.ExchangeRateRecord
+		if err := rows.Scan(
+			&rec.ID, &rec.Event, &rec.Source, &rec.KMKNumber,
+			&rec.ValidFrom, &rec.ValidTo, &rec.DocumentURL,
+			&rec.CurrencyCode, &rec.CurrencyName, &rec.Rate,
+			&rec.Unit, &rec.RatePerUnit, &rec.Change, &rec.CreatedAt,
+		); err == nil {
+			records = append(records, rec)
+		}
+	}
+	return records, nil
+}
+
+// 11. UOM Mapping Operations
+func (r *PostgresRepository) GetUOMMappings(ctx context.Context) ([]model.UOMMapping, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, maximo_uom, sap_uom, COALESCE(description, ''), is_active, created_at, updated_at
+		FROM uom_mappings
+		ORDER BY maximo_uom ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.UOMMapping
+	for rows.Next() {
+		var u model.UOMMapping
+		if err := rows.Scan(&u.ID, &u.MaximoUOM, &u.SAPUOM, &u.Description, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err == nil {
+			list = append(list, u)
+		}
+	}
+	return list, nil
+}
+
+func (r *PostgresRepository) GetSAPUOM(ctx context.Context, maximoUOM string) (string, error) {
+	if r.Pool == nil {
+		return maximoUOM, nil
+	}
+
+	var sapUOM string
+	err := r.Pool.QueryRow(ctx, `
+		SELECT sap_uom FROM uom_mappings
+		WHERE UPPER(maximo_uom) = UPPER($1) AND is_active = true
+		LIMIT 1
+	`, maximoUOM).Scan(&sapUOM)
+	if err != nil {
+		return maximoUOM, nil // Fallback to original Maximo UOM if no mapping found
+	}
+	return sapUOM, nil
 }
 
 

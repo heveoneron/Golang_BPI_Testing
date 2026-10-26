@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"golang-bpi-testing/internal/client"
@@ -203,43 +204,48 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 
 	pushedCount := 0
 	for _, doc := range docs {
-		// 1. Ambil konfigurasi endpoint & kredensial spesifik berdasarkan DocType
-		ep, err := s.PGRepo.GetSAPEndpointByCode(ctx, doc.DocType)
-		if err != nil || ep == nil {
-			// Fallback ke default endpoint jika belum ada di database
-			defaultPath := "/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
-			defaultODataVer := "v4"
-			if doc.DocType == "BP" {
-				defaultPath = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner"
-				defaultODataVer = "v2"
-			} else if doc.DocType == "GRN" {
-				defaultPath = "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
-				defaultODataVer = "v2"
+		// 1. Ambil pemetaan target service SAP secara dinamis dari tabel `table_api_mappings`
+		targetService := doc.DocType
+		mapping, mapErr := s.PGRepo.GetTableAPIMapping(ctx, doc.DocType)
+		if mapErr == nil && mapping != nil {
+			// Cek apakah relasi tabel sumber -> API SAP ini berstatus aktif di Web Panel
+			if !mapping.IsActive {
+				log.Printf("[SKIP] Dokumen %s (%s) dilewati: Status pemetaan tabel '%s' ke SAP sedang NONAKTIF di Table-to-API Mapping Matrix", doc.DocumentNo, doc.DocType, mapping.SourceTable)
+				continue
 			}
+			if mapping.TargetServiceCode != "" {
+				targetService = mapping.TargetServiceCode
+			}
+		}
 
-			ep = &model.SAPEndpoint{
-				ServiceCode:  doc.DocType,
-				ServiceName:  fmt.Sprintf("Default %s Service", doc.DocType),
-				ODataVersion: defaultODataVer,
-				BaseURL:      s.SAPClient.BaseURL,
-				EndpointPath: defaultPath,
-				Username:     s.SAPClient.Username,
-				Password:     s.SAPClient.Password,
-				IsActive:     true,
-			}
+		// 2. Ambil konfigurasi endpoint & kredensial spesifik berdasarkan targetService dari `sap_endpoints`
+		ep, err := s.PGRepo.GetSAPEndpointByCode(ctx, targetService)
+		if err != nil || ep == nil {
+			log.Printf("[WARN] Tidak ditemukan endpoint SAP untuk target service '%s' (dokumen %s, tipe %s). Pastikan layanan terdaftar di SAP Integration Endpoints.", targetService, doc.DocumentNo, doc.DocType)
+			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", fmt.Sprintf("SAP Endpoint untuk service '%s' tidak ditemukan di registry database", targetService), nil)
+			continue
+		}
+
+		if !ep.IsActive {
+			log.Printf("[SKIP] Dokumen %s (%s) dilewati: Layanan SAP '%s' berstatus NONAKTIF di registry", doc.DocumentNo, doc.DocType, ep.ServiceCode)
+			continue
 		}
 
 		// 2. Eksekusi request ke SAP Grow OData dengan auth & token handshake terisolasi
 		_, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(ep, "POST", doc.SAPPayload)
+		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
+
 		if sapErr != nil {
-			log.Printf("[WARN] Push to SAP Failed for %s (%s): %v", doc.DocumentNo, doc.DocType, sapErr)
+			log.Printf("[WARN] Push to SAP Failed for %s (%s) [Target API: %s]: %v", doc.DocumentNo, doc.DocType, targetURL, sapErr)
 			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", sapErr.Error(), json.RawMessage(respBody))
-			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", sapErr.Error(), fmt.Sprintf("Failed sending to SAP Grow: %s", sapErr.Error()))
+			errMsg := fmt.Sprintf("Failed sending to SAP Grow via %s [Target API: %s]: %s", ep.ServiceCode, targetURL, sapErr.Error())
+			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", sapErr.Error(), errMsg)
 		} else {
 			_ = s.PGRepo.UpdateSAPSuccess(ctx, doc.ID, sapDocNo, json.RawMessage(respBody))
-			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "SUCCESS", "", fmt.Sprintf("Successfully posted to SAP Grow (SAP Doc: %s)", sapDocNo))
+			successMsg := fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s] (SAP Doc: %s)", ep.ServiceCode, targetURL, sapDocNo)
+			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "SUCCESS", "", successMsg)
 			pushedCount++
-			log.Printf("[INFO] Push to SAP Success: %s -> %s (Scenario: %s)", doc.DocumentNo, sapDocNo, ep.ScenarioID)
+			log.Printf("[INFO] Push to SAP Success: %s -> %s [Target API: %s]", doc.DocumentNo, sapDocNo, targetURL)
 		}
 	}
 	return pushedCount

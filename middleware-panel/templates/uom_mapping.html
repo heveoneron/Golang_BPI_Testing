@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UOM Mapping Master - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 14px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .maximo-uom-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .sap-uom-badge { background-color: #F0FDF4; color: #15803D; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #BBF7D0; display: inline-flex; align-items: center; gap: 6px; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-rulers text-primary"></i> Master Data UOM Mapping (Maximo ke SAP)</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Konfigurasi pemetaan otomatis Unit of Measure (Satuan Ukuran) antara Maximo dan SAP Grow S/4HANA</span>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                </button>
+                <button class="btn btn-primary btn-sm rounded-3 d-flex align-items-center gap-2" onclick="openAddUOMModal()">
+                    <i class="bi bi-plus-circle-fill"></i> Tambah Pemetaan UOM
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Total Aturan Pemetaan</div>
+                    <div class="stat-val text-primary">{{ .Total }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-layers me-1"></i> Entri Unit of Measure</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Aturan Aktif</div>
+                    <div class="stat-val text-success">{{ .ActiveCount }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-check2-circle text-success me-1"></i> Siap ditransformasikan</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Standar Konversi ISO</div>
+                    <div class="stat-val text-dark" style="font-size: 18px; margin-top: 10px;">PC&rarr;PCE, MT&rarr;MAT, KG&rarr;KGM</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-shield-check text-info me-1"></i> Sesuai standar SAP OData</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info Callout -->
+        <div class="alert alert-info border-0 shadow-sm d-flex align-items-center gap-3 py-2 px-3 mb-4 rounded-3" style="font-size: 13px;">
+            <i class="bi bi-info-circle-fill fs-5 text-primary"></i>
+            <div>
+                <strong>Otomatisasi Pipeline:</strong> Saat dokumen Purchase Order atau Goods Receipt ditarik dari Maximo, middleware secara cerdas mengonversi satuan (seperti <code>PC</code> &rarr; <code>PCE</code>, <code>EA</code> &rarr; <code>PCE</code>, <code>MT</code> &rarr; <code>MAT</code>, <code>KG</code> &rarr; <code>KGM</code>) sebelum dikirimkan ke endpoint SAP Grow.
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="main-card">
+            <div class="table-responsive">
+                <table class="table table-custom mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">ID</th>
+                            <th>UOM Maximo</th>
+                            <th style="width: 80px;" class="text-center">Alur</th>
+                            <th>UOM Target SAP Grow</th>
+                            <th>Deskripsi / Nama Satuan</th>
+                            <th>Status</th>
+                            <th>Terakhir Diperbarui</th>
+                            <th style="width: 140px;" class="text-center">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Mappings }}
+                        <tr>
+                            <td class="text-muted fw-bold">{{ .ID }}</td>
+                            <td>
+                                <span class="maximo-uom-badge">
+                                    <i class="bi bi-box-seam me-1"></i> {{ .MaximoUOM }}
+                                </span>
+                            </td>
+                            <td class="text-center text-muted">
+                                <i class="bi bi-arrow-right-short fs-4"></i>
+                            </td>
+                            <td>
+                                <span class="sap-uom-badge">
+                                    <i class="bi bi-check-circle me-1"></i> {{ .SAPUOM }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="text-dark fw-semibold">{{ .Description }}</span>
+                            </td>
+                            <td>
+                                {{ if .IsActive }}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Aktif
+                                </span>
+                                {{ else }}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1">
+                                    <i class="bi bi-slash-circle me-1"></i> Nonaktif
+                                </span>
+                                {{ end }}
+                            </td>
+                            <td class="text-muted" style="font-size: 12px;">
+                                {{ .UpdatedAt.Format "2006-01-02 15:04" }}
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary" title="Edit" onclick="editUOM({{ .ID }}, '{{ .MaximoUOM }}', '{{ .SAPUOM }}', '{{ .Description }}', {{ .IsActive }})">
+                                        <i class="bi bi-pencil-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-warning" title="Toggle Status" onclick="toggleUOM({{ .ID }})">
+                                        <i class="bi bi-toggle-on"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" title="Hapus" onclick="deleteUOM({{ .ID }}, '{{ .MaximoUOM }}')">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="8" class="text-center py-5 text-muted">
+                                <i class="bi bi-rulers fs-1 d-block mb-2 text-secondary"></i>
+                                Belum ada aturan pemetaan UOM yang tersimpan. Klik <strong>Tambah Pemetaan UOM</strong> untuk menambahkan.
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Form Tambah / Edit UOM Mapping -->
+    <div class="modal fade" id="uomModal" tabindex="-1" aria-labelledby="uomModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom px-4 pt-4 pb-3">
+                    <h5 class="modal-title fw-bold" id="uomModalLabel">
+                        <i class="bi bi-rulers text-primary me-2"></i> Tambah Pemetaan UOM
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="uomForm" onsubmit="saveUOM(event)">
+                    <div class="modal-body px-4 py-3">
+                        <input type="hidden" id="uomId" name="id" value="">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" style="font-size: 13px;">UOM Maximo (Source) <span class="text-danger">*</span></label>
+                            <input type="text" id="maximoUOM" name="maximo_uom" class="form-control text-uppercase font-monospace" placeholder="e.g. PC, EA, MT, KG" required>
+                            <div class="form-text" style="font-size: 11.5px;">Satuan ukuran yang digunakan pada transaksi Maximo.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" style="font-size: 13px;">UOM Target SAP Grow (OData) <span class="text-danger">*</span></label>
+                            <input type="text" id="sapUOM" name="sap_uom" class="form-control text-uppercase font-monospace" placeholder="e.g. PCE, MAT, KGM" required>
+                            <div class="form-text" style="font-size: 11.5px;">Satuan ukuran ISO standard pada master data SAP Grow S/4HANA.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" style="font-size: 13px;">Deskripsi / Keterangan</label>
+                            <input type="text" id="uomDesc" name="description" class="form-control" placeholder="e.g. Piece / Satuan, Meter / Panjang">
+                        </div>
+
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="uomIsActive" name="is_active" checked>
+                            <label class="form-check-label fw-semibold" for="uomIsActive" style="font-size: 13px;">Aktifkan Pemetaan Ini</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top px-4 py-3">
+                        <button type="button" class="btn btn-light rounded-3" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-primary rounded-3 px-4" id="btnSaveUOM">
+                            <i class="bi bi-save-fill me-1"></i> Simpan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let modalInstance = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            modalInstance = new bootstrap.Modal(document.getElementById('uomModal'));
+        });
+
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMsg = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMsg.innerHTML = '<i class="bi ' + (isSuccess ? 'bi-check-circle-fill' : 'bi-exclamation-octagon-fill') + '"></i> ' + message;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        function openAddUOMModal() {
+            document.getElementById('uomModalLabel').innerHTML = '<i class="bi bi-rulers text-primary me-2"></i> Tambah Pemetaan UOM';
+            document.getElementById('uomId').value = '';
+            document.getElementById('maximoUOM').value = '';
+            document.getElementById('sapUOM').value = '';
+            document.getElementById('uomDesc').value = '';
+            document.getElementById('uomIsActive').checked = true;
+            modalInstance.show();
+        }
+
+        function editUOM(id, maximoUOM, sapUOM, desc, isActive) {
+            document.getElementById('uomModalLabel').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i> Edit Pemetaan UOM';
+            document.getElementById('uomId').value = id;
+            document.getElementById('maximoUOM').value = maximoUOM;
+            document.getElementById('sapUOM').value = sapUOM;
+            document.getElementById('uomDesc').value = desc;
+            document.getElementById('uomIsActive').checked = isActive;
+            modalInstance.show();
+        }
+
+        async function saveUOM(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSaveUOM');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Menyimpan...';
+
+            const payload = {
+                id: document.getElementById('uomId').value ? parseInt(document.getElementById('uomId').value) : 0,
+                maximo_uom: document.getElementById('maximoUOM').value.trim(),
+                sap_uom: document.getElementById('sapUOM').value.trim(),
+                description: document.getElementById('uomDesc').value.trim(),
+                is_active: document.getElementById('uomIsActive').checked
+            };
+
+            try {
+                const resp = await fetch('/api/uom-mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await resp.json();
+                if (resp.ok && res.status === 'success') {
+                    showToast(res.message, true);
+                    modalInstance.hide();
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(res.message || 'Gagal menyimpan data', false);
+                }
+            } catch (err) {
+                showToast('Network error: ' + err.message, false);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-save-fill me-1"></i> Simpan';
+            }
+        }
+
+        async function toggleUOM(id) {
+            try {
+                const resp = await fetch('/api/uom-mapping/toggle/' + id, { method: 'POST' });
+                const res = await resp.json();
+                if (resp.ok && res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(res.message || 'Gagal mengubah status', false);
+                }
+            } catch (err) {
+                showToast('Network error: ' + err.message, false);
+            }
+        }
+
+        async function deleteUOM(id, maximoUOM) {
+            if (!confirm('Apakah Anda yakin ingin menghapus aturan pemetaan UOM untuk "' + maximoUOM + '"?')) {
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/uom-mapping/' + id, { method: 'DELETE' });
+                const res = await resp.json();
+                if (resp.ok && res.status === 'success') {
+                    showToast(res.message, true);
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(res.message || 'Gagal menghapus data', false);
+                }
+            } catch (err) {
+                showToast('Network error: ' + err.message, false);
+            }
+        }
+    </script>
+</body>
+</html>

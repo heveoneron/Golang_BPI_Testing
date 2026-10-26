@@ -46,9 +46,16 @@ func (c *AuthController) ProcessLogin(ctx *gin.Context) {
 	session.Set("user_id", req.Username)
 	session.Set("username", req.Username)
 	session.Set("token", apiResp.Token)
+	session.Set("role", apiResp.Role)
+	session.Set("allowed_menus", apiResp.AllowedMenus)
 	session.Save()
 
-	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Login successful. Preparing your workspace..."})
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":        "success",
+		"message":       "Login successful. Preparing your workspace...",
+		"role":          apiResp.Role,
+		"allowed_menus": apiResp.AllowedMenus,
+	})
 }
 
 func (c *AuthController) ProcessLogout(ctx *gin.Context) {

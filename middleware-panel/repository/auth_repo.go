@@ -15,10 +15,12 @@ type MiddlewareLoginRequest struct {
 }
 
 type MiddlewareLoginResponse struct {
-	Status  string `json:"status"`
-	Token   string `json:"token"`
-	Expiry  int64  `json:"expiry"`
-	Message string `json:"message"`
+	Status       string `json:"status"`
+	Token        string `json:"token"`
+	Expiry       int64  `json:"expiry"`
+	Message      string `json:"message"`
+	Role         string `json:"role"`
+	AllowedMenus string `json:"allowed_menus"`
 }
 
 type AuthRepository interface {
@@ -47,11 +49,21 @@ func (r *authRepo) CheckLoginViaAPI(username, password string) (*MiddlewareLogin
 			}
 			if r.userRepo.VerifyPassword(user, password) {
 				_ = r.userRepo.UpdateLastLogin(user.ID)
+				allowed := user.AllowedMenus
+				if allowed == "" {
+					if user.Role == "admin" {
+						allowed = "*"
+					} else {
+						allowed = "dashboard"
+					}
+				}
 				return &MiddlewareLoginResponse{
-					Status:  "success",
-					Token:   "bpi-panel-db-token-" + time.Now().Format("20060102150405"),
-					Expiry:  time.Now().Add(24 * time.Hour).Unix(),
-					Message: "Login berhasil sebagai " + user.Role + ".",
+					Status:       "success",
+					Token:        "bpi-panel-db-token-" + time.Now().Format("20060102150405"),
+					Expiry:       time.Now().Add(24 * time.Hour).Unix(),
+					Message:      "Login berhasil sebagai " + user.Role + ".",
+					Role:         user.Role,
+					AllowedMenus: allowed,
 				}, nil
 			}
 			return nil, errors.New("Username atau password salah.")
@@ -82,10 +94,12 @@ func (r *authRepo) CheckLoginViaAPI(username, password string) (*MiddlewareLogin
 		// Validasi kredensial admin lokal (mendukung adminPass, "admin", atau "admin123")
 		if username == adminUser && (password == adminPass || password == "admin" || password == "admin123") {
 			return &MiddlewareLoginResponse{
-				Status:  "success",
-				Token:   "bpi-panel-local-token-" + time.Now().Format("20060102150405"),
-				Expiry:  time.Now().Add(24 * time.Hour).Unix(),
-				Message: "Login berhasil sebagai administrator.",
+				Status:       "success",
+				Token:        "bpi-panel-local-token-" + time.Now().Format("20060102150405"),
+				Expiry:       time.Now().Add(24 * time.Hour).Unix(),
+				Message:      "Login berhasil sebagai administrator.",
+				Role:         "admin",
+				AllowedMenus: "*",
 			}, nil
 		}
 

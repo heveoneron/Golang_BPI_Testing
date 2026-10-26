@@ -181,8 +181,11 @@
         .status-blocked { background: #F1F5F9; color: #475569; }
         
         .error-category { font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
-        .error-text-clamped { font-size: 12px; color: var(--text-muted); font-weight: 500; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2;line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-        .btn-view-detail { font-size: 11.5px; font-weight: 600; color: #3B82F6; background: none; border: none; padding: 0; margin-top: 6px; cursor: pointer; }
+        .btn-view-detail { font-size: 11.5px; font-weight: 600; color: #3B82F6; background: none; border: none; padding: 0; margin-top: 6px; cursor: pointer; transition: opacity 0.2s; }
+        .btn-view-detail:hover { opacity: 0.8; text-decoration: underline; }
+        /* Multi-Modal Stacking */
+        #errorDetailModal { z-index: 1080 !important; }
+        #errorDetailModal .modal-dialog { z-index: 1085 !important; }
         
         .form-select, .form-control:not(textarea) { border: 1px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; font-weight: 500; padding: 10px 14px; background-color: #ffffff; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); height: 40px;}
         textarea.form-control { border: 1px solid var(--border-soft); border-radius: 12px; font-size: 13px; font-weight: 500; padding: 14px 16px; background-color: #ffffff; min-height: 280px !important; line-height: 1.6; }
@@ -804,6 +807,8 @@
                                     </button>
                                 </div>
                                 <div style="display:none;" id="raw-payload-{{ .DocType }}-{{ .DocumentNo }}">{{ .Payload }}</div>
+                                <div style="display:none;" id="sap-payload-{{ .DocType }}-{{ .DocumentNo }}">{{ if .SAPPayload }}{{ .SAPPayload }}{{ end }}</div>
+                                <div style="display:none;" id="sap-response-{{ .DocType }}-{{ .DocumentNo }}">{{ if .SAPResponse }}{{ .SAPResponse }}{{ end }}</div>
                             </td>
                             
                             <td class="text-center">
@@ -989,7 +994,7 @@
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
                 <div class="modal-header border-bottom pt-4 px-4 bg-white">
-                    <h5 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i> Error Technical Detail</h5>
+                    <h5 class="modal-title fw-bold text-danger" id="detailModalTitle"><i class="bi bi-exclamation-triangle-fill me-2"></i> Error Technical Detail</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4 bg-light">
@@ -1001,37 +1006,99 @@
 
     <div class="modal fade" id="globalPayloadModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
-                <div class="modal-header border-bottom-0 pt-4 px-4">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+                <div class="modal-header border-bottom pt-4 px-4 bg-white">
                     <div>
-                        <h5 class="modal-title fw-bold" id="payloadModalTitle">Payload</h5>
-                        <p class="text-muted mb-0" style="font-size: 12px;" id="payloadModalSubtitle"></p>
+                        <div class="d-flex align-items-center gap-2">
+                            <h5 class="modal-title fw-bold" id="payloadModalTitle">Document Payloads & Data Lifecycle</h5>
+                        </div>
+                        <p class="text-muted mb-0" style="font-size: 12.5px;" id="payloadModalSubtitle"></p>
                     </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body p-4">
-                    <ul class="nav nav-tabs mb-3" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active fw-bold text-dark" data-bs-toggle="tab" data-bs-target="#table-pane" type="button" role="tab">
-                                <i class="bi bi-file-earmark-text"></i> Document Preview
+                <div class="modal-body p-4 bg-light">
+                    <!-- Navigation Tabs: Maximo ERP, SAP Outbound, SAP Response -->
+                    <ul class="nav nav-pills mb-3 p-1 bg-white border rounded-3" role="tablist" style="gap: 6px;">
+                        <li class="nav-item flex-fill" role="presentation">
+                            <button class="nav-link active fw-bold text-center w-100 py-2" id="tab-maximo-btn" data-bs-toggle="pill" data-bs-target="#tab-maximo-pane" type="button" role="tab">
+                                <i class="bi bi-database me-1 text-primary"></i> 1. Sumber: Maximo ERP (Staging)
                             </button>
                         </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link fw-bold text-dark" data-bs-toggle="tab" data-bs-target="#json-pane" type="button" role="tab">
-                                <i class="bi bi-braces"></i> JSON View
+                        <li class="nav-item flex-fill" role="presentation">
+                            <button class="nav-link fw-bold text-center w-100 py-2" id="tab-sap-btn" data-bs-toggle="pill" data-bs-target="#tab-sap-pane" type="button" role="tab">
+                                <i class="bi bi-cloud-arrow-up me-1 text-success"></i> 2. Dikirim ke SAP (OData Payload)
+                            </button>
+                        </li>
+                        <li class="nav-item flex-fill" role="presentation">
+                            <button class="nav-link fw-bold text-center w-100 py-2" id="tab-response-btn" data-bs-toggle="pill" data-bs-target="#tab-response-pane" type="button" role="tab">
+                                <i class="bi bi-reply-fill me-1 text-info"></i> 3. Respon Balik dari SAP (Return Body)
                             </button>
                         </li>
                     </ul>
+
                     <div class="tab-content">
-                        <div class="tab-pane fade show active" id="table-pane" role="tabpanel">
-                            <div id="fiori-view-container" class="fiori-container"></div>
+                        <!-- TAB 1: MAXIMO ERP (SOURCE) -->
+                        <div class="tab-pane fade show active" id="tab-maximo-pane" role="tabpanel">
+                            <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+                                <div class="card-header bg-white py-3 px-4 d-flex align-items-center justify-content-between border-bottom flex-wrap gap-2">
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 13.5px;"><i class="bi bi-hdd-network text-primary me-1"></i> Data Mentah Sumber (IBM Maximo ERP)</div>
+                                        <div class="text-muted" style="font-size: 11.5px;">Payload mentah (Raw JSON) ditarik dari database SQL Server Maximo ke PostgreSQL staging</div>
+                                    </div>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-secondary active" id="btnMaximoForm" onclick="switchMaximoView('form')"><i class="bi bi-layout-text-window-reverse me-1"></i> Form View</button>
+                                        <button type="button" class="btn btn-outline-secondary" id="btnMaximoJson" onclick="switchMaximoView('json')"><i class="bi bi-code-slash me-1"></i> JSON View</button>
+                                    </div>
+                                </div>
+                                <div class="card-body p-4 bg-white">
+                                    <div id="fiori-view-container" class="fiori-container"></div>
+                                    <div id="maximo-json-wrapper" style="display: none;" class="position-relative">
+                                        <button type="button" class="btn-copy-floating" onclick="copyCustomJSON('maximo-json-container', this)">
+                                            <i class="bi bi-clipboard"></i> Copy
+                                        </button>
+                                        <pre id="maximo-json-container" class="json-viewer m-0 shadow-sm" style="border-radius: 12px;"></pre>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tab-pane fade" id="json-pane" role="tabpanel">
-                            <div class="position-relative">
-                                <button type="button" class="btn-copy-floating" onclick="copyModalJSON(this)">
-                                    <i class="bi bi-clipboard"></i> Copy
-                                </button>
-                                <pre id="json-view-container" class="json-viewer m-0"></pre>
+
+                        <!-- TAB 2: SAP ODATA (OUTBOUND) -->
+                        <div class="tab-pane fade" id="tab-sap-pane" role="tabpanel">
+                            <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+                                <div class="card-header bg-white py-3 px-4 d-flex align-items-center justify-content-between border-bottom flex-wrap gap-2">
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 13.5px;"><i class="bi bi-cloud-check text-success me-1"></i> Payload Ditransformasi untuk SAP S/4HANA Grow</div>
+                                        <div class="text-muted" style="font-size: 11.5px;">Payload JSON yang sudah disesuaikan dengan skema OData SAP Cloud dan diposting ke endpoint target</div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-success" onclick="copyCustomJSON('sap-json-container', this)">
+                                        <i class="bi bi-clipboard me-1"></i> Salin JSON SAP
+                                    </button>
+                                </div>
+                                <div class="card-body p-4 bg-white">
+                                    <div class="position-relative">
+                                        <pre id="sap-json-container" class="json-viewer m-0 shadow-sm" style="border-radius: 12px;"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB 3: SAP RESPONSE (INBOUND) -->
+                        <div class="tab-pane fade" id="tab-response-pane" role="tabpanel">
+                            <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+                                <div class="card-header bg-white py-3 px-4 d-flex align-items-center justify-content-between border-bottom flex-wrap gap-2">
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 13.5px;"><i class="bi bi-arrow-return-left text-info me-1"></i> Respon Asli dari SAP Cloud API</div>
+                                        <div class="text-muted" style="font-size: 11.5px;">HTTP Response Body resmi yang dikembalikan oleh SAP S/4HANA Cloud saat dokumen diproses</div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="copyCustomJSON('sap-response-container', this)">
+                                        <i class="bi bi-clipboard me-1"></i> Salin Respon SAP
+                                    </button>
+                                </div>
+                                <div class="card-body p-4 bg-white">
+                                    <div class="position-relative">
+                                        <pre id="sap-response-container" class="json-viewer m-0 shadow-sm" style="border-radius: 12px;"></pre>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1226,7 +1293,7 @@
             document.getElementById('auditModalSubtitle').innerHTML = `${docType} | ${docNo}`; 
             const tbody = document.getElementById('auditTrailBody');
             tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary"></span> Loading...</td></tr>`;
-            new bootstrap.Modal(document.getElementById('auditTrailModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('auditTrailModal')).show();
             try {
                 const encodedDocType = encodeURIComponent(docType);
                 const encodedDocNo = encodeURIComponent(docNo);
@@ -1295,19 +1362,41 @@
                         let msgDisplay = '-';
                         
                         if (rawMsg !== '-') {
-                            const safeMsgData = encodeURIComponent(rawMsg).replace(/'/g, "%27");
-                            if (rawMsg.length > 60 || rawMsg.includes('{')) {
+                            const isErr = Boolean((log.status === 'FAILED' || log.status === 'ERROR') || (log.error_message && log.error_message.trim() !== ''));
+                            let modalTitle = isErr ? 'Error Technical Detail' : 'Log & Information Detail';
+
+                            // Format jika terdapat tag [Target API: ...]
+                            let formattedMsg = rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            formattedMsg = formattedMsg.replace(/\[Target API:\s*([^\]]+)\]/g, '<span class="badge bg-light text-primary border font-monospace mt-1 d-inline-block text-break" style="font-size: 11px;"><i class="bi bi-link-45deg me-1"></i>$1</span>');
+
+                            // Jika ada response_payload dari SAP (baik sukses 200/201 atau gagal), gunakan sebagai konten detail utama
+                            let detailContent = rawMsg;
+                            let btnLabel = 'View Detail';
+                            if (log.response_payload && log.response_payload.trim() !== '' && log.response_payload !== 'null') {
+                                detailContent = log.response_payload;
+                                modalTitle = isErr ? 'SAP Error Response Detail' : 'SAP OData Response Body';
+                                btnLabel = 'View Response Body';
+                            }
+
+                            const safeMsgData = encodeURIComponent(detailContent).replace(/'/g, "%27");
+                            const shouldShowDetail = (log.response_payload && log.response_payload.trim() !== '' && log.response_payload !== 'null') || rawMsg.length > 180 || rawMsg.includes('{') || (isErr && rawMsg.length > 80);
+
+                            if (shouldShowDetail) {
                                 msgDisplay = `
                                     <div class="d-flex flex-column align-items-start" style="gap: 6px;">
-                                        <span class="error-text-clamped" style="color: #334155; font-weight: 500; font-size: 12px; line-height: 1.5;" title="Teks terpotong, klik View Detail untuk melihat keseluruhan">
-                                            ${rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-                                        </span>
-                                        <button type="button" class="btn-view-detail text-primary mt-0" onclick="showErrorDetail('${safeMsgData}')">
-                                            View Detail <i class="bi bi-chevron-right"></i>
+                                        <div style="color: #334155; font-weight: 500; font-size: 12px; line-height: 1.5; word-break: break-word;">
+                                            ${formattedMsg}
+                                        </div>
+                                        <button type="button" class="btn-view-detail ${isErr ? 'text-danger' : 'text-primary'} mt-0" 
+                                                data-msg="${safeMsgData}" 
+                                                data-err="${isErr ? 'true' : 'false'}" 
+                                                data-title="${encodeURIComponent(modalTitle)}" 
+                                                onclick="handleViewDetailClick(this)">
+                                            <i class="bi ${isErr ? 'bi-exclamation-triangle' : 'bi-file-earmark-code'} me-1"></i> ${btnLabel} <i class="bi bi-chevron-right"></i>
                                         </button>
                                     </div>`;
                             } else {
-                                msgDisplay = `<span style="color: #334155; font-weight: 500; font-size: 12px; word-break: break-word;">${rawMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+                                msgDisplay = `<div style="color: #334155; font-weight: 500; font-size: 12px; word-break: break-word;">${formattedMsg}</div>`;
                             }
                         }
 
@@ -1414,7 +1503,7 @@ turn `
                     </td>
                     <td class="text-center">
                         <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
-                            <button type="button" class="btn-view-json" onclick="showPayloadModal('${child.DocType}', '${child.DocumentNo}', '${(child.Payload || '{}').replace(/'/g, "&#39;")}')"><i class="bi bi-braces"></i> JSON</button>
+                            <button type="button" class="btn-view-json" onclick="showPayloadModal('${child.DocType}', '${child.DocumentNo}', '${(child.Payload || '{}').replace(/'/g, "&#39;")}', '${(child.SAPPayload || '').replace(/'/g, "&#39;")}', '${(child.SAPResponse || '').replace(/'/g, "&#39;")}')"><i class="bi bi-braces"></i> JSON</button>
                             <button type="button" class="btn-view-log" 
                                     data-doctype="${child.DocType}" 
                                     data-docno="${child.DocumentNo}" 
@@ -1443,33 +1532,122 @@ turn `
             `;
         }
 
-            function showPayloadModal(docType, docNo, inlinePayload) {
-            // 1. Reset tombol copy ke mode awal setiap kali modal dibuka
-            const copyBtn = document.querySelector('.btn-copy-floating');
-            if (copyBtn) {
-                copyBtn.innerHTML = '<i class="bi bi-clipboard"></i> Copy';
-                copyBtn.style.backgroundColor = ''; 
-                copyBtn.style.color = ''; 
-                copyBtn.style.borderColor = '';
+        function showPayloadModal(docType, docNo, inlinePayload, inlineSAP, inlineResp) {
+            // 1. Ambil payload mentah Maximo (Staging)
+            let rawJson = '';
+            if (inlinePayload !== undefined && inlinePayload !== '') {
+                rawJson = inlinePayload;
+            } else {
+                const rawPayloadEl = document.getElementById(`raw-payload-${docType}-${docNo}`);
+                if (rawPayloadEl) rawJson = rawPayloadEl.innerText.trim();
             }
 
-            let rawJson;
-            if (inlinePayload !== undefined && inlinePayload !== '') { rawJson = inlinePayload; } 
-            else {
-                const rawPayloadEl = document.getElementById(`raw-payload-${docType}-${docNo}`);
-                if (!rawPayloadEl) return;
-                rawJson = rawPayloadEl.innerText;
+            // 2. Ambil payload yang dikirim ke SAP (Transformed OData)
+            let sapJson = '';
+            if (inlineSAP !== undefined && inlineSAP !== '') {
+                sapJson = inlineSAP;
+            } else {
+                const sapPayloadEl = document.getElementById(`sap-payload-${docType}-${docNo}`);
+                if (sapPayloadEl) sapJson = sapPayloadEl.innerText.trim();
             }
+
+            // 3. Ambil response balik dari SAP (Return Body)
+            let respJson = '';
+            if (inlineResp !== undefined && inlineResp !== '') {
+                respJson = inlineResp;
+            } else {
+                const sapRespEl = document.getElementById(`sap-response-${docType}-${docNo}`);
+                if (sapRespEl) respJson = sapRespEl.innerText.trim();
+            }
+
+            // Set Title & Subtitle
             document.getElementById('payloadModalTitle').innerText = `Payload: ${docNo}`;
-            document.getElementById('payloadModalSubtitle').innerText = docType;
-            let obj = null;
+            document.getElementById('payloadModalSubtitle').innerText = `${docType} | Maximo ERP Staging ➔ SAP Cloud Dispatcher`;
+
+            // Tab 1: Render Sumber Maximo ERP
+            let maximoObj = null;
             try {
-                obj = JSON.parse(rawJson);
-                document.getElementById('json-view-container').innerHTML = syntaxHighlight(JSON.stringify(obj, null, 4));
-            } catch(e) { document.getElementById('json-view-container').innerHTML = syntaxHighlight(rawJson); }
+                maximoObj = JSON.parse(rawJson);
+                document.getElementById('maximo-json-container').innerHTML = syntaxHighlight(JSON.stringify(maximoObj, null, 4));
+            } catch(e) {
+                document.getElementById('maximo-json-container').innerHTML = syntaxHighlight(rawJson || '{}');
+            }
             const fioriContainer = document.getElementById('fiori-view-container');
-            fioriContainer.innerHTML = obj ? buildFioriPreview(obj) : `<div class="alert alert-danger m-3">Format JSON tidak valid.</div>`;
-            new bootstrap.Modal(document.getElementById('globalPayloadModal')).show();
+            fioriContainer.innerHTML = maximoObj ? buildFioriPreview(maximoObj) : `<div class="alert alert-secondary m-3">Data payload mentah Maximo kosong atau tidak valid.</div>`;
+            switchMaximoView('form');
+
+            // Tab 2: Render Outbound ke SAP
+            const sapContainer = document.getElementById('sap-json-container');
+            if (sapJson && sapJson !== 'null' && sapJson !== '{}' && sapJson.trim() !== '') {
+                try {
+                    const sapObj = JSON.parse(sapJson);
+                    sapContainer.innerHTML = syntaxHighlight(JSON.stringify(sapObj, null, 4));
+                } catch(e) {
+                    sapContainer.innerHTML = syntaxHighlight(sapJson);
+                }
+            } else {
+                sapContainer.innerHTML = `<div class="p-4 text-center text-muted" style="background:#F8FAFC; border-radius:10px;"><i class="bi bi-clock-history fs-2 text-secondary mb-2 d-block"></i><div class="fw-bold">Belum Ada Payload SAP OData</div><div class="small mt-1">Dokumen ini belum ditransformasikan atau belum pernah diproses kirim ke SAP.</div></div>`;
+            }
+
+            // Tab 3: Render Response Balik dari SAP
+            const respContainer = document.getElementById('sap-response-container');
+            if (respJson && respJson !== 'null' && respJson.trim() !== '') {
+                try {
+                    const respObj = JSON.parse(respJson);
+                    respContainer.innerHTML = syntaxHighlight(JSON.stringify(respObj, null, 4));
+                } catch(e) {
+                    respContainer.innerHTML = syntaxHighlight(respJson);
+                }
+            } else {
+                respContainer.innerHTML = `<div class="p-4 text-center text-muted" style="background:#F8FAFC; border-radius:10px;"><i class="bi bi-cloud-slash fs-2 text-secondary mb-2 d-block"></i><div class="fw-bold">Belum Ada Respon dari Server SAP</div><div class="small mt-1">Belum ada respon HTTP yang tercatat dari server SAP S/4HANA Cloud untuk dokumen ini.</div></div>`;
+            }
+
+            // Default ke Tab 1 (Maximo)
+            const firstTabEl = document.getElementById('tab-maximo-btn');
+            if (firstTabEl) {
+                bootstrap.Tab.getOrCreateInstance(firstTabEl).show();
+            }
+
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('globalPayloadModal')).show();
+        }
+
+        function switchMaximoView(viewType) {
+            const formBtn = document.getElementById('btnMaximoForm');
+            const jsonBtn = document.getElementById('btnMaximoJson');
+            const formContainer = document.getElementById('fiori-view-container');
+            const jsonWrapper = document.getElementById('maximo-json-wrapper');
+            if (!formBtn || !jsonBtn || !formContainer || !jsonWrapper) return;
+
+            if (viewType === 'json') {
+                formBtn.classList.remove('active');
+                jsonBtn.classList.add('active');
+                formContainer.style.display = 'none';
+                jsonWrapper.style.display = 'block';
+            } else {
+                jsonBtn.classList.remove('active');
+                formBtn.classList.add('active');
+                jsonWrapper.style.display = 'none';
+                formContainer.style.display = 'block';
+            }
+        }
+
+        function copyCustomJSON(elementId, btn) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const text = el.innerText || el.textContent;
+            if (!text || text.trim() === '') return;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="bi bi-check2 me-1"></i> Tersalin!';
+                btn.classList.add('btn-success');
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
         }
 
         function buildFioriPreview(obj) {
@@ -1520,9 +1698,39 @@ turn `
             return html;
         }
 
-        function showErrorDetail(encodedRawError) {
+        function handleViewDetailClick(btn) {
+            if (!btn) return;
+            const rawMsg = btn.getAttribute('data-msg') || '';
+            const isErr = btn.getAttribute('data-err') === 'true';
+            const title = decodeURIComponent(btn.getAttribute('data-title') || '');
+            showErrorDetail(rawMsg, isErr, title);
+        }
+
+        function showErrorDetail(encodedRawError, isError = null, customTitle = null) {
             const rawError = decodeURIComponent(encodedRawError);
+            
+            // Otomatis deteksi isError jika parameter bernilai null
+            if (isError === null) {
+                const lower = rawError.toLowerCase();
+                isError = lower.includes('error') || lower.includes('fail') || lower.includes('exception') || lower.includes('timeout') || lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('rejected');
+            }
+
+            const titleEl = document.getElementById('detailModalTitle');
+            if (titleEl) {
+                if (isError) {
+                    titleEl.className = "modal-title fw-bold text-danger";
+                    titleEl.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-2"></i> ${customTitle || 'Error Technical Detail'}`;
+                } else {
+                    titleEl.className = "modal-title fw-bold text-primary";
+                    titleEl.innerHTML = `<i class="bi bi-info-circle-fill me-2"></i> ${customTitle || 'Log & Information Detail'}`;
+                }
+            }
+
             const cleanText = (txt) => { if (!txt) return ""; return txt.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim(); };
+            
+            let renderedContent = '';
+            let handled = false;
+
             try {
                 const jsonStart = rawError.indexOf('{');
                 const jsonEnd = rawError.lastIndexOf('}');
@@ -1541,35 +1749,60 @@ turn `
                         if (prefix) html += `<div class="mb-3 pb-2 border-bottom fw-bold" style="color: #64748B; word-break: break-word;">${prefix}</div>`;
                         html += syntaxHighlight(JSON.stringify(jsonObj, null, 4));
                         if (suffix) html += `<div class="mt-3 pt-2 border-top fw-bold" style="color: #64748B; word-break: break-word;">${suffix}</div>`;
-                        document.getElementById('errorModalContent').innerHTML = html;
-                        new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
-                        return;
+                        renderedContent = html;
+                        handled = true;
                     }
                 }
             } catch(e) {}
             
-            let cleanRaw = rawError.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim();
-            if (!cleanRaw.includes('{')) {
-                document.getElementById('errorModalContent').innerHTML = syntaxHighlight(cleanRaw);
-                new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
-                return;
+            if (!handled) {
+                let cleanRaw = rawError.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim();
+                if (!cleanRaw.includes('{')) {
+                    renderedContent = syntaxHighlight(cleanRaw);
+                } else {
+                    let formattedText = ""; let indentLevel = 0; let inString = false;
+                    cleanRaw = cleanRaw.replace(/\\"/g, '"'); 
+                    for (let i = 0; i < cleanRaw.length; i++) {
+                        let char = cleanRaw[i];
+                        if (char === '"' && cleanRaw[i-1] !== '\\') { inString = !inString; formattedText += char; } 
+                        else if (!inString) {
+                            if (char === '{' || char === '[') { indentLevel++; formattedText += char + '\n' + '    '.repeat(indentLevel); } 
+                            else if (char === '}' || char === ']') { indentLevel = Math.max(0, indentLevel - 1); formattedText += '\n' + '    '.repeat(indentLevel) + char; } 
+                            else if (char === ',') { formattedText += char + '\n' + '    '.repeat(indentLevel); } 
+                            else if (char === ':') { formattedText += char + ' '; } 
+                            else { formattedText += char; }
+                        } else { formattedText += char; }
+                    }
+                    renderedContent = syntaxHighlight(formattedText);
+                }
             }
-            
-            let formattedText = ""; let indentLevel = 0; let inString = false;
-            cleanRaw = cleanRaw.replace(/\\"/g, '"'); 
-            for (let i = 0; i < cleanRaw.length; i++) {
-                let char = cleanRaw[i];
-                if (char === '"' && cleanRaw[i-1] !== '\\') { inString = !inString; formattedText += char; } 
-                else if (!inString) {
-                    if (char === '{' || char === '[') { indentLevel++; formattedText += char + '\n' + '    '.repeat(indentLevel); } 
-                    else if (char === '}' || char === ']') { indentLevel = Math.max(0, indentLevel - 1); formattedText += '\n' + '    '.repeat(indentLevel) + char; } 
-                    else if (char === ',') { formattedText += char + '\n' + '    '.repeat(indentLevel); } 
-                    else if (char === ':') { formattedText += char + ' '; } 
-                    else { formattedText += char; }
-                } else { formattedText += char; }
+
+            document.getElementById('errorModalContent').innerHTML = renderedContent;
+
+            // Handle multi-modal stacking with #auditTrailModal
+            const auditModalEl = document.getElementById('auditTrailModal');
+            if (auditModalEl && auditModalEl.classList.contains('show')) {
+                auditModalEl.removeAttribute('tabindex'); // Prevent Bootstrap from intercepting clicks/focus
             }
-            document.getElementById('errorModalContent').innerHTML = syntaxHighlight(formattedText);
-            new bootstrap.Modal(document.getElementById('errorDetailModal')).show();
+            const errorModalEl = document.getElementById('errorDetailModal');
+            const onHide = function() {
+                if (auditModalEl && auditModalEl.classList.contains('show')) {
+                    auditModalEl.setAttribute('tabindex', '-1');
+                }
+                errorModalEl.removeEventListener('hidden.bs.modal', onHide);
+            };
+            const onShow = function() {
+                setTimeout(() => {
+                    const backdrops = document.querySelectorAll('.modal-backdrop');
+                    if (backdrops.length > 1) {
+                        backdrops[backdrops.length - 1].style.zIndex = '1075';
+                    }
+                }, 10);
+                errorModalEl.removeEventListener('shown.bs.modal', onShow);
+            };
+            errorModalEl.addEventListener('hidden.bs.modal', onHide);
+            errorModalEl.addEventListener('shown.bs.modal', onShow);
+            bootstrap.Modal.getOrCreateInstance(errorModalEl).show();
         }   
 
         function initSmartErrorCells(nodeList) {
@@ -1588,7 +1821,7 @@ turn `
                     return;
                 }
                 if (status === 'blocked') { cell.innerHTML = `<div class="text-muted" style="font-size: 12px; font-style: italic;">Waiting for Parent Document to be resolved</div>`; return; }
-if (status === 'in_progress') { 
+                if (status === 'in_progress') { 
                     cell.innerHTML = `<div style="font-size: 12.5px; font-weight: 500; color: #334155;"><i class="bi bi-diagram-3 me-1" style="color: #6D28D9;"></i> Waiting for child document progress</div>`; 
                     return; 
                 }
@@ -1601,7 +1834,7 @@ if (status === 'in_progress') {
                             <div class="d-flex flex-column align-items-start" style="gap: 4px;">
                                 <span class="error-category" style="color: #6D28D9;"><i class="bi bi-arrow-repeat me-1"></i> Processing Info</span>
                                 <span class="error-text-clamped" style="color: #334155; font-weight: 500; word-break: break-all;" title="${rawError}">${rawError}</span>
-                                <button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeInfoData}')">View Detail <i class="bi bi-chevron-right"></i></button>
+                                <button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeInfoData}', false, 'Processing Info Detail')">View Detail <i class="bi bi-chevron-right"></i></button>
                             </div>`;
                     }
                     return;
@@ -1623,8 +1856,8 @@ if (status === 'in_progress') {
                 else if (searchTarget.includes('pricing') || searchTarget.includes('condition') || status === 'error_data') { category = 'Data Validation'; badgeColor = '#EF4444'; badgeIcon = 'bi-file-earmark-x'; } 
                 else if (searchTarget.includes('auth') || searchTarget.includes('unauthorized') || searchTarget.includes('forbidden')) { category = 'Auth Error'; badgeColor = '#8B5CF6'; badgeIcon = 'bi-shield-lock-fill'; } 
                 else if (status === 'error_conn') { category = 'Network/System Error'; badgeColor = '#3B82F6'; badgeIcon = 'bi-wifi-off'; }
-const safeErrorData = encodeURIComponent(rawError).replace(/'/g, "%27");
-                cell.innerHTML = `<div class="d-flex flex-column align-items-start" style="gap: 4px;"><span class="error-category" style="color: ${badgeColor};"><i class="bi ${badgeIcon}"></i> ${category}</span><span class="error-text-clamped" style="color: #334155; font-weight: 500;" title="${shortMsg}">${shortMsg}</span><button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeErrorData}')">View Detail <i class="bi bi-chevron-right"></i></button></div>`;
+                const safeErrorData = encodeURIComponent(rawError).replace(/'/g, "%27");
+                cell.innerHTML = `<div class="d-flex flex-column align-items-start" style="gap: 4px;"><span class="error-category" style="color: ${badgeColor};"><i class="bi ${badgeIcon}"></i> ${category}</span><span class="error-text-clamped" style="color: #334155; font-weight: 500;" title="${shortMsg}">${shortMsg}</span><button type="button" class="btn-view-detail text-danger" onclick="showErrorDetail('${safeErrorData}', true, 'Error Technical Detail')">View Detail <i class="bi bi-chevron-right"></i></button></div>`;
             });
         }
 
@@ -2067,8 +2300,8 @@ const safeErrorData = encodeURIComponent(rawError).replace(/'/g, "%27");
             calculateMetrics();
 
             function initTopbarUI() {
-                $('#docTypeSelect').select2({ placeholder: "All Modules", allowClear: true, width: '100%', dropdownCssClass: 'custom-module-dropdown' });
-                $('#statusSelect').select2({ placeholder: "All Status", allowClear: true, minimumResultsForSearch: Infinity, width: '100%', dropdownCssClass: 'custom-module-dropdown' });
+                $('#docTypeSelect').select2({ placeholder: "All Modules", allowClear: true, width: '100%' });
+                $('#statusSelect').select2({ placeholder: "All Status", allowClear: true, minimumResultsForSearch: Infinity, width: '100%' });
 
                 $('#statusSelect, #docTypeSelect').off('select2:select select2:unselect').on('select2:select select2:unselect', function () {
                     $('#pageInput').val(1); $('#filterForm').trigger('submit');

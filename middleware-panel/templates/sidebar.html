@@ -20,62 +20,65 @@
         </div>
     </div>
 
-    <div class="sidebar-section">Monitoring</div>
-    <ul class="nav flex-column mb-auto">
-        <li class="nav-item">
+    <div class="sidebar-section" data-section="monitoring">Monitoring</div>
+    <ul class="nav flex-column mb-auto" data-section-nav="monitoring">
+        <li class="nav-item" data-menu-item="dashboard">
             <a href="/dashboard" class="nav-link {{ if eq .ActiveMenu "dashboard" }}active{{ end }}">
                 <i class="bi bi-grid-1x2-fill"></i> Tracking Data
             </a>
         </li>
     </ul>
 
-    <div class="sidebar-section">Developer Tools</div>
-    <ul class="nav flex-column mb-auto">
-        <li class="nav-item">
+    <div class="sidebar-section" data-section="developer">Developer Tools</div>
+    <ul class="nav flex-column mb-auto" data-section-nav="developer">
+        <li class="nav-item" data-menu-item="swagger">
             <a href="http://localhost:8085/swagger/index.html" target="_blank" class="nav-link">
                 <i class="bi bi-code-slash"></i> Swagger OpenAPI
             </a>
         </li>
     </ul>
     
-    <!-- HIDING GL MAPPING MENU TEMPORARILY
-    <div class="sidebar-section">Master Data</div>
-    <ul class="nav flex-column mb-auto">
-        <li class="nav-item">
-            <a href="/gl-mapping" class="nav-link {{ if eq .ActiveMenu "gl_mapping" }}active{{ end }}">
-                <i class="bi bi-diagram-3-fill"></i> GL Mapping
+    <div class="sidebar-section" data-section="master">Master Data</div>
+    <ul class="nav flex-column mb-auto" data-section-nav="master">
+        <li class="nav-item" data-menu-item="exchange_rates">
+            <a href="/exchange-rates" class="nav-link {{ if eq .ActiveMenu "exchange_rates" }}active{{ end }}">
+                <i class="bi bi-currency-exchange"></i> Exchange Rate
+            </a>
+        </li>
+        <li class="nav-item" data-menu-item="uom_mapping">
+            <a href="/uom-mapping" class="nav-link {{ if eq .ActiveMenu "uom_mapping" }}active{{ end }}">
+                <i class="bi bi-rulers"></i> UOM Mapping
             </a>
         </li>
     </ul>
-    -->
-    <div class="sidebar-section">Configuration</div>
-    <ul class="nav flex-column mb-auto">
-        <li class="nav-item">
+    <div class="sidebar-section" data-section="config">Configuration</div>
+    <ul class="nav flex-column mb-auto" data-section-nav="config">
+        <li class="nav-item" data-menu-item="config">
             <a href="/config" class="nav-link {{ if eq .ActiveMenu "config" }}active{{ end }}">
                 <i class="bi bi-sliders"></i> System
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-menu-item="sap_endpoints">
             <a href="/sap-endpoints" class="nav-link {{ if eq .ActiveMenu "sap_endpoints" }}active{{ end }}">
                 <i class="bi bi-cloud-arrow-up-fill"></i> SAP Integration
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-menu-item="table_mapping">
             <a href="/table-api-mapping" class="nav-link {{ if eq .ActiveMenu "table_mapping" }}active{{ end }}">
                 <i class="bi bi-diagram-3-fill"></i> Table-to-API Mapping
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-menu-item="scheduler">
             <a href="/scheduler-config" class="nav-link {{ if eq .ActiveMenu "scheduler" }}active{{ end }}">
                 <i class="bi bi-clock-history"></i> Scheduler
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-menu-item="backup">
             <a href="/backup-config" class="nav-link {{ if eq .ActiveMenu "backup" }}active{{ end }}">
                 <i class="bi bi-database-check"></i> Backup
             </a>
         </li>
-        <li class="nav-item">
+        <li class="nav-item" data-menu-item="users">
             <a href="/users" class="nav-link {{ if eq .ActiveMenu "users" }}active{{ end }}">
                 <i class="bi bi-people-fill"></i> User Access
             </a>
@@ -90,8 +93,46 @@
     </div>
 </div>
 
-<!-- SCRIPT UNTUK INTERAKSI TOMBOL DAN IKON (Berjalan di latar belakang) -->
+<!-- SCRIPT UNTUK INTERAKSI TOMBOL, IKON, DAN FILTER PERMISI MENU (RBAC) -->
 <script>
+    // 1. Eksekusi filter RBAC menu navigasi secepat mungkin
+    (function applySidebarPermissions() {
+        try {
+            const userRole = (localStorage.getItem('user_role') || 'admin').toLowerCase();
+            const rawAllowed = localStorage.getItem('allowed_menus');
+            
+            // Administrator atau wildcard memiliki akses ke seluruh menu
+            if (userRole === 'admin' || rawAllowed === '*' || !rawAllowed) {
+                return;
+            }
+            
+            const allowed = rawAllowed.split(',').map(s => s.trim().toLowerCase());
+            
+            // Sembunyikan item menu yang tidak diizinkan
+            const items = document.querySelectorAll('[data-menu-item]');
+            items.forEach(el => {
+                const key = el.getAttribute('data-menu-item');
+                if (!allowed.includes(key)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // Periksa setiap grup navigasi, sembunyikan section jika semua item di dalamnya tersembunyi
+            document.querySelectorAll('ul[data-section-nav]').forEach(ul => {
+                const secName = ul.getAttribute('data-section-nav');
+                const visible = Array.from(ul.querySelectorAll('[data-menu-item]')).some(li => li.style.display !== 'none');
+                const secHeader = document.querySelector(`.sidebar-section[data-section="${secName}"]`);
+                if (!visible) {
+                    ul.style.display = 'none';
+                    if (secHeader) secHeader.style.display = 'none';
+                }
+            });
+        } catch(e) {
+            console.warn('RBAC sidebar filter error:', e);
+        }
+    })();
+
+    // 2. Handler interaksi tema & logout
     document.addEventListener('DOMContentLoaded', function() {
         const body = document.body;
         const toggleIcon = document.getElementById('sidebarToggleIcon');
@@ -129,6 +170,15 @@
                 localStorage.setItem('sidebarTheme', newTheme);
             });
         }
+
+        // Bersihkan storage ketika logout
+        document.addEventListener('click', function(e) {
+            const logoutLink = e.target.closest('a[href="/logout"]');
+            if (logoutLink) {
+                localStorage.removeItem('user_role');
+                localStorage.removeItem('allowed_menus');
+            }
+        });
     });
 </script>
 {{ end }}

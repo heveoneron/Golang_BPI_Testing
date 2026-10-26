@@ -1,13 +1,165 @@
 basePath: /api/v1
 definitions:
-  golang-bpi-testing_internal_model.MaximoPOHeader:
+  controller.DocumentItemDTO:
+    properties:
+      created_at:
+        example: "2026-10-12T14:00:00Z"
+        type: string
+      doc_type:
+        example: PO
+        type: string
+      document_no:
+        example: PO-BPI-2026-001
+        type: string
+      group_id:
+        example: GRP-PO-PO-BPI-2026-001
+        type: string
+      id:
+        example: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+        type: string
+      raw_payload:
+        type: object
+      retry_count:
+        example: 0
+        type: integer
+      sap_document_no:
+        example: SAP-PO-1730000000
+        type: string
+      sap_payload:
+        type: object
+      status:
+        example: pending
+        type: string
+    type: object
+  controller.ErrorResponse:
+    properties:
+      error:
+        example: invalid request body
+        type: string
+    type: object
+  controller.GetDocumentsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/controller.DocumentItemDTO'
+        type: array
+      total:
+        example: 1
+        type: integer
+    type: object
+  controller.HealthResponse:
+    properties:
+      service:
+        example: BPI Maximo-SAP Grow Middleware
+        type: string
+      status:
+        example: running
+        type: string
+    type: object
+  controller.IngestManualPOResponse:
+    properties:
+      document_no:
+        example: PO-BPI-2026-001
+        type: string
+      message:
+        example: PO successfully ingested into staging_documents and transformed to
+          core documents
+        type: string
+      transformed:
+        example: 1
+        type: integer
+    type: object
+  controller.SchedulerStatusResponse:
+    properties:
+      auto_pull_enabled:
+        example: true
+        type: boolean
+      batch_limit:
+        example: 1
+        type: integer
+      env_setting:
+        example: "true"
+        type: string
+      message:
+        example: Auto-pull status di database berhasil diatur
+        type: string
+      status:
+        example: success
+        type: string
+    type: object
+  controller.TriggerPullResponse:
+    properties:
+      limit:
+        example: 1
+        type: integer
+      message:
+        example: Pull trigger executed successfully
+        type: string
+      pulled_count:
+        example: 1
+        type: integer
+      transformed:
+        example: 1
+        type: integer
+    type: object
+  controller.TriggerPushResponse:
+    properties:
+      message:
+        example: Push trigger executed
+        type: string
+      pushed_count:
+        example: 1
+        type: integer
+    type: object
+  model.ExchangeRateItem:
+    properties:
+      change:
+        type: number
+      currency_code:
+        type: string
+      currency_name:
+        type: string
+      rate:
+        type: number
+      rate_per_unit:
+        type: string
+      unit:
+        type: integer
+    type: object
+  model.ExchangeRatePeriod:
+    properties:
+      document_url:
+        type: string
+      kmk_number:
+        type: string
+      valid_from:
+        type: string
+      valid_to:
+        type: string
+    type: object
+  model.MaximoExchangeRatePayload:
+    properties:
+      event:
+        type: string
+      period:
+        $ref: '#/definitions/model.ExchangeRatePeriod'
+      rates:
+        items:
+          $ref: '#/definitions/model.ExchangeRateItem'
+        type: array
+      sent_at:
+        type: string
+      source:
+        type: string
+    type: object
+  model.MaximoPOHeader:
     properties:
       CURRENCYCODE:
         example: IDR
         type: string
       LINES:
         items:
-          $ref: '#/definitions/golang-bpi-testing_internal_model.MaximoPOLine'
+          $ref: '#/definitions/model.MaximoPOLine'
         type: array
       ORDERDATE:
         example: "2026-10-12"
@@ -25,7 +177,7 @@ definitions:
         example: VEND-PLTU-01
         type: string
     type: object
-  golang-bpi-testing_internal_model.MaximoPOLine:
+  model.MaximoPOLine:
     properties:
       BUDGETCODE:
         example: "10081"
@@ -64,98 +216,40 @@ definitions:
         example: 150000
         type: number
     type: object
-  internal_controller.DocumentItemDTO:
+  model.SAPEndpoint:
     properties:
+      base_url:
+        type: string
       created_at:
-        example: "2026-10-12T14:00:00Z"
         type: string
-      doc_type:
-        example: PO
+      csrf_path:
         type: string
-      document_no:
-        example: PO-BPI-2026-001
-        type: string
-      group_id:
-        example: GRP-PO-PO-BPI-2026-001
+      endpoint_path:
         type: string
       id:
-        example: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
-        type: string
-      raw_payload:
-        type: object
-      retry_count:
-        example: 0
         type: integer
-      sap_document_no:
-        example: SAP-PO-1730000000
+      is_active:
+        type: boolean
+      last_response:
         type: string
-      sap_payload:
-        type: object
-      status:
-        example: pending
+      last_status:
         type: string
-    type: object
-  internal_controller.ErrorResponse:
-    properties:
-      error:
-        example: invalid request body
+      last_tested_at:
         type: string
-    type: object
-  internal_controller.GetDocumentsResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/internal_controller.DocumentItemDTO'
-        type: array
-      total:
-        example: 1
-        type: integer
-    type: object
-  internal_controller.HealthResponse:
-    properties:
-      service:
-        example: BPI Maximo-SAP Grow Middleware
+      odata_version:
         type: string
-      status:
-        example: running
+      password:
         type: string
-    type: object
-  internal_controller.IngestManualPOResponse:
-    properties:
-      document_no:
-        example: PO-BPI-2026-001
+      scenario_id:
         type: string
-      message:
-        example: PO successfully ingested into staging_documents and transformed to
-          core documents
+      service_code:
         type: string
-      transformed:
-        example: 1
-        type: integer
-    type: object
-  internal_controller.TriggerPullResponse:
-    properties:
-      limit:
-        example: 1
-        type: integer
-      message:
-        example: Pull trigger executed successfully
+      service_name:
         type: string
-      pulled_count:
-        example: 1
-        type: integer
-      transformed:
-        example: 1
-        type: integer
-    type: object
-  internal_controller.TriggerPushResponse:
-    properties:
-      message:
-        example: Push trigger executed
+      updated_at:
         type: string
-      pushed_count:
-        example: 1
-        type: integer
+      username:
+        type: string
     type: object
 host: localhost:8085
 info:
@@ -176,18 +270,58 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_controller.GetDocumentsResponse'
+            $ref: '#/definitions/controller.GetDocumentsResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
       summary: Lihat Daftar Core Documents
       tags:
       - Monitoring
+  /exchange-rate:
+    post:
+      consumes:
+      - application/json
+      description: Menerima payload kurs.updated dari Maximo/Kemenkeu, menyimpan ke
+        exchange_rates, dan mencatat audit trail di integration_logs
+      parameters:
+      - description: Payload Kurs Pajak dari Maximo / Kemenkeu
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/model.MaximoExchangeRatePayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+      summary: Menerima Update Kurs Pajak / Exchange Rate dari Maximo
+      tags:
+      - Exchange Rate
+  /exchange-rates:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Mengambil Daftar History Exchange Rate
+      tags:
+      - Exchange Rate
   /health:
     get:
       description: Memeriksa status service BPI Maximo-SAP Grow Middleware
@@ -197,7 +331,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_controller.HealthResponse'
+            $ref: '#/definitions/controller.HealthResponse'
       summary: Health Check Service
       tags:
       - System
@@ -213,29 +347,212 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/golang-bpi-testing_internal_model.MaximoPOHeader'
+          $ref: '#/definitions/model.MaximoPOHeader'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_controller.IngestManualPOResponse'
+            $ref: '#/definitions/controller.IngestManualPOResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
       summary: Ingest Manual PO Maximo
       tags:
       - Ingestion
+  /integration-logs:
+    get:
+      description: Mendapatkan riwayat audit trail pertukaran data Maximo <-> Middleware
+        <-> SAP
+      parameters:
+      - description: Filter Document Type
+        in: query
+        name: document_type
+        type: string
+      - description: Filter Document No
+        in: query
+        name: document_no
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get integration audit trail logs
+      tags:
+      - Logs
+  /sap/endpoints:
+    get:
+      description: Menampilkan semua konfigurasi endpoint, skenario komunikasi, dan
+        kredensial SAP S/4HANA Cloud
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+      summary: Mengambil Daftar Semua Endpoint SAP Terdaftar
+      tags:
+      - SAP Endpoints
+    post:
+      consumes:
+      - application/json
+      description: Menyimpan atau mengupdate URL, OData Version, dan kredensial Communication
+        User untuk integrasi SAP
+      parameters:
+      - description: Data Konfigurasi Endpoint SAP
+        in: body
+        name: endpoint
+        required: true
+        schema:
+          $ref: '#/definitions/model.SAPEndpoint'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+      summary: Menyimpan atau Memperbarui Konfigurasi Endpoint SAP
+      tags:
+      - SAP Endpoints
+  /sap/endpoints/test:
+    post:
+      consumes:
+      - application/json
+      description: Melakukan uji coba konektivitas HTTP dan handshake pengambilan
+        x-csrf-token dari server SAP S/4HANA Cloud
+      parameters:
+      - description: Kode Layanan SAP (PO, BP, PRODUCT, dll)
+        in: query
+        name: service_code
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Uji Koneksi & Handshake CSRF Token ke SAP Grow
+      tags:
+      - SAP Endpoints
+  /sap/execute-test:
+    post:
+      consumes:
+      - application/json
+      description: Mengirimkan payload HTTP POST / PATCH / GET langsung ke server
+        SAP Grow S/4HANA Cloud dengan auto CSRF handshake & Basic Auth
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/controller.ErrorResponse'
+      summary: Eksekusi Payload Test ke SAP Grow (Sandbox Tester)
+      tags:
+      - SAP Sandbox
+  /sap/material-document/{doc_no}:
+    get:
+      parameters:
+      - description: Material Document No (e.g. 202500000001 or 5000000000)
+        in: path
+        name: doc_no
+        required: true
+        type: string
+      - description: 'Material Document Year (default: 2025)'
+        in: query
+        name: year
+        type: string
+      produces:
+      - application/json
+      responses: {}
+      summary: Mengecek Live Detail Material Document / Goods Receipt dari SAP Grow
+      tags:
+      - SAP Inspection
+  /scheduler/status:
+    get:
+      description: Memeriksa status aktif/nonaktif fitur penarikan data otomatis dari
+        Maximo (berdasarkan .env dan DB)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/controller.SchedulerStatusResponse'
+      summary: Cek Status Pengaturan Auto-Pull
+      tags:
+      - Scheduler
+  /scheduler/toggle:
+    post:
+      consumes:
+      - application/json
+      description: Mengubah status aktif/nonaktif auto get data from Maximo pada database
+        runtime
+      parameters:
+      - description: Status aktif (true/false)
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/controller.SchedulerStatusResponse'
+      summary: Ubah Status On/Off Auto-Pull di Database
+      tags:
+      - Scheduler
   /trigger/pull:
     post:
       description: Memicu eksekusi manual worker pull untuk menarik data antrean mxout_inter_trans
@@ -251,11 +568,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_controller.TriggerPullResponse'
+            $ref: '#/definitions/controller.TriggerPullResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
       summary: Trigger Pull Worker dari SQL Server Maximo
       tags:
       - Ingestion
@@ -269,14 +586,22 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_controller.TriggerPushResponse'
+            $ref: '#/definitions/controller.TriggerPushResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/internal_controller.ErrorResponse'
+            $ref: '#/definitions/controller.ErrorResponse'
       summary: Trigger Push Dispatcher ke SAP Grow
       tags:
       - Dispatching
+  /uom-mappings:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Mengambil Daftar Master Data Pemetaan UOM Maximo ke SAP
+      tags:
+      - UOM Mapping
 schemes:
 - http
 - https

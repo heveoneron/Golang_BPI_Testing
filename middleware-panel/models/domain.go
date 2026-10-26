@@ -19,6 +19,7 @@ type Document struct {
 	GroupID            string     `gorm:"column:group_id;type:text;not null"`
 	Payload            string     `gorm:"column:raw_payload;type:jsonb;not null"`
 	SAPPayload         *string    `gorm:"column:sap_payload;type:jsonb"`
+	SAPResponse        *string    `gorm:"column:sap_response;type:jsonb"`
 	Status             string     `gorm:"column:status;type:text;not null"`
 	ErrorMessage       *string    `gorm:"column:error_message;type:text"`
 	CreatedAt          time.Time  `gorm:"column:created_at;type:timestamp;not null"`
