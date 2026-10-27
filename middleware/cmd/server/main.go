@@ -43,14 +43,28 @@ func main() {
 	// 1. Inisialisasi Database PostgreSQL
 	pgConnString := os.Getenv("PG_CONN_STRING")
 	if pgConnString == "" {
-		pgConnString = "postgres://postgres:postgres@localhost:5432/bpi_middleware_db?sslmode=disable"
+		pgConnString = "postgres://postgres:postgres123@localhost:5432/bpi_middleware_db?sslmode=disable"
 	}
 
-	pgPool, err := pgxpool.New(ctx, pgConnString)
-	if err != nil {
-		log.Printf("[WARN] PostgreSQL Pool gagal connect ke %s: %v (Jalankan lokal Postgres saat testing)", pgConnString, err)
-	} else {
-		log.Println("[INFO] Terhubung ke PostgreSQL Staging Engine.")
+	var pgPool *pgxpool.Pool
+	var err error
+	for i := 1; i <= 15; i++ {
+		pgPool, err = pgxpool.New(ctx, pgConnString)
+		if err == nil {
+			if pingErr := pgPool.Ping(ctx); pingErr == nil {
+				log.Println("[INFO] Terhubung ke PostgreSQL Staging Engine.")
+				break
+			} else {
+				log.Printf("[WARN] Menunggu PostgreSQL Staging Engine (%d/15): %v", i, pingErr)
+				pgPool.Close()
+			}
+		} else {
+			log.Printf("[WARN] Menunggu PostgreSQL Staging Engine (%d/15): %v", i, err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if pgPool == nil {
+		log.Printf("[WARN] PostgreSQL Pool gagal connect ke %s: %v", pgConnString, err)
 	}
 
 	// 2. Inisialisasi Database SQL Server 2012 (Maximo Staging DB)

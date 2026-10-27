@@ -1,0 +1,7 @@
+server.exe
+*.exe
+.env
+.git
+.github
+*.log
+tmp

@@ -25,6 +25,8 @@ func main() {
     	&models.SAPEndpoint{},
     	&models.TableAPIMapping{},
     	&models.User{},
+    	&models.ExchangeRate{},
+    	&models.UOMMapping{},
     )
 
     // Seed default record BackupSchedule jika belum ada untuk mencegah error template

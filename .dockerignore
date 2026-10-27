@@ -1,0 +1,6 @@
+*.exe
+*.zip
+.git
+.github
+*.log
+cookies.txt

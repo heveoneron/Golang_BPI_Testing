@@ -1,0 +1,7 @@
+middleware-panel.exe
+*.exe
+.env
+.git
+.github
+*.log
+tmp

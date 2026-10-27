@@ -3,7 +3,39 @@
 > **Enterprise Integration Suite: IBM Maximo $\leftrightarrow$ PostgreSQL Staging $\leftrightarrow$ SAP Grow (S/4HANA Cloud)**  
 > Terbagi menjadi 2 modul terpisah persis seperti standar arsitektur **ShoeTown Middleware**:
 > 1. `middleware/` : Engine background worker (Nojoroso dual-thread poller + Swagger OpenAPI).
-> 2. `middleware-panel/` : Web panel monitoring UI lengkap (Tracking Data, Metric Cards, Payload Inspector, System Config, Scheduler).
+> 2. `middleware-panel/` : Web panel monitoring UI lengkap (Tracking Data, Metric Cards, Payload Inspector, System Config, Scheduler, RBAC).
+
+---
+
+## 🐳 Quick Start: Deploy dengan Docker (Satu Perintah)
+
+Semua konfigurasi awal (Database PostgreSQL, Engine Middleware, Web Panel, kredensial SAP Grow, dan SQL Server Maximo) telah terpusat di file [docker.yml](file:///c:/Users/muham/Downloads/Middleware_SLI%20(30-09-26)/BPI_Testing/Golang_BPI_Testing/docker.yml) / [docker-compose.yml](file:///c:/Users/muham/Downloads/Middleware_SLI%20(30-09-26)/BPI_Testing/Golang_BPI_Testing/docker-compose.yml). Anda dapat langsung menjalankannya di server:
+
+```bash
+# Jalankan seluruh stack (PostgreSQL + Middleware Engine + Web Panel)
+docker compose up -d --build
+
+# Atau menggunakan nama file docker.yml:
+docker compose -f docker.yml up -d --build
+```
+
+### Akses Layanan:
+* 🌐 **Web Panel UI:** `http://localhost:8091` (Login default: `admin` / `admin`)
+* ⚡ **Middleware Engine REST API:** `http://localhost:8085`
+* 📖 **Swagger OpenAPI UI:** `http://localhost:8085/swagger/index.html`
+* 🐘 **Database PostgreSQL:** `localhost:5432` (`bpi_middleware_db`, user: `postgres`, pass: `postgres123`)
+
+### Manajemen Container Docker:
+```bash
+# Cek status container
+docker compose ps
+
+# Lihat realtime logs
+docker compose logs -f
+
+# Mematikan stack
+docker compose down
+```
 
 ---
 
