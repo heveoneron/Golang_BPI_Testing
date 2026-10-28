@@ -240,4 +240,114 @@ SET target_service_code = EXCLUDED.target_service_code,
     source_desc = EXCLUDED.source_desc,
     updated_at = NOW();
 
+-- 10. TABEL EXCHANGE RATES (KURS PAJAK)
+CREATE TABLE IF NOT EXISTS exchange_rates (
+    id BIGSERIAL PRIMARY KEY,
+    event VARCHAR(50),
+    source VARCHAR(50),
+    kmk_number VARCHAR(100),
+    valid_from DATE,
+    valid_to DATE,
+    document_url TEXT,
+    currency_code VARCHAR(10) NOT NULL,
+    currency_name VARCHAR(100),
+    rate NUMERIC(18, 4) NOT NULL,
+    unit INT DEFAULT 1,
+    rate_per_unit NUMERIC(18, 6),
+    change NUMERIC(18, 4),
+    raw_payload JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_curr ON exchange_rates(currency_code);
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_kmk ON exchange_rates(kmk_number);
+
+-- 11. TABEL UOM MAPPINGS (SATUAN UKURAN)
+CREATE TABLE IF NOT EXISTS uom_mappings (
+    id SERIAL PRIMARY KEY,
+    maximo_uom VARCHAR(50) NOT NULL UNIQUE,
+    sap_uom VARCHAR(50) NOT NULL,
+    description VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+INSERT INTO uom_mappings (maximo_uom, sap_uom, description, is_active)
+VALUES 
+    ('PC', 'PCE', 'Piece', true),
+    ('EA', 'PCE', 'Each', true),
+    ('MT', 'MAT', 'Meter', true),
+    ('KG', 'KGM', 'Kilogram', true)
+ON CONFLICT (maximo_uom) DO NOTHING;
+
+-- 12. TABEL USERS & RBAC ACCESS
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100),
+    email VARCHAR(100),
+    role VARCHAR(30) DEFAULT 'operator',
+    allowed_menus TEXT DEFAULT '*',
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
+
+INSERT INTO users (username, password, full_name, role, allowed_menus, is_active)
+VALUES ('admin', 'admin', 'System Administrator', 'admin', '*', true)
+ON CONFLICT (username) DO NOTHING;
+
+-- 13. TABEL MATERIAL GL MAPPINGS
+CREATE TABLE IF NOT EXISTS material_gl_mappings (
+    id SERIAL PRIMARY KEY,
+    ctg_item VARCHAR(100),
+    gl_account VARCHAR(50),
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 14. TABEL BACKUP SCHEDULES
+CREATE TABLE IF NOT EXISTS backup_schedules (
+    id SERIAL PRIMARY KEY,
+    database_name VARCHAR(100),
+    database_type VARCHAR(50),
+    backup_level VARCHAR(50),
+    backup_location VARCHAR(50),
+    schedule_mode VARCHAR(50),
+    execution_time VARCHAR(20),
+    retention_days INT DEFAULT 7,
+    is_active BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+INSERT INTO backup_schedules (id, database_name, database_type, backup_level, backup_location, schedule_mode, execution_time, retention_days, is_active)
+VALUES (1, 'postgres', 'postgresql', 'full', 'local', 'daily', '02:00', 7, false)
+ON CONFLICT (id) DO NOTHING;
+
+-- 15. TABEL APP CONFIGS (.env key-value store)
+CREATE TABLE IF NOT EXISTS configs (
+    key VARCHAR(100) PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 16. TABEL SYSTEM LOGS
+CREATE TABLE IF NOT EXISTS system_logs (
+    id BIGSERIAL PRIMARY KEY,
+    level VARCHAR(20),
+    message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+
 

@@ -167,3 +167,10 @@ contoh response data material document :
         }
     }
 }
+
+[V] Pembuatan konfigurasi Docker & Docker Compose (`docker.yml` & `docker-compose.yml`) siap pakai di server:
+- Multi-stage Dockerfile untuk middleware engine (`bpi-middleware`, port 8085)
+- Multi-stage Dockerfile untuk web panel UI (`bpi-middleware-panel`, port 8091)
+- Database container PostgreSQL 16 (`bpi-postgres`, port 5432) dengan inisialisasi schema DDL otomatis
+- Vendored offline Go build (`-mod=vendor`) agar build instan tanpa kendala jaringan proxy/timeout
+- Konfigurasi terpusat di `docker.yml` tanpa perlu konfigurasi manual per folder.

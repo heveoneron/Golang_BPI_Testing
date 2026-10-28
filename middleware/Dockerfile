@@ -1,22 +1,15 @@
 # ==============================================================================
 # Multi-stage Dockerfile for BPI Middleware Engine (Golang API & Background Workers)
 # ==============================================================================
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /build
 
-# Install build dependencies, CA certificates, and timezone data
-RUN apk add --no-cache git ca-certificates tzdata
-
-# Cache Go modules layer
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy application source code
+# Copy source code including vendored dependencies
 COPY . .
 
-# Compile optimized static binary for Linux
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/server cmd/server/main.go
+# Compile optimized static binary using vendored modules (no external network needed)
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-s -w" -o /app/server cmd/server/main.go
 
 # ------------------------------------------------------------------------------
 # Minimal Production Runtime
