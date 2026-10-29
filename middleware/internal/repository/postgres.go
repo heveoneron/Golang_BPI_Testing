@@ -143,7 +143,7 @@ func (r *PostgresRepository) FetchAndLockPendingDocuments(ctx context.Context, l
 		SET status = 'processing', last_attempt_at = NOW()
 		WHERE id IN (
 			SELECT id FROM documents
-			WHERE status IN ('pending', 'error_conn') AND retry_count < 5
+			WHERE (status = 'pending' OR (status = 'error_conn' AND retry_count < 5))
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
@@ -790,5 +790,76 @@ func (r *PostgresRepository) GetSAPUOM(ctx context.Context, maximoUOM string) (s
 	}
 	return sapUOM, nil
 }
+
+// 12. BP Group Mapping Operations
+func (r *PostgresRepository) GetBPGrouping(ctx context.Context, vendorGroup string) (string, error) {
+	defaultGrouping := "Z001"
+	if r == nil || r.Pool == nil {
+		return defaultGrouping, nil
+	}
+
+	var grouping string
+	// Ambil dari recon_account_mappings terlebih dahulu (menu terpadu Image 2)
+	err := r.Pool.QueryRow(ctx, `
+		SELECT bp_grouping FROM recon_account_mappings
+		WHERE UPPER(TRIM(vendor_group)) = UPPER(TRIM($1)) AND is_active = true
+		LIMIT 1
+	`, vendorGroup).Scan(&grouping)
+	if err == nil && grouping != "" {
+		return grouping, nil
+	}
+
+	// Fallback ke bp_group_mappings jika ada
+	_ = r.Pool.QueryRow(ctx, `
+		SELECT bp_grouping FROM bp_group_mappings
+		WHERE UPPER(TRIM(vendor_group)) = UPPER(TRIM($1)) AND is_active = true
+		LIMIT 1
+	`, vendorGroup).Scan(&grouping)
+	if grouping == "" {
+		return defaultGrouping, nil
+	}
+	return grouping, nil
+}
+
+// 13. Recon Account Mapping Operations
+func (r *PostgresRepository) GetReconAccount(ctx context.Context, vendorGroup, companyCode string) (string, error) {
+	defaultRecon := "211001"
+	if r == nil || r.Pool == nil {
+		return defaultRecon, nil
+	}
+
+	if companyCode == "" {
+		companyCode = "5110"
+	}
+
+	var recon string
+	err := r.Pool.QueryRow(ctx, `
+		SELECT recon_account FROM recon_account_mappings
+		WHERE UPPER(TRIM(vendor_group)) = UPPER(TRIM($1)) 
+		  AND UPPER(TRIM(company_code)) = UPPER(TRIM($2))
+		  AND is_active = true
+		LIMIT 1
+	`, vendorGroup, companyCode).Scan(&recon)
+	if err != nil || recon == "" {
+		// Fallback check by vendor_group only
+		err = r.Pool.QueryRow(ctx, `
+			SELECT recon_account FROM recon_account_mappings
+			WHERE UPPER(TRIM(vendor_group)) = UPPER(TRIM($1)) AND is_active = true
+			LIMIT 1
+		`, vendorGroup).Scan(&recon)
+		if err != nil || recon == "" {
+			return defaultRecon, nil
+		}
+	}
+	return recon, nil
+}
+
+// GetVendorReconMapping mengambil sekaligus SAP BP Grouping dan Recon Account berdasarkan Vendor Type Maximo
+func (r *PostgresRepository) GetVendorReconMapping(ctx context.Context, vendorGroup, companyCode string) (string, string, error) {
+	bpGroup, _ := r.GetBPGrouping(ctx, vendorGroup)
+	recon, _ := r.GetReconAccount(ctx, vendorGroup, companyCode)
+	return bpGroup, recon, nil
+}
+
 
 

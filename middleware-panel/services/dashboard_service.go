@@ -13,6 +13,7 @@ type DashboardService interface {
 	DeleteDocument(docType string, documentNo string) error
 	BulkDeleteDocuments(items []string) (int64, error)
 	ClearAllDocuments() error
+	UpdatePayload(docType, documentNo, sapPayload string) error
 }
 
 type dashboardService struct {
@@ -65,4 +66,16 @@ func (s *dashboardService) BulkDeleteDocuments(items []string) (int64, error) {
 
 func (s *dashboardService) ClearAllDocuments() error {
 	return s.repo.ClearAllDocuments()
+}
+
+func (s *dashboardService) UpdatePayload(docType, documentNo, sapPayload string) error {
+	doc, err := s.repo.GetDocumentByTypeAndNo(docType, documentNo)
+	if err != nil {
+		return err
+	}
+	clean := sapPayload
+	doc.SAPPayload = &clean
+	doc.Status = "error_data"
+	doc.RetryCount = 0
+	return s.repo.UpdateDocument(&doc)
 }

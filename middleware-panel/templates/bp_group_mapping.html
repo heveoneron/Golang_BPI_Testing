@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BP Group Mapping Master - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 14px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .maximo-group-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .sap-group-badge { background-color: #F0FDF4; color: #15803D; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #BBF7D0; display: inline-flex; align-items: center; gap: 6px; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-person-badge text-primary"></i> Master Data BP Group Mapping</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Konfigurasi pemetaan Vendor Group Maximo (<code>bpivendorgroup</code>) ke BusinessPartnerGrouping SAP Grow (<code>BPAB</code>, dll)</span>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                </button>
+                <button class="btn btn-primary btn-sm rounded-3 d-flex align-items-center gap-2" onclick="openAddModal()">
+                    <i class="bi bi-plus-circle-fill"></i> Tambah BP Grouping
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Total Aturan Pemetaan</div>
+                    <div class="stat-val text-primary">{{ .Total }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-layers me-1"></i> Entri BP Grouping</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Aturan Aktif</div>
+                    <div class="stat-val text-success">{{ .ActiveCount }}</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-check2-circle text-success me-1"></i> Siap ditransformasikan</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">Default Fallback Grouping</div>
+                    <div class="stat-val text-dark" style="font-size: 20px; margin-top: 10px;">BPAB</div>
+                    <div class="text-muted mt-1" style="font-size: 12px;"><i class="bi bi-shield-check text-info me-1"></i> Jika grup tidak terdaftar</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="main-card">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                <div class="fw-bold" style="font-size: 15px;"><i class="bi bi-list-check me-1"></i> Daftar Pemetaan Vendor Group &rarr; SAP Business Partner Grouping</div>
+                <div style="width: 250px;">
+                    <input type="text" id="searchInput" class="form-control form-control-sm rounded-3" placeholder="Cari Vendor Group / SAP..." onkeyup="filterTable()">
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-custom mb-0" id="mappingTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 70px;">No</th>
+                            <th>Maximo Vendor Group (Sumber)</th>
+                            <th>SAP BP Grouping (Target)</th>
+                            <th>Keterangan / Deskripsi</th>
+                            <th style="width: 120px;">Status</th>
+                            <th style="width: 140px; text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ if .Mappings }}
+                            {{ range $idx, $m := .Mappings }}
+                            <tr>
+                                <td class="text-muted">{{ add $idx 1 }}</td>
+                                <td>
+                                    <span class="maximo-group-badge">
+                                        <i class="bi bi-box-arrow-up-right"></i> {{ $m.VendorGroup }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="sap-group-badge">
+                                        <i class="bi bi-check2-all"></i> {{ $m.BPGrouping }}
+                                    </span>
+                                </td>
+                                <td class="text-muted">{{ if $m.Description }}{{ $m.Description }}{{ else }}<em>-</em>{{ end }}</td>
+                                <td>
+                                    {{ if $m.IsActive }}
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-pill" style="font-size: 11.5px;">
+                                            <i class="bi bi-check-circle-fill me-1"></i> Aktif
+                                        </span>
+                                    {{ else }}
+                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1 rounded-pill" style="font-size: 11.5px;">
+                                            <i class="bi bi-dash-circle me-1"></i> Nonaktif
+                                        </span>
+                                    {{ end }}
+                                </td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-sm btn-outline-primary rounded-2 px-2 py-1 me-1" onclick="openEditModal({{ $m.ID }}, '{{ $m.VendorGroup }}', '{{ $m.BPGrouping }}', '{{ $m.Description }}', {{ $m.IsActive }})" title="Edit">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-warning rounded-2 px-2 py-1 me-1" onclick="toggleActive({{ $m.ID }})" title="Toggle Status">
+                                        <i class="bi bi-power"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger rounded-2 px-2 py-1" onclick="deleteMapping({{ $m.ID }})" title="Hapus">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {{ end }}
+                        {{ else }}
+                            <tr>
+                                <td colspan="6" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
+                                    Belum ada aturan pemetaan BP Grouping. Silakan klik "Tambah BP Grouping".
+                                </td>
+                            </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah / Edit -->
+    <div class="modal fade" id="mappingModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom px-4 py-3">
+                    <h5 class="modal-title fw-bold" id="modalTitle"><i class="bi bi-plus-circle text-primary me-2"></i> Tambah BP Group Mapping</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="mappingForm" onsubmit="submitForm(event)">
+                    <input type="hidden" id="mappingId" name="id" value="">
+                    <div class="modal-body px-4 py-3">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">Maximo Vendor Group (bpivendorgroup) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control rounded-3" id="vendorGroupInput" name="vendor_group" placeholder="Contoh: 01, 02, LOCAL, FOREIGN" required>
+                            <div class="form-text" style="font-size: 11.5px;">Kode grup vendor yang tersimpan di kolom <code>bpivendorgroup</code> tabel <code>axvendor</code> Maximo.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">SAP Business Partner Grouping <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control rounded-3" id="bpGroupingInput" name="bp_grouping" placeholder="Contoh: BPAB, BPIV, BPD1" required>
+                            <div class="form-text" style="font-size: 11.5px;">Nilai grouping resmi di SAP S/4HANA (field <code>BusinessPartnerGrouping</code> pada OData BP).</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">Deskripsi / Keterangan</label>
+                            <input type="text" class="form-control rounded-3" id="descInput" name="description" placeholder="Contoh: Vendor Lokal Operasional BPI">
+                        </div>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="isActiveInput" name="is_active" checked>
+                            <label class="form-check-label fw-semibold" for="isActiveInput">Aturan Pemetaan Aktif</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top px-4 py-3 bg-light rounded-bottom-4">
+                        <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-primary btn-sm rounded-3 px-3" id="btnSaveMapping">Simpan Pemetaan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let modalInstance;
+        document.addEventListener('DOMContentLoaded', () => {
+            modalInstance = new bootstrap.Modal(document.getElementById('mappingModal'));
+        });
+
+        function showToast(msg, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const msgEl = document.getElementById('toastMessage');
+            toastEl.className = `toast align-items-center text-white border-0 shadow-lg ${type === 'success' ? 'bg-success' : 'bg-danger'}`;
+            msgEl.innerHTML = `<i class="bi ${type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'} me-2 fs-5"></i> ${msg}`;
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+        }
+
+        function openAddModal() {
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle text-primary me-2"></i> Tambah BP Group Mapping';
+            document.getElementById('mappingId').value = '';
+            document.getElementById('vendorGroupInput').value = '';
+            document.getElementById('bpGroupingInput').value = '';
+            document.getElementById('descInput').value = '';
+            document.getElementById('isActiveInput').checked = true;
+            modalInstance.show();
+        }
+
+        function openEditModal(id, vGroup, bpGroup, desc, isActive) {
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i> Edit BP Group Mapping';
+            document.getElementById('mappingId').value = id;
+            document.getElementById('vendorGroupInput').value = vGroup;
+            document.getElementById('bpGroupingInput').value = bpGroup;
+            document.getElementById('descInput').value = desc;
+            document.getElementById('isActiveInput').checked = (isActive === true || isActive === 'true');
+            modalInstance.show();
+        }
+
+        async function submitForm(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSaveMapping');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Menyimpan...';
+
+            const payload = {
+                id: document.getElementById('mappingId').value ? parseInt(document.getElementById('mappingId').value) : 0,
+                vendor_group: document.getElementById('vendorGroupInput').value.trim(),
+                bp_grouping: document.getElementById('bpGroupingInput').value.trim(),
+                description: document.getElementById('descInput').value.trim(),
+                is_active: document.getElementById('isActiveInput').checked
+            };
+
+            try {
+                const res = await fetch('/api/bp-group-mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || data.status === 'error') {
+                    throw new Error(data.message || 'Gagal menyimpan pemetaan');
+                }
+                modalInstance.hide();
+                showToast(data.message || 'Pemetaan berhasil disimpan!', 'success');
+                setTimeout(() => location.reload(), 800);
+            } catch (err) {
+                showToast(err.message, 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Simpan Pemetaan';
+            }
+        }
+
+        async function toggleActive(id) {
+            try {
+                const res = await fetch(`/api/bp-group-mapping/toggle/${id}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Gagal mengubah status');
+                showToast(data.message, 'success');
+                setTimeout(() => location.reload(), 600);
+            } catch (err) {
+                showToast(err.message, 'danger');
+            }
+        }
+
+        async function deleteMapping(id) {
+            if (!confirm('Apakah Anda yakin ingin menghapus aturan BP Grouping ini?')) return;
+            try {
+                const res = await fetch(`/api/bp-group-mapping/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Gagal menghapus aturan');
+                showToast(data.message, 'success');
+                setTimeout(() => location.reload(), 600);
+            } catch (err) {
+                showToast(err.message, 'danger');
+            }
+        }
+
+        function filterTable() {
+            const input = document.getElementById('searchInput').value.toUpperCase();
+            const table = document.getElementById('mappingTable');
+            const tr = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < tr.length; i++) {
+                const tdGroup = tr[i].getElementsByTagName('td')[1];
+                const tdBP = tr[i].getElementsByTagName('td')[2];
+                const tdDesc = tr[i].getElementsByTagName('td')[3];
+                if (tdGroup || tdBP) {
+                    const txtGroup = tdGroup ? (tdGroup.textContent || tdGroup.innerText) : '';
+                    const txtBP = tdBP ? (tdBP.textContent || tdBP.innerText) : '';
+                    const txtDesc = tdDesc ? (tdDesc.textContent || tdDesc.innerText) : '';
+                    if (txtGroup.toUpperCase().indexOf(input) > -1 || txtBP.toUpperCase().indexOf(input) > -1 || txtDesc.toUpperCase().indexOf(input) > -1) {
+                        tr[i].style.display = '';
+                    } else {
+                        tr[i].style.display = 'none';
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

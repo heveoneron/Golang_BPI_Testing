@@ -153,16 +153,81 @@ type SAPGrowPOItem struct {
 	OrderPriceUnit            string `json:"OrderPriceUnit"`
 }
 
-// Payload Struktur Target SAP Grow OData v2 Business Partner
+// MaximoVendorRecord merepresentasikan baris vendor dari tabel axvendor di SQL Server Maximo
+type MaximoVendorRecord struct {
+	BPIVendorGroup string `json:"BPIVENDORGROUP" example:"01"`
+	Company        string `json:"COMPANY" example:"VND-UATF"`
+	CurrencyCode   string `json:"CURRENCYCODE" example:"USD"`
+	Name           string `json:"NAME" example:"Vendor UAT Final Testing (2)"`
+	OrgID          string `json:"ORGID" example:"BPI"`
+	TransID        string `json:"TRANSID,omitempty" example:"1020951"`
+	TransSeq       int    `json:"TRANSSEQ,omitempty" example:"1"`
+	Action         string `json:"ACTION,omitempty" example:"Add"`
+}
+
+// Payload Struktur Target SAP Grow OData v2 Business Partner (A_BusinessPartner Deep Insert)
 type SAPGrowBPPayload struct {
-	Customer                string `json:"Customer,omitempty"`
-	Supplier                string `json:"Supplier,omitempty"`
-	BusinessPartnerCategory string `json:"BusinessPartnerCategory"`
-	BusinessPartnerFullName string `json:"BusinessPartnerFullName"`
-	BusinessPartnerName     string `json:"BusinessPartnerName"`
-	LegalForm               string `json:"LegalForm,omitempty"`
-	OrganizationBPName1     string `json:"OrganizationBPName1,omitempty"`
-	SearchTerm1             string `json:"SearchTerm1,omitempty"`
+	BusinessPartner          string                   `json:"BusinessPartner,omitempty"`
+	BusinessPartnerCategory  string                   `json:"BusinessPartnerCategory"`
+	BusinessPartnerGrouping  string                   `json:"BusinessPartnerGrouping"`
+	OrganizationBPName1      string                   `json:"OrganizationBPName1"`
+	OrganizationBPName2      string                   `json:"OrganizationBPName2"`
+	OrganizationBPName3      string                   `json:"OrganizationBPName3"`
+	OrganizationBPName4      string                   `json:"OrganizationBPName4"`
+	SearchTerm1              string                   `json:"SearchTerm1"`
+	FormOfAddress            string                   `json:"FormOfAddress"`
+	BusinessPartnerIsBlocked bool                     `json:"BusinessPartnerIsBlocked"`
+	ToBusinessPartnerRole    []SAPBPRole              `json:"to_BusinessPartnerRole,omitempty"`
+	ToBusinessPartnerAddress []SAPBPAddress           `json:"to_BusinessPartnerAddress,omitempty"`
+	ToSupplier               *SAPBPSupplier           `json:"to_Supplier,omitempty"`
+}
+
+type SAPBPRole struct {
+	BusinessPartnerRole string `json:"BusinessPartnerRole"`
+}
+
+type SAPBPAddress struct {
+	Country  string `json:"Country"`
+	Language string `json:"Language"`
+}
+
+type SAPBPSupplier struct {
+	ToSupplierCompany       []SAPSupplierCompany       `json:"to_SupplierCompany,omitempty"`
+	ToSupplierPurchasingOrg []SAPSupplierPurchasingOrg `json:"to_SupplierPurchasingOrg,omitempty"`
+}
+
+type SAPSupplierCompany struct {
+	CompanyCode           string `json:"CompanyCode"`
+	ReconciliationAccount string `json:"ReconciliationAccount"`
+}
+
+type SAPSupplierPurchasingOrg struct {
+	PurchasingOrganization string `json:"PurchasingOrganization"`
+	PurchaseOrderCurrency  string `json:"PurchaseOrderCurrency"`
+}
+
+// BPGroupMapping mewakili pemetaan vendor group Maximo ke BusinessPartnerGrouping SAP Grow
+type BPGroupMapping struct {
+	ID          int       `json:"id"`
+	VendorGroup string    `json:"vendor_group"`
+	BPGrouping  string    `json:"bp_grouping"`
+	Description string    `json:"description"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ReconAccountMapping mewakili pemetaan vendor group Maximo ke Reconciliation Account & BP Grouping SAP Grow
+type ReconAccountMapping struct {
+	ID           int       `json:"id"`
+	VendorGroup  string    `json:"vendor_group"`
+	BPGrouping   string    `json:"bp_grouping"`
+	CompanyCode  string    `json:"company_code"`
+	ReconAccount string    `json:"recon_account"`
+	Description  string    `json:"description"`
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // TableAPIMapping mewakili pemetaan dinamis dari tabel Maximo ke service API SAP Grow

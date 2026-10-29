@@ -49,19 +49,35 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 	}
 
 	var records []ExtractedRecord
+	seenTransIDs := make(map[int64]bool)
+	var lastTransID int64 = 0
 
 	// Scan antrean sampai terkumpul sejumlah 'limit' data valid yang memiliki data detail di kedua tabel,
 	// atau sampai tidak ada lagi antrean yang belum diproses.
 	for len(records) < limit {
 		batchSize := 50
-		query := fmt.Sprintf(`
-			SELECT TOP (%d) transid, ISNULL(ifacename, ''), ISNULL(ifacetbname, ''), ISNULL([action], '')
-			FROM mxout_inter_trans
-			WHERE (ax = 0 OR ax IS NULL)
-			ORDER BY transid DESC
-		`, batchSize)
+		var query string
+		var rows *sql.Rows
+		var err error
 
-		rows, err := r.DB.QueryContext(ctx, query)
+		if lastTransID > 0 {
+			query = fmt.Sprintf(`
+				SELECT TOP (%d) transid, ISNULL(ifacename, ''), ISNULL(ifacetbname, ''), ISNULL([action], '')
+				FROM mxout_inter_trans
+				WHERE (ax = 0 OR ax IS NULL) AND transid < @p1
+				ORDER BY transid DESC
+			`, batchSize)
+			rows, err = r.DB.QueryContext(ctx, query, lastTransID)
+		} else {
+			query = fmt.Sprintf(`
+				SELECT TOP (%d) transid, ISNULL(ifacename, ''), ISNULL(ifacetbname, ''), ISNULL([action], '')
+				FROM mxout_inter_trans
+				WHERE (ax = 0 OR ax IS NULL)
+				ORDER BY transid DESC
+			`, batchSize)
+			rows, err = r.DB.QueryContext(ctx, query)
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("error query mxout_inter_trans: %w", err)
 		}
@@ -91,13 +107,19 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 			break
 		}
 
-		processedInBatch := 0
+		// Update cursor pagination ke transid terkecil di batch ini
+		lastTransID = items[len(items)-1].transID
+
 		for _, it := range items {
+			if seenTransIDs[it.transID] {
+				continue
+			}
+			seenTransIDs[it.transID] = true
+
 			tbUpper := strings.ToUpper(strings.TrimSpace(it.ifacetbname))
 			if tbUpper == "" {
-				log.Printf("[SKIP] mxout_inter_trans transid=%d di-skip: ifacetbname kosong", it.transID)
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
-				processedInBatch++
+				log.Printf("[SKIP] mxout_inter_trans transid=%d di-skip: ifacetbname kosong. Status ax tetap 0.", it.transID)
+				// Status ax TETAP 0 (jangan di-markProcessed agar tidak hilang tanpa jejak)
 				continue
 			}
 
@@ -111,23 +133,22 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 				rec, extractErr = r.extractPR(ctx, it.transID, it.action)
 			case "AXRECEIPT":
 				rec, extractErr = r.extractReceipt(ctx, it.transID, it.action)
+			case "AXVENDOR", "VENDOR":
+				rec, extractErr = r.extractVendor(ctx, it.transID, it.action)
 			default:
 				rec, extractErr = r.extractGeneric(ctx, it.transID, it.ifacetbname, it.action)
 			}
 
 			if extractErr != nil {
-				log.Printf("[WARN] Gagal query detail transid %d (%s): %v", it.transID, it.ifacetbname, extractErr)
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
-				processedInBatch++
+				log.Printf("[WARN] Gagal query detail transid %d (%s): %v. Status ax tetap 0.", it.transID, it.ifacetbname, extractErr)
+				// Status ax TETAP 0 jika query detail error
 				continue
 			}
 
 			// VALIDASI: Hanya proses jika data detail benar-benar ada di kedua tabel
 			if rec == nil {
-				log.Printf("[SKIP] mxout_inter_trans transid=%d (%s) di-skip: TIDAK ADA data detail terkait di tabel dbo.[%s]", it.transID, it.ifacename, it.ifacetbname)
-				// Tandai ax = 1 agar antrean bergerak, TETAPI JANGAN kirim ke staging/SAP
-				_ = r.MarkProcessed(ctx, fmt.Sprintf("%d", it.transID), it.ifacetbname)
-				processedInBatch++
+				log.Printf("[SKIP] mxout_inter_trans transid=%d (%s) di-skip: TIDAK ADA data detail terkait di tabel dbo.[%s]. Status ax tetap 0 (belum diposting ke staging).", it.transID, it.ifacename, it.ifacetbname)
+				// PENTING: Status ax TETAP 0! Jangan tandai ax = 1 jika data detail belum ada di SQL Server.
 				continue
 			}
 
@@ -138,14 +159,9 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 
 			// Data valid ditemukan lengkap di kedua tabel!
 			records = append(records, *rec)
-			processedInBatch++
 			if len(records) >= limit {
 				break
 			}
-		}
-
-		if processedInBatch == 0 {
-			break
 		}
 	}
 
@@ -474,6 +490,93 @@ func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64,
 		PayloadJSON:   payloadBytes,
 		LastUpdatedAt: time.Now(),
 	}, nil
+}
+
+// Ekstraksi data Vendor / Business Partner Maximo dari tabel axvendor
+func (r *SQLServerRepository) extractVendor(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
+	if r.DB == nil {
+		return nil, nil
+	}
+	query := `
+		SELECT 
+			ISNULL(bpivendorgroup, ''), 
+			ISNULL(company, ''), 
+			ISNULL(currencycode, 'IDR'), 
+			ISNULL(name, ''), 
+			ISNULL(orgid, 'BPI'), 
+			transseq
+		FROM axvendor
+		WHERE transid = @p1
+		ORDER BY transseq ASC
+	`
+	rows, err := r.DB.QueryContext(ctx, query, transID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bpiVendorGroup, company, currCode, name, orgID string
+	var seq int
+	found := false
+
+	for rows.Next() {
+		var bvg, comp, cCode, nm, org string
+		var sq int
+		if err := rows.Scan(&bvg, &comp, &cCode, &nm, &org, &sq); err != nil {
+			continue
+		}
+		if !found {
+			bpiVendorGroup = bvg
+			company = comp
+			currCode = cCode
+			name = nm
+			orgID = org
+			seq = sq
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating axvendor rows: %w", err)
+	}
+
+	if !found || strings.TrimSpace(company) == "" {
+		log.Printf("[DEBUG] extractVendor: tidak ada baris di axvendor dengan transid=%d (periksa kecocokan transid antara mxout_inter_trans dan axvendor)", transID)
+		return nil, nil
+	}
+
+	if action == "" {
+		action = "Add"
+	}
+
+	vendorPayload := map[string]interface{}{
+		"BPIVENDORGROUP": bpiVendorGroup,
+		"COMPANY":        company,
+		"CURRENCYCODE":   currCode,
+		"NAME":           name,
+		"ORGID":          orgID,
+		"TRANSID":        fmt.Sprintf("%d", transID),
+		"TRANSSEQ":       seq,
+		"ACTION":         action,
+	}
+
+	payloadBytes, err := json.Marshal(vendorPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   "axvendor",
+		DocType:       "AXVENDOR",
+		DocumentNo:    company,
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
+}
+
+// ExtractVendorByTransID mengekstrak vendor tertentu berdasarkan transid (bisa dipakai untuk pengujian atau manual ingestion)
+func (r *SQLServerRepository) ExtractVendorByTransID(ctx context.Context, transID int64) (*ExtractedRecord, error) {
+	return r.extractVendor(ctx, transID, "Add")
 }
 
 // Ekstraksi umum untuk tabel-tabel lainnya (AXITEM, AXUOM, AXVENDOR, AXBUDGET, AXINVISSUE, dll)

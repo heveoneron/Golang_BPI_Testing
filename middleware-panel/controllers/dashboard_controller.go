@@ -62,7 +62,7 @@ func (c *DashboardController) ShowDashboard(ctx *gin.Context) {
 				docs[i].ErrorMessage = &customMsg
 
 			} else if docs[i].ErrorMessage == nil || *docs[i].ErrorMessage == "" {
-				defaultMsg := "Finalized by BPA"
+				defaultMsg := "Finalized Succes Sending to SAP"
 				docs[i].ErrorMessage = &defaultMsg
 			}
 		}
@@ -439,3 +439,40 @@ func (c *DashboardController) HandleIngestTestPO(ctx *gin.Context) {
 	ctx.JSON(resp.StatusCode, result)
 }
 
+// HandleUpdatePayload memperbarui payload OData SAP dan opsional memicu repost ke SAP
+func (c *DashboardController) HandleUpdatePayload(ctx *gin.Context) {
+	var req struct {
+		DocType    string `json:"doc_type"`
+		DocumentNo string `json:"document_no"`
+		SAPPayload string `json:"sap_payload"`
+		Repost     bool   `json:"repost"`
+	}
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Parameter tidak valid: " + err.Error()})
+		return
+	}
+
+	// Validasi bahwa string sap_payload adalah JSON valid
+	var testJSON interface{}
+	if err := json.Unmarshal([]byte(req.SAPPayload), &testJSON); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Format JSON tidak valid: " + err.Error()})
+		return
+	}
+
+	if err := c.dashService.UpdatePayload(req.DocType, req.DocumentNo, req.SAPPayload); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal menyimpan payload: " + err.Error()})
+		return
+	}
+
+	if req.Repost {
+		session := sessions.Default(ctx)
+		tokenStr := ""
+		if token := session.Get("token"); token != nil {
+			tokenStr = token.(string)
+		}
+		_ = c.syncService.SendToSAPServiceLayer(req.DocType, req.DocumentNo, tokenStr)
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Payload berhasil diperbarui"})
+}

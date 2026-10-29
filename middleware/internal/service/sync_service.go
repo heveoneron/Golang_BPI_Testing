@@ -83,9 +83,11 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 		var transformErr error
 		docNo := stage.DocumentNo
 
-		switch stage.DocType {
-		case "PO", "axmxpo":
+		switch strings.ToUpper(stage.DocType) {
+		case "PO", "AXMXPO":
 			sapPayloadBytes, transformErr = s.transformPO(ctx, stage.RawPayload)
+		case "AXVENDOR", "VENDOR", "COMPANIES", "BP":
+			sapPayloadBytes, transformErr = s.transformVendor(ctx, stage.RawPayload)
 		default:
 			// Generic pass-through
 			sapPayloadBytes = stage.RawPayload
@@ -195,6 +197,214 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	return json.Marshal(sapPO)
 }
 
+// TransformVendor mengekspor transformasi vendor Maximo ke SAP Business Partner untuk testing / controller
+func (s *SyncService) TransformVendor(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	return s.transformVendor(ctx, raw)
+}
+
+// Transformasi data Vendor Maximo -> SAP Grow OData v2 Business Partner (A_BusinessPartner Deep Entity)
+func (s *SyncService) transformVendor(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	var company, bpiVendorGroup, currencyCode, name, orgID string
+
+	// 1. Coba unmarshal sebagai MaximoVendorRecord langsung
+	var vRec model.MaximoVendorRecord
+	if err := json.Unmarshal(raw, &vRec); err == nil && vRec.Company != "" {
+		company = vRec.Company
+		bpiVendorGroup = vRec.BPIVendorGroup
+		currencyCode = vRec.CurrencyCode
+		name = vRec.Name
+		orgID = vRec.OrgID
+	} else {
+		// 2. Coba parse map dinamis (misal dari extractGeneric atau format lain)
+		var m map[string]interface{}
+		if err := json.Unmarshal(raw, &m); err == nil {
+			getString := func(keys ...string) string {
+				for _, k := range keys {
+					if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+						return strings.TrimSpace(v)
+					}
+				}
+				return ""
+			}
+			company = getString("COMPANY", "company", "Company", "BusinessPartner")
+			bpiVendorGroup = getString("BPIVENDORGROUP", "bpivendorgroup", "VendorGroup", "vendor_group")
+			currencyCode = getString("CURRENCYCODE", "currencycode", "CurrencyCode", "currency")
+			name = getString("NAME", "name", "Name", "OrganizationBPName1")
+			orgID = getString("ORGID", "orgid", "OrgID")
+
+			// Jika data terbungkus di dalam array "DATA"
+			if company == "" {
+				if dataArr, ok := m["DATA"].([]interface{}); ok && len(dataArr) > 0 {
+					if firstRow, ok := dataArr[0].(map[string]interface{}); ok {
+						for k, v := range firstRow {
+							valStr := fmt.Sprintf("%v", v)
+							switch strings.ToLower(k) {
+							case "company":
+								company = valStr
+							case "bpivendorgroup":
+								bpiVendorGroup = valStr
+							case "currencycode":
+								currencyCode = valStr
+							case "name":
+								name = valStr
+							case "orgid":
+								orgID = valStr
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	company = strings.TrimSpace(company)
+	if company == "" {
+		return nil, fmt.Errorf("field company / BusinessPartner wajib terisi")
+	}
+
+	// 3. Mapping BusinessPartnerGrouping
+	bpGrouping := "Z001"
+	if s.PGRepo != nil {
+		if g, err := s.PGRepo.GetBPGrouping(ctx, bpiVendorGroup); err == nil && g != "" {
+			bpGrouping = g
+		}
+	}
+
+	// 4. Split name ke OrganizationBPName 1..4 (maksimal 40 karakter per field)
+	name1, name2, name3, name4 := splitBPName(name)
+
+	// 5. Mapping Reconciliation Account
+	reconAccount := "211001"
+	if s.PGRepo != nil {
+		if acc, err := s.PGRepo.GetReconAccount(ctx, bpiVendorGroup, "5110"); err == nil && acc != "" {
+			reconAccount = acc
+		}
+	}
+
+	// 6. Currency
+	docCurrency := strings.TrimSpace(currencyCode)
+	if docCurrency == "" {
+		docCurrency = "IDR"
+	}
+
+	_ = orgID // Bisa dipakai di masa depan jika ada mapping org
+
+	// 7. Bentuk payload target SAP Grow OData v2 Business Partner
+	sapBP := model.SAPGrowBPPayload{
+		BusinessPartner:          company,
+		BusinessPartnerCategory:  "2",
+		BusinessPartnerGrouping:  bpGrouping,
+		OrganizationBPName1:      name1,
+		OrganizationBPName2:      name2,
+		OrganizationBPName3:      name3,
+		OrganizationBPName4:      name4,
+		SearchTerm1:              "",
+		FormOfAddress:            "0003",
+		BusinessPartnerIsBlocked: false,
+		ToBusinessPartnerRole: []model.SAPBPRole{
+			{BusinessPartnerRole: "FLVN00"},
+			{BusinessPartnerRole: "FLVN01"},
+		},
+		ToBusinessPartnerAddress: []model.SAPBPAddress{
+			{Country: "ID", Language: "EN"},
+		},
+		ToSupplier: &model.SAPBPSupplier{
+			ToSupplierCompany: []model.SAPSupplierCompany{
+				{
+					CompanyCode:           "5110",
+					ReconciliationAccount: reconAccount,
+				},
+			},
+			ToSupplierPurchasingOrg: []model.SAPSupplierPurchasingOrg{
+				{
+					PurchasingOrganization: "5110",
+					PurchaseOrderCurrency:  docCurrency,
+				},
+			},
+		},
+	}
+
+	return json.Marshal(sapBP)
+}
+
+// splitBPName memecah nama vendor menjadi 4 slot (max 40 karakter per slot) berbasis kata (word-wrap)
+// agar kata tidak terpotong di tengah-tengah.
+func splitBPName(name string) (string, string, string, string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", "", "", ""
+	}
+
+	words := strings.Fields(name)
+	chunks := make([]string, 0, 4)
+	var current strings.Builder
+
+	pushChunk := func() {
+		if current.Len() > 0 {
+			chunks = append(chunks, current.String())
+			current.Reset()
+		}
+	}
+
+	for _, word := range words {
+		if len(chunks) == 3 {
+			// Sudah di slot terakhir (OrganizationBPName4)
+			wordRunes := []rune(word)
+			currLen := len([]rune(current.String()))
+			if currLen == 0 {
+				if len(wordRunes) > 40 {
+					current.WriteString(string(wordRunes[:40]))
+				} else {
+					current.WriteString(word)
+				}
+			} else if currLen+1+len(wordRunes) <= 40 {
+				current.WriteByte(' ')
+				current.WriteString(word)
+			}
+			continue
+		}
+
+		wordRunes := []rune(word)
+		// Jika ada kata tunggal tanpa spasi yang melebihi 40 karakter
+		for len(wordRunes) > 40 {
+			pushChunk()
+			if len(chunks) >= 4 {
+				break
+			}
+			chunks = append(chunks, string(wordRunes[:40]))
+			wordRunes = wordRunes[40:]
+		}
+		if len(chunks) >= 4 {
+			break
+		}
+		if len(wordRunes) == 0 {
+			continue
+		}
+		word = string(wordRunes)
+
+		currLen := len([]rune(current.String()))
+		if currLen == 0 {
+			current.WriteString(word)
+		} else if currLen+1+len([]rune(word)) <= 40 {
+			current.WriteByte(' ')
+			current.WriteString(word)
+		} else {
+			pushChunk()
+			if len(chunks) >= 4 {
+				break
+			}
+			current.WriteString(word)
+		}
+	}
+	pushChunk()
+
+	var res [4]string
+	for i := 0; i < len(chunks) && i < 4; i++ {
+		res[i] = strings.TrimSpace(chunks[i])
+	}
+	return res[0], res[1], res[2], res[3]
+}
+
 // 3. PUSH CORE DOCUMENTS KE SAP GROW (Tier 2 Dispatcher)
 func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 	docs, err := s.PGRepo.FetchAndLockPendingDocuments(ctx, 20)
@@ -222,7 +432,7 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		ep, err := s.PGRepo.GetSAPEndpointByCode(ctx, targetService)
 		if err != nil || ep == nil {
 			log.Printf("[WARN] Tidak ditemukan endpoint SAP untuk target service '%s' (dokumen %s, tipe %s). Pastikan layanan terdaftar di SAP Integration Endpoints.", targetService, doc.DocumentNo, doc.DocType)
-			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", fmt.Sprintf("SAP Endpoint untuk service '%s' tidak ditemukan di registry database", targetService), nil)
+			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_data", fmt.Sprintf("SAP Endpoint untuk service '%s' tidak ditemukan di registry database", targetService), nil)
 			continue
 		}
 
@@ -232,12 +442,16 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		}
 
 		// 2. Eksekusi request ke SAP Grow OData dengan auth & token handshake terisolasi
-		_, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(ep, "POST", doc.SAPPayload)
+		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(ep, "POST", doc.SAPPayload)
 		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
 
 		if sapErr != nil {
 			log.Printf("[WARN] Push to SAP Failed for %s (%s) [Target API: %s]: %v", doc.DocumentNo, doc.DocType, targetURL, sapErr)
-			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", sapErr.Error(), json.RawMessage(respBody))
+			statusType := "error_data"
+			if statusCode == 0 {
+				statusType = "error_conn"
+			}
+			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, statusType, sapErr.Error(), json.RawMessage(respBody))
 			errMsg := fmt.Sprintf("Failed sending to SAP Grow via %s [Target API: %s]: %s", ep.ServiceCode, targetURL, sapErr.Error())
 			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", sapErr.Error(), errMsg)
 		} else {
@@ -250,4 +464,3 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 	}
 	return pushedCount
 }
-

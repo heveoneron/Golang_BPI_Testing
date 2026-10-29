@@ -349,5 +349,49 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 17. TABEL BP GROUP MAPPINGS (Business Partner Grouping)
+CREATE TABLE IF NOT EXISTS bp_group_mappings (
+    id SERIAL PRIMARY KEY,
+    vendor_group VARCHAR(50) NOT NULL UNIQUE,     -- Maximo bpivendorgroup (e.g. '01')
+    bp_grouping VARCHAR(50) NOT NULL,              -- SAP BusinessPartnerGrouping (e.g. 'BPAB')
+    description VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+INSERT INTO bp_group_mappings (vendor_group, bp_grouping, description, is_active)
+VALUES ('01', 'BPAB', 'Vendor Lokal BPI - BPAB', true)
+ON CONFLICT (vendor_group) DO UPDATE SET bp_grouping = EXCLUDED.bp_grouping, updated_at = NOW();
+
+-- 18. TABEL RECON ACCOUNT & BP GROUPING MAPPINGS (Reconciliation Account & Business Partner Grouping)
+CREATE TABLE IF NOT EXISTS recon_account_mappings (
+    id SERIAL PRIMARY KEY,
+    vendor_group VARCHAR(50) NOT NULL UNIQUE,     -- Maximo bpivendorgroup (e.g. '01', '02', '03', '04', '05')
+    bp_grouping VARCHAR(50) NOT NULL DEFAULT 'Z001', -- SAP BusinessPartnerGrouping (e.g. 'Z001', 'Z002')
+    company_code VARCHAR(20) DEFAULT '5110',
+    recon_account VARCHAR(50) NOT NULL,           -- SAP Reconciliation Account (e.g. '211001', '211003')
+    description VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Seed dari Matriks Pemetaan SAP BP Grouping & Recon Account (Gambar 2)
+INSERT INTO recon_account_mappings (vendor_group, bp_grouping, company_code, recon_account, description, is_active)
+VALUES 
+    ('01', 'Z001', '5110', '211001', 'Vendor Type 01 - Trade Payables (Z001)', true),
+    ('02', 'Z002', '5110', '211003', 'Vendor Type 02 - Trade Payables (Z002)', true),
+    ('03', 'Z003', '5110', '211005', 'Vendor Type 03 - Trade Payables (Z003)', true),
+    ('04', 'Z004', '5110', '211006', 'Vendor Type 04 - Trade Payables (Z004)', true),
+    ('05', 'Z005', '5110', '',       'Vendor Type 05 - Trade Payables (Z005)', true)
+ON CONFLICT (vendor_group) DO UPDATE 
+SET bp_grouping = EXCLUDED.bp_grouping,
+    recon_account = EXCLUDED.recon_account,
+    company_code = EXCLUDED.company_code,
+    description = EXCLUDED.description,
+    updated_at = NOW();
+
+
 
 

@@ -27,6 +27,8 @@ func main() {
     	&models.User{},
     	&models.ExchangeRate{},
     	&models.UOMMapping{},
+    	&models.BPGroupMapping{},
+    	&models.ReconAccountMapping{},
     )
 
     // Seed default record BackupSchedule jika belum ada untuk mencegah error template

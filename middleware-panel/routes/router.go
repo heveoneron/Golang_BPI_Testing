@@ -4,6 +4,7 @@ import (
 	"middleware-panel/controllers"
 	"middleware-panel/repository"
 	"middleware-panel/services"
+	"html/template"
 	"net/http"
 	"os"
 	"strings"
@@ -81,6 +82,8 @@ func getFirstAllowedPath(allowed string) string {
 			return "/exchange-rates"
 		case "uom_mapping":
 			return "/uom-mapping"
+		case "bp_group_mapping", "recon_account_mapping":
+			return "/recon-account-mapping"
 		case "config":
 			return "/config"
 		case "sap_endpoints":
@@ -121,6 +124,9 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.Use(sessions.Sessions(sessionName, store))
 
 	// Static & Templates
+	r.SetFuncMap(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+	})
 	r.Static("/static", "./static")
 	r.LoadHTMLGlob("templates/*")
 	r.GET("/", func(c *gin.Context) { c.Redirect(302, "/login") })
@@ -181,6 +187,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	uomMappingService := services.NewUOMMappingService(uomMappingRepo)
 	uomMappingController := controllers.NewUOMMappingController(uomMappingService)
 
+	// 11. Recon Account Mapping Domain
+	reconAccountMappingRepo := repository.NewReconAccountMappingRepository(db)
+	reconAccountMappingService := services.NewReconAccountMappingService(reconAccountMappingRepo)
+	reconAccountMappingController := controllers.NewReconAccountMappingController(reconAccountMappingService)
+
 	// ==========================================
 	// ROUTES MAPPING
 	// ==========================================
@@ -200,6 +211,7 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/trigger-push", requireMenuGuard("dashboard"), dashController.HandleTriggerPush)
 	r.POST("/api/ingest-po", requireMenuGuard("dashboard"), dashController.HandleIngestTestPO)
 	r.GET("/api/documents/:parent_no/children", requireMenuGuard("dashboard"), dashController.GetChildrenAPI)
+	r.POST("/api/documents/update-payload", requireMenuGuard("dashboard"), dashController.HandleUpdatePayload)
 
 	// Proxy Audit Trail API (Sudah dinamis membaca BACKUP_API_URL dari .env)
 	r.GET("/api/audit-trail", requireMenuGuard("dashboard"), dashController.GetAuditTrailAPI)
@@ -227,6 +239,17 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/uom-mapping", requireMenuGuard("uom_mapping"), uomMappingController.HandleSave)
 	r.POST("/api/uom-mapping/toggle/:id", requireMenuGuard("uom_mapping"), uomMappingController.HandleToggleActive)
 	r.DELETE("/api/uom-mapping/:id", requireMenuGuard("uom_mapping"), uomMappingController.HandleDelete)
+
+	// BP Group Mapping legacy redirect to Recon & BP Grouping
+	r.GET("/bp-group-mapping", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/recon-account-mapping")
+	})
+
+	// Recon Account Mapping (menu: recon_account_mapping)
+	r.GET("/recon-account-mapping", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.ShowReconAccountMappings)
+	r.POST("/api/recon-account-mapping", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleSave)
+	r.POST("/api/recon-account-mapping/toggle/:id", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleToggleActive)
+	r.DELETE("/api/recon-account-mapping/:id", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleDelete)
 
 	// Scheduler Config & Manual Pull (menu: scheduler)
 	r.GET("/scheduler-config", requireMenuGuard("scheduler"), schedController.ShowSchedulerConfig)

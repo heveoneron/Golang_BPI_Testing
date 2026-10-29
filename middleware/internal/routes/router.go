@@ -31,6 +31,8 @@ func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 		api.GET("/documents", ctrl.GetDocuments)
 		api.GET("/integration-logs", ctrl.GetIntegrationLogs)
 		api.POST("/ingest/po", ctrl.IngestManualPO)
+		api.POST("/ingest/vendor", ctrl.IngestManualVendor)
+		api.POST("/ingest/bp", ctrl.IngestManualVendor)
 		api.POST("/trigger/push", ctrl.TriggerPush)
 		api.POST("/trigger/pull", ctrl.TriggerPull)
 		api.GET("/trigger/pull", ctrl.TriggerPull)

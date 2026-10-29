@@ -128,6 +128,94 @@ func (c *WebController) IngestManualPO(ctx *gin.Context) {
 	})
 }
 
+// IngestManualVendor godoc
+// @Summary      Ingest Manual Vendor / Business Partner Maximo
+// @Description  Simulasi webhook atau inject payload Vendor Maximo (atau transid) ke staging_documents dan mentransformasikannya ke documents siap kirim ke SAP Business Partner
+// @Tags         Ingestion
+// @Accept       json
+// @Produce      json
+// @Param        payload  body      model.MaximoVendorRecord  true  "Maximo Vendor JSON Payload"
+// @Success      200      {object}  IngestManualPOResponse
+// @Failure      400      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Failure      503      {object}  ErrorResponse
+// @Router       /ingest/vendor [post]
+func (c *WebController) IngestManualVendor(ctx *gin.Context) {
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "PostgreSQL database pool is not connected"})
+		return
+	}
+
+	var req map[string]interface{}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	var docNo string
+	var payloadBytes []byte
+
+	// Jika diberikan transid dan database SQL Server tersedia, coba tarik dari axvendor
+	if tidVal, ok := req["transid"]; ok && c.SyncSvc != nil && c.SyncSvc.SQLRepo != nil {
+		var tid int64
+		switch t := tidVal.(type) {
+		case float64:
+			tid = int64(t)
+		case string:
+			tid, _ = strconv.ParseInt(t, 10, 64)
+		}
+		if tid > 0 {
+			rec, err := c.SyncSvc.SQLRepo.ExtractVendorByTransID(ctx.Request.Context(), tid)
+			if err == nil && rec != nil {
+				docNo = rec.DocumentNo
+				payloadBytes = rec.PayloadJSON
+			}
+		}
+	}
+
+	if len(payloadBytes) == 0 {
+		// Ambil langsung dari request body
+		company := ""
+		for _, k := range []string{"COMPANY", "company", "Company", "BusinessPartner"} {
+			if v, ok := req[k].(string); ok && strings.TrimSpace(v) != "" {
+				company = strings.TrimSpace(v)
+				break
+			}
+		}
+		if company == "" {
+			ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Field COMPANY / company / BusinessPartner wajib diisi"})
+			return
+		}
+		docNo = company
+		payloadBytes, _ = json.Marshal(req)
+	}
+
+	stgDoc := model.StagingDocument{
+		ID:         uuid.New(),
+		DocType:    "AXVENDOR",
+		DocumentNo: docNo,
+		FlowType:   "forward",
+		RawPayload: payloadBytes,
+		Status:     "PENDING",
+	}
+
+	if err := c.PGRepo.UpsertStagingDocument(ctx.Request.Context(), stgDoc); err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	transformed := 0
+	if c.SyncSvc != nil {
+		transformed = c.SyncSvc.TransformStagingToCore(ctx.Request.Context())
+	}
+
+	ctx.JSON(http.StatusOK, IngestManualPOResponse{
+		Message:     "Vendor successfully ingested into staging_documents and transformed to core documents",
+		DocumentNo:  docNo,
+		Transformed: transformed,
+	})
+}
+
 // TriggerPush godoc
 // @Summary      Trigger Push Dispatcher ke SAP Grow
 // @Description  Memicu eksekusi manual worker push untuk mengirim dokumen pending ke SAP Grow OData
