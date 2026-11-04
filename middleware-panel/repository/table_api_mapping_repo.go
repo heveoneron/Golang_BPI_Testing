@@ -70,6 +70,7 @@ func (r *tableAPIMappingRepo) SeedDefaults() error {
 	var count int64
 	r.db.Model(&models.TableAPIMapping{}).Count(&count)
 	if count > 0 {
+		_ = r.db.Model(&models.TableAPIMapping{}).Where("UPPER(source_table) = ? AND UPPER(target_service_code) = ?", "MATRECTRANS", "PO").Update("target_service_code", "GRN").Error
 		return nil
 	}
 
@@ -104,7 +105,7 @@ func (r *tableAPIMappingRepo) SeedDefaults() error {
 		{
 			SourceTable:       "MATRECTRANS",
 			SourceDesc:        "Goods Receipt (GRN) & Material Movements",
-			TargetServiceCode: "PO",
+			TargetServiceCode: "GRN",
 			Direction:         "OUTBOUND",
 			SyncMode:          "MANUAL",
 			IsActive:          true,

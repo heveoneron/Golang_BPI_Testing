@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Material &amp; Item Config Master - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 14px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .pagination-sm .page-link {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 6px;
+            color: var(--text-main);
+            border-color: var(--border-soft);
+        }
+        .pagination-sm .page-item.active .page-link {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+        .pagination-sm .page-item.disabled .page-link {
+            background-color: #F8FAFC;
+            color: var(--text-muted);
+            border-color: var(--border-soft);
+        }
+
+        .maximo-code-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .sap-code-badge { background-color: #F0FDF4; color: #15803D; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #BBF7D0; display: inline-flex; align-items: center; gap: 6px; }
+
+        .nav-tabs .nav-link { font-weight: 700; font-size: 14px; color: var(--text-muted); border: none; border-bottom: 3px solid transparent; padding: 12px 20px; }
+        .nav-tabs .nav-link.active { color: var(--primary); background: transparent; border-bottom: 3px solid var(--primary); }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-box-seam text-primary"></i> Material &amp; Item Config Master</h3>
+                <div class="text-muted small">Konfigurasi pemetaan Item Group (ITEMGROUPID &rarr; ValuationClass), Item Type (ITEMTYPE &rarr; ProductType), dan Stock Type (StockType &rarr; ProductGroup) dari IBM Maximo ke SAP S/4HANA Grow</div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary fw-bold d-flex align-items-center gap-2 shadow-sm" onclick="openAddModal()">
+                    <i class="bi bi-plus-circle"></i> Tambah Mapping
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Total Pemetaan</div>
+                    <div class="stat-val text-dark">{{ .Total }}</div>
+                    <div class="text-muted small mt-1"><i class="bi bi-check-circle-fill text-success me-1"></i>{{ .ActiveCount }} Aktif</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Item Groups (ITEMGROUPID)</div>
+                    <div class="stat-val text-primary">{{ .ItemGroupCount }}</div>
+                    <div class="text-muted small mt-1">IN, IS, SG, SO Series &rarr; ValuationClass (3000)</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Item Types (ITEMTYPE)</div>
+                    <div class="stat-val text-info">{{ .ItemTypeCount }}</div>
+                    <div class="text-muted small mt-1">Item &rarr; ZITM, Service &rarr; ZSVC</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Stock Types (StockType)</div>
+                    <div class="stat-val text-success">{{ .StockTypeCount }}</div>
+                    <div class="text-muted small mt-1">Stock &rarr; ZSTK, Non-stock &rarr; ZNST, Service &rarr; ZSVC</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Card with Tabs -->
+        <div class="main-card">
+            <!-- Nav Tabs -->
+            <div class="border-bottom px-4 pt-2 bg-white">
+                <ul class="nav nav-tabs border-bottom-0" id="materialTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="tab-item-group-btn" data-bs-toggle="tab" data-bs-target="#tab-item-group" type="button" role="tab">
+                            <i class="bi bi-diagram-2 me-1"></i> Item Group (ITEMGROUPID &rarr; ValuationClass) <span class="badge bg-primary-subtle text-primary ms-1">{{ .ItemGroupCount }}</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tab-item-type-btn" data-bs-toggle="tab" data-bs-target="#tab-item-type" type="button" role="tab">
+                            <i class="bi bi-tags me-1"></i> Item Type (ITEMTYPE &rarr; ProductType) <span class="badge bg-info-subtle text-info ms-1">{{ .ItemTypeCount }}</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tab-stock-type-btn" data-bs-toggle="tab" data-bs-target="#tab-stock-type" type="button" role="tab">
+                            <i class="bi bi-layers me-1"></i> Stock Type (StockType &rarr; ProductGroup) <span class="badge bg-success-subtle text-success ms-1">{{ .StockTypeCount }}</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="tab-content" id="materialTabsContent">
+                <!-- TAB 1: ITEM GROUP -->
+                <div class="tab-pane fade show active p-4" id="tab-item-group" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="input-group" style="max-width: 320px;">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" id="searchItemGroup" class="form-control border-start-0 ps-0" placeholder="Cari Item Group Maximo / SAP...">
+                        </div>
+                        <div class="text-muted small">Menampilkan pemetaan grup material dari Maximo ke SAP Valuation Class (Contoh: IN-01 &rarr; 3000)</div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-custom mb-0" id="tableItemGroup">
+                            <thead>
+                                <tr>
+                                    <th style="width: 70px;">ID</th>
+                                    <th style="width: 220px;">Maximo ITEMGROUPID</th>
+                                    <th style="width: 220px;">SAP Valuation Class</th>
+                                    <th>Keterangan</th>
+                                    <th style="width: 130px;" class="text-center">Status</th>
+                                    <th style="width: 140px;" class="text-end">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{ range .ItemGroupList }}
+                                <tr>
+                                    <td class="text-muted">{{ .ID }}</td>
+                                    <td><span class="maximo-code-badge"><i class="bi bi-database me-1"></i>{{ .MaximoValue }}</span></td>
+                                    <td><span class="sap-code-badge"><i class="bi bi-cloud-check me-1"></i>{{ .SAPValue }}</span></td>
+                                    <td class="text-muted">{{ if .Description }}{{ .Description }}{{ else }}-{{ end }}</td>
+                                    <td class="text-center">
+                                        <div class="form-check form-switch d-inline-block">
+                                            <input class="form-check-input cursor-pointer" type="checkbox" role="switch" {{ if .IsActive }}checked{{ end }} onchange="toggleActive({{ .ID }})">
+                                        </div>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal({{ .ID }}, '{{ .ConfigType }}', '{{ .MaximoValue }}', '{{ .SAPValue }}', '{{ .Description }}', {{ .IsActive }})">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteMapping({{ .ID }}, '{{ .MaximoValue }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {{ else }}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">Belum ada data Item Group</td>
+                                </tr>
+                                {{ end }}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top flex-wrap gap-2">
+                        <div class="text-muted small" id="infoItemGroup">Menampilkan 1–20 entri</div>
+                        <nav>
+                            <ul class="pagination pagination-sm mb-0 gap-1" id="paginationItemGroup"></ul>
+                        </nav>
+                    </div>
+                </div>
+
+                <!-- TAB 2: ITEM TYPE -->
+                <div class="tab-pane fade p-4" id="tab-item-type" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="input-group" style="max-width: 320px;">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" id="searchItemType" class="form-control border-start-0 ps-0" placeholder="Cari Item Type Maximo / SAP...">
+                        </div>
+                        <div class="text-muted small">Pemetaan Tipe Dokumen/Item: <strong>Item</strong> &rarr; <code>ZITM</code>, <strong>Service</strong> &rarr; <code>ZSVC</code></div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-custom mb-0" id="tableItemType">
+                            <thead>
+                                <tr>
+                                    <th style="width: 70px;">ID</th>
+                                    <th style="width: 220px;">Maximo ITEMTYPE</th>
+                                    <th style="width: 220px;">SAP Product Type</th>
+                                    <th>Keterangan</th>
+                                    <th style="width: 130px;" class="text-center">Status</th>
+                                    <th style="width: 140px;" class="text-end">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{ range .ItemTypeList }}
+                                <tr>
+                                    <td class="text-muted">{{ .ID }}</td>
+                                    <td><span class="maximo-code-badge"><i class="bi bi-tag me-1"></i>{{ .MaximoValue }}</span></td>
+                                    <td><span class="sap-code-badge"><i class="bi bi-cloud-check me-1"></i>{{ .SAPValue }}</span></td>
+                                    <td class="text-muted">{{ if .Description }}{{ .Description }}{{ else }}-{{ end }}</td>
+                                    <td class="text-center">
+                                        <div class="form-check form-switch d-inline-block">
+                                            <input class="form-check-input cursor-pointer" type="checkbox" role="switch" {{ if .IsActive }}checked{{ end }} onchange="toggleActive({{ .ID }})">
+                                        </div>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal({{ .ID }}, '{{ .ConfigType }}', '{{ .MaximoValue }}', '{{ .SAPValue }}', '{{ .Description }}', {{ .IsActive }})">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteMapping({{ .ID }}, '{{ .MaximoValue }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {{ else }}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">Belum ada data Item Type</td>
+                                </tr>
+                                {{ end }}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top flex-wrap gap-2">
+                        <div class="text-muted small" id="infoItemType"></div>
+                        <nav>
+                            <ul class="pagination pagination-sm mb-0 gap-1" id="paginationItemType"></ul>
+                        </nav>
+                    </div>
+                </div>
+
+                <!-- TAB 3: STOCK TYPE -->
+                <div class="tab-pane fade p-4" id="tab-stock-type" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="input-group" style="max-width: 320px;">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" id="searchStockType" class="form-control border-start-0 ps-0" placeholder="Cari Stock Type Maximo / SAP...">
+                        </div>
+                        <div class="text-muted small">Pemetaan Kategori Stok: <strong>Stock</strong> &rarr; <code>ZSTK</code>, <strong>Non-stock</strong> &rarr; <code>ZNST</code>, <strong>Service</strong> &rarr; <code>ZSVC</code></div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-custom mb-0" id="tableStockType">
+                            <thead>
+                                <tr>
+                                    <th style="width: 70px;">ID</th>
+                                    <th style="width: 220px;">Maximo StockType</th>
+                                    <th style="width: 220px;">SAP Product Group</th>
+                                    <th>Keterangan</th>
+                                    <th style="width: 130px;" class="text-center">Status</th>
+                                    <th style="width: 140px;" class="text-end">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{ range .StockTypeList }}
+                                <tr>
+                                    <td class="text-muted">{{ .ID }}</td>
+                                    <td><span class="maximo-code-badge"><i class="bi bi-layers me-1"></i>{{ .MaximoValue }}</span></td>
+                                    <td><span class="sap-code-badge"><i class="bi bi-cloud-check me-1"></i>{{ .SAPValue }}</span></td>
+                                    <td class="text-muted">{{ if .Description }}{{ .Description }}{{ else }}-{{ end }}</td>
+                                    <td class="text-center">
+                                        <div class="form-check form-switch d-inline-block">
+                                            <input class="form-check-input cursor-pointer" type="checkbox" role="switch" {{ if .IsActive }}checked{{ end }} onchange="toggleActive({{ .ID }})">
+                                        </div>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal({{ .ID }}, '{{ .ConfigType }}', '{{ .MaximoValue }}', '{{ .SAPValue }}', '{{ .Description }}', {{ .IsActive }})">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteMapping({{ .ID }}, '{{ .MaximoValue }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {{ else }}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">Belum ada data Stock Type</td>
+                                </tr>
+                                {{ end }}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top flex-wrap gap-2">
+                        <div class="text-muted small" id="infoStockType"></div>
+                        <nav>
+                            <ul class="pagination pagination-sm mb-0 gap-1" id="paginationStockType"></ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Form (Add / Edit) -->
+    <div class="modal fade" id="mappingModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom px-4 py-3">
+                    <h5 class="modal-title fw-bold" id="modalTitle"><i class="bi bi-plus-circle text-primary me-2"></i>Tambah Pemetaan Material</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <form id="mappingForm">
+                        <input type="hidden" id="mappingId" value="0">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Kategori Konfigurasi</label>
+                            <select id="configType" class="form-select" required>
+                                <option value="ITEM_GROUP">Item Group (ITEMGROUPID &rarr; ValuationClass)</option>
+                                <option value="ITEM_TYPE">Item Type (ITEMTYPE &rarr; ProductType)</option>
+                                <option value="STOCK_TYPE">Stock Type (StockType &rarr; ProductGroup)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Nilai Maximo</label>
+                            <input type="text" id="maximoValue" class="form-control" placeholder="Contoh: IN-01, Item, Stock" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Nilai SAP Grow</label>
+                            <input type="text" id="sapValue" class="form-control" placeholder="Contoh: 3000, ZITM, ZSTK" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Keterangan / Catatan</label>
+                            <input type="text" id="description" class="form-control" placeholder="Deskripsi pemetaan">
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="isActive" checked>
+                            <label class="form-check-label small fw-bold" for="isActive">Status Aktif</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer border-top px-4 py-3">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-primary fw-bold px-4" onclick="saveMapping()">Simpan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(msg, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const msgEl = document.getElementById('toastMessage');
+            if (isSuccess) {
+                toastEl.classList.remove('bg-danger');
+                toastEl.classList.add('bg-success');
+                msgEl.innerHTML = '<i class="bi bi-check-circle-fill fs-5"></i> ' + msg;
+            } else {
+                toastEl.classList.remove('bg-success');
+                toastEl.classList.add('bg-danger');
+                msgEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill fs-5"></i> ' + msg;
+            }
+            new bootstrap.Toast(toastEl, { delay: 3500 }).show();
+        }
+
+        function initClientPagination(tableId, searchInputId, paginationNavId, paginationInfoId, pageSize = 20) {
+            const table = document.getElementById(tableId);
+            if (!table) return null;
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return null;
+            const allRows = Array.from(tbody.querySelectorAll('tr'));
+            const dataRows = allRows.filter(r => !r.querySelector('td[colspan]'));
+            if (dataRows.length === 0) return null;
+
+            let currentPage = 1;
+            let searchQuery = '';
+
+            function getFilteredRows() {
+                if (!searchQuery) return dataRows;
+                return dataRows.filter(row => row.innerText.toLowerCase().includes(searchQuery));
+            }
+
+            function render() {
+                const filtered = getFilteredRows();
+                const total = filtered.length;
+                const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                if (currentPage > totalPages) currentPage = totalPages;
+                if (currentPage < 1) currentPage = 1;
+
+                const startIdx = (currentPage - 1) * pageSize;
+                const endIdx = Math.min(startIdx + pageSize, total);
+
+                // Hide all data rows
+                dataRows.forEach(r => r.style.display = 'none');
+
+                // Show active page slice
+                for (let i = startIdx; i < endIdx; i++) {
+                    if (filtered[i]) filtered[i].style.display = '';
+                }
+
+                // Update info text
+                const infoEl = document.getElementById(paginationInfoId);
+                if (infoEl) {
+                    if (total === 0) {
+                        infoEl.innerText = 'Tidak ada entri yang cocok';
+                    } else {
+                        infoEl.innerHTML = `Menampilkan <b class="text-dark">${startIdx + 1}–${endIdx}</b> dari <b class="text-dark">${total}</b> entri (20 per halaman)`;
+                    }
+                }
+
+                // Render pagination controls
+                const navEl = document.getElementById(paginationNavId);
+                if (!navEl) return;
+                navEl.innerHTML = '';
+
+                if (totalPages <= 1) return;
+
+                // Prev button
+                const prevLi = document.createElement('li');
+                prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+                prevLi.innerHTML = `<button class="page-link" type="button" aria-label="Previous"><i class="bi bi-chevron-left"></i></button>`;
+                if (currentPage > 1) {
+                    prevLi.onclick = (e) => { e.preventDefault(); currentPage--; render(); };
+                }
+                navEl.appendChild(prevLi);
+
+                // Page numbers (smart windowing)
+                let pages = [];
+                if (totalPages <= 7) {
+                    for (let i = 1; i <= totalPages; i++) pages.push(i);
+                } else {
+                    pages.push(1);
+                    if (currentPage > 3) pages.push('...');
+                    let start = Math.max(2, currentPage - 1);
+                    let end = Math.min(totalPages - 1, currentPage + 1);
+                    for (let i = start; i <= end; i++) pages.push(i);
+                    if (currentPage < totalPages - 2) pages.push('...');
+                    pages.push(totalPages);
+                }
+
+                pages.forEach(p => {
+                    const li = document.createElement('li');
+                    if (p === '...') {
+                        li.className = 'page-item disabled';
+                        li.innerHTML = '<span class="page-link">…</span>';
+                    } else {
+                        li.className = `page-item ${p === currentPage ? 'active' : ''}`;
+                        li.innerHTML = `<button class="page-link" type="button">${p}</button>`;
+                        if (p !== currentPage) {
+                            li.onclick = (e) => { e.preventDefault(); currentPage = p; render(); };
+                        }
+                    }
+                    navEl.appendChild(li);
+                });
+
+                // Next button
+                const nextLi = document.createElement('li');
+                nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+                nextLi.innerHTML = `<button class="page-link" type="button" aria-label="Next"><i class="bi bi-chevron-right"></i></button>`;
+                if (currentPage < totalPages) {
+                    nextLi.onclick = (e) => { e.preventDefault(); currentPage++; render(); };
+                }
+                navEl.appendChild(nextLi);
+            }
+
+            if (searchInputId) {
+                const searchInput = document.getElementById(searchInputId);
+                if (searchInput) {
+                    searchInput.addEventListener('input', function(e) {
+                        searchQuery = e.target.value.toLowerCase().trim();
+                        currentPage = 1;
+                        render();
+                    });
+                }
+            }
+
+            render();
+            return {
+                refresh: () => render(),
+                setPage: (p) => { currentPage = p; render(); }
+            };
+        }
+
+        let paginators = {};
+        document.addEventListener('DOMContentLoaded', function() {
+            paginators.itemGroup = initClientPagination('tableItemGroup', 'searchItemGroup', 'paginationItemGroup', 'infoItemGroup', 20);
+            paginators.itemType = initClientPagination('tableItemType', 'searchItemType', 'paginationItemType', 'infoItemType', 20);
+            paginators.stockType = initClientPagination('tableStockType', 'searchStockType', 'paginationStockType', 'infoStockType', 20);
+        });
+
+        function openAddModal() {
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle text-primary me-2"></i>Tambah Pemetaan Material';
+            document.getElementById('mappingId').value = 0;
+            document.getElementById('configType').value = 'ITEM_GROUP';
+            document.getElementById('configType').disabled = false;
+            document.getElementById('maximoValue').value = '';
+            document.getElementById('sapValue').value = '';
+            document.getElementById('description').value = '';
+            document.getElementById('isActive').checked = true;
+            new bootstrap.Modal(document.getElementById('mappingModal')).show();
+        }
+
+        function openEditModal(id, configType, maximoVal, sapVal, desc, isActive) {
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>Edit Pemetaan Material';
+            document.getElementById('mappingId').value = id;
+            document.getElementById('configType').value = configType;
+            document.getElementById('configType').disabled = true;
+            document.getElementById('maximoValue').value = maximoVal;
+            document.getElementById('sapValue').value = sapVal;
+            document.getElementById('description').value = desc;
+            document.getElementById('isActive').checked = isActive;
+            new bootstrap.Modal(document.getElementById('mappingModal')).show();
+        }
+
+        function saveMapping() {
+            const id = parseInt(document.getElementById('mappingId').value) || 0;
+            const configType = document.getElementById('configType').value;
+            const maximoValue = document.getElementById('maximoValue').value.trim();
+            const sapValue = document.getElementById('sapValue').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const isActive = document.getElementById('isActive').checked;
+
+            if (!maximoValue || !sapValue) {
+                showToast('Nilai Maximo dan Nilai SAP wajib diisi', false);
+                return;
+            }
+
+            fetch('/api/material-mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: id,
+                    config_type: configType,
+                    maximo_value: maximoValue,
+                    sap_value: sapValue,
+                    description: description,
+                    is_active: isActive
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Pemetaan berhasil disimpan', true);
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(data.message || 'Gagal menyimpan', false);
+                }
+            })
+            .catch(err => {
+                showToast('Terjadi kesalahan jaringan', false);
+            });
+        }
+
+        function toggleActive(id) {
+            fetch('/api/material-mapping/toggle/' + id, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Status berhasil diubah', true);
+                } else {
+                    showToast(data.message || 'Gagal mengubah status', false);
+                    setTimeout(() => location.reload(), 1000);
+                }
+            })
+            .catch(() => {
+                showToast('Terjadi kesalahan jaringan', false);
+                setTimeout(() => location.reload(), 1000);
+            });
+        }
+
+        function deleteMapping(id, name) {
+            if (!confirm(`Apakah Anda yakin ingin menghapus pemetaan '${name}'?`)) return;
+            fetch('/api/material-mapping/' + id, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Pemetaan berhasil dihapus', true);
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(data.message || 'Gagal menghapus', false);
+                }
+            })
+            .catch(() => {
+                showToast('Terjadi kesalahan jaringan', false);
+            });
+        }
+    </script>
+</body>
+</html>
+

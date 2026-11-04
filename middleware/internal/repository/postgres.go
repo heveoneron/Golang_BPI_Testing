@@ -53,14 +53,8 @@ func (r *PostgresRepository) UpsertStagingDocument(ctx context.Context, doc mode
 		ON CONFLICT (doc_type, document_no, flow_type)
 		DO UPDATE SET 
 			raw_payload = EXCLUDED.raw_payload,
-			status = CASE 
-				WHEN staging_documents.raw_payload IS DISTINCT FROM EXCLUDED.raw_payload THEN 'PENDING'
-				ELSE staging_documents.status 
-			END,
-			error_msg = CASE 
-				WHEN staging_documents.raw_payload IS DISTINCT FROM EXCLUDED.raw_payload THEN '-'
-				ELSE staging_documents.error_msg 
-			END,
+			status = 'PENDING',
+			error_msg = '-',
 			updated_at = NOW();
 	`
 	if doc.ID == uuid.Nil {
@@ -114,14 +108,8 @@ func (r *PostgresRepository) UpsertCoreDocument(ctx context.Context, doc model.D
 		DO UPDATE SET 
 			raw_payload = EXCLUDED.raw_payload,
 			sap_payload = EXCLUDED.sap_payload,
-			status = CASE 
-				WHEN documents.sap_payload IS DISTINCT FROM EXCLUDED.sap_payload THEN 'pending'
-				ELSE documents.status 
-			END,
-			retry_count = CASE 
-				WHEN documents.sap_payload IS DISTINCT FROM EXCLUDED.sap_payload THEN 0
-				ELSE documents.retry_count 
-			END,
+			status = 'pending',
+			retry_count = 0,
 			error_message = NULL,
 			updated_at = NOW();
 	`
@@ -183,6 +171,32 @@ func (r *PostgresRepository) UpdateSAPError(ctx context.Context, id uuid.UUID, s
 		WHERE id = $4
 	`, status, errMsg, sapResponse, id)
 	return err
+}
+
+func (r *PostgresRepository) GetDocumentByTypeAndNo(ctx context.Context, docType, docNo string) (*model.Document, error) {
+	if r.Pool == nil {
+		return nil, nil
+	}
+	var d model.Document
+	err := r.Pool.QueryRow(ctx, `
+		SELECT id, doc_type, document_no, flow_type, group_id, 
+		       parent_doc_type, parent_document_no, raw_payload, sap_payload, 
+		       status, retry_count, last_attempt_at, sap_document_no, sap_response, 
+		       error_message, sync_back_status, created_at, updated_at
+		FROM documents
+		WHERE UPPER(doc_type) = UPPER($1) AND document_no = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, docType, docNo).Scan(
+		&d.ID, &d.DocType, &d.DocumentNo, &d.FlowType, &d.GroupID,
+		&d.ParentDocType, &d.ParentDocumentNo, &d.RawPayload, &d.SAPPayload,
+		&d.Status, &d.RetryCount, &d.LastAttemptAt, &d.SAPDocumentNo, &d.SAPResponse,
+		&d.ErrorMessage, &d.SyncBackStatus, &d.CreatedAt, &d.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 // 4. Budget Transaction Lock (BPI Specific)
@@ -310,6 +324,26 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'https://my445160-api.s4hana.cloud.sap', 
 			'/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product', 
 			'CU_SAP_COM_0009', 
+			'PowerofOne@123456789'
+		),
+		(
+			'GRN', 
+			'Material Document / Goods Movement (OData v2)', 
+			'SAP_COM_0108', 
+			'v2', 
+			'https://my445160-api.s4hana.cloud.sap', 
+			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader', 
+			'Y_BPI_CU_SAP_COM_0108', 
+			'PowerofOne@123456789'
+		),
+		(
+			'CANCEL_GR',
+			'Cancel Goods Movement / Material Document (OData v2)',
+			'SAP_COM_0108',
+			'v2',
+			'https://my445160-api.s4hana.cloud.sap',
+			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel',
+			'Y_BPI_CU_SAP_COM_0108',
 			'PowerofOne@123456789'
 		),
 		(
@@ -604,10 +638,10 @@ func (r *PostgresRepository) EnsureTableAPIMappingsTable(ctx context.Context) er
 			('ITEM', 'Master Item, Material & Spare Parts', 'PRODUCT', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Sinkronisasi master data item/material ke SAP Grow API_PRODUCT_SRV'),
 			('PO', 'Purchase Order Header & Lines', 'PO', 'OUTBOUND', 'BATCH_SCHEDULE', true, 'Dokumen pemesanan barang ke SAP Grow api_purchaseorder_2'),
 			('COMPANIES', 'Vendor, Supplier & Business Partner', 'BP', 'OUTBOUND', 'REALTIME', true, 'Sinkronisasi mitra bisnis & supplier ke SAP Grow API_BUSINESS_PARTNER'),
-			('MATRECTRANS', 'Goods Receipt (GRN) & Material Movements', 'PO', 'OUTBOUND', 'MANUAL', true, 'Penerimaan barang fisik dari gudang Maximo terhadap PO SAP Grow'),
+			('MATRECTRANS', 'Goods Receipt (GRN) & Material Movements', 'GRN', 'OUTBOUND', 'MANUAL', true, 'Penerimaan barang fisik dari gudang Maximo terhadap PO SAP Grow'),
 			('PR', 'Purchase Requisition (Permintaan Pembelian)', 'PO', 'OUTBOUND', 'MANUAL', true, 'Pengajuan PR sebelum dikonversi menjadi PO di SAP'),
 			('AXUOM', 'Unit of Measure (UOM) Standar', 'PRODUCT', 'OUTBOUND', 'MANUAL', true, 'Katalog satuan ukuran Maximo ke SAP Product Master UOM')
-		ON CONFLICT (source_table) DO NOTHING;
+		ON CONFLICT (source_table) DO UPDATE SET target_service_code = EXCLUDED.target_service_code WHERE table_api_mappings.source_table = 'MATRECTRANS';
 	`
 	_, err := r.Pool.Exec(ctx, createTableSQL)
 	return err
@@ -789,6 +823,24 @@ func (r *PostgresRepository) GetSAPUOM(ctx context.Context, maximoUOM string) (s
 		return maximoUOM, nil // Fallback to original Maximo UOM if no mapping found
 	}
 	return sapUOM, nil
+}
+
+// 11b. Material Config Mapping Operations (Item Group, Item Type, Stock Type)
+func (r *PostgresRepository) GetMaterialConfigSAPValue(ctx context.Context, configType, maximoValue string) (string, error) {
+	if r == nil || r.Pool == nil || strings.TrimSpace(maximoValue) == "" {
+		return maximoValue, nil
+	}
+
+	var sapVal string
+	err := r.Pool.QueryRow(ctx, `
+		SELECT sap_value FROM material_config_mappings
+		WHERE config_type = $1 AND UPPER(TRIM(maximo_value)) = UPPER(TRIM($2)) AND is_active = true
+		LIMIT 1
+	`, configType, maximoValue).Scan(&sapVal)
+	if err != nil {
+		return maximoValue, nil // Fallback to original Maximo value if no mapping found
+	}
+	return sapVal, nil
 }
 
 // 12. BP Group Mapping Operations

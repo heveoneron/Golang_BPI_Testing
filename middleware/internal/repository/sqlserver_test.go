@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/microsoft/go-mssqldb"
@@ -23,8 +24,13 @@ func TestExtractDataOnlyValidDetails(t *testing.T) {
 	}
 	defer db.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Skipf("SQL Server not reachable: %v", err)
+	}
+
 	repo := NewSQLServerRepository(db)
-	ctx := context.Background()
 
 	records, err := repo.ExtractData(ctx, 1)
 	if err != nil {

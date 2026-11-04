@@ -1,4 +1,4 @@
-package routes
+﻿package routes
 
 import (
 	"net/http"
@@ -33,6 +33,8 @@ func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 		api.POST("/ingest/po", ctrl.IngestManualPO)
 		api.POST("/ingest/vendor", ctrl.IngestManualVendor)
 		api.POST("/ingest/bp", ctrl.IngestManualVendor)
+		api.POST("/ingest/item", ctrl.IngestManualItem)
+		api.POST("/ingest/product", ctrl.IngestManualItem)
 		api.POST("/trigger/push", ctrl.TriggerPush)
 		api.POST("/trigger/pull", ctrl.TriggerPull)
 		api.GET("/trigger/pull", ctrl.TriggerPull)

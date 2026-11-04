@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -213,6 +214,263 @@ func TestSyncService_TransformVendor_WordWrap(t *testing.T) {
 	}
 	if strings.HasSuffix(n3, "testing-test") || strings.HasPrefix(n4, "ing") {
 		t.Errorf("word 'testing-testing' was cut across lines: n3=%q, n4=%q", n3, n4)
+	}
+}
+
+func TestSyncService_TransformGRN_Receipt(t *testing.T) {
+	svc := &SyncService{}
+
+	receiptJSON := []byte(`{
+		"BPIGRNUMBER": "2026/GRN-03581",
+		"PACKINGSLIPNUM": "3215/TSL/09/26",
+		"ISSUETYPE": "RECEIPT",
+		"PONUM": "4500016528",
+		"ACTUALDATE": "2026-10-29",
+		"STATUS": "COMP",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"QTY": 5.0,
+				"PONUM": "4100001372"
+			}
+		]
+	}`)
+
+	sapPayloadBytes, err := svc.transformGRN(context.Background(), receiptJSON)
+	if err != nil {
+		t.Fatalf("unexpected transformGRN error: %v", err)
+	}
+
+	var sapMatDoc model.SAPGrowMaterialDocumentPayload
+	if err := json.Unmarshal(sapPayloadBytes, &sapMatDoc); err != nil {
+		t.Fatalf("failed to unmarshal transformed SAP Material Document: %v", err)
+	}
+
+	if sapMatDoc.MaterialDocumentHeaderText != "2026/GRN-03581" {
+		t.Errorf("expected MaterialDocumentHeaderText '2026/GRN-03581', got %q", sapMatDoc.MaterialDocumentHeaderText)
+	}
+	if sapMatDoc.ReferenceDocument != "3215/TSL/09/26" {
+		t.Errorf("expected ReferenceDocument '3215/TSL/09/26', got %q", sapMatDoc.ReferenceDocument)
+	}
+	if sapMatDoc.GoodsMovementCode != "01" {
+		t.Errorf("expected GoodsMovementCode '01', got %q", sapMatDoc.GoodsMovementCode)
+	}
+	if sapMatDoc.VersionForPrintingSlip != "3" {
+		t.Errorf("expected VersionForPrintingSlip '3', got %q", sapMatDoc.VersionForPrintingSlip)
+	}
+	if len(sapMatDoc.ToMaterialDocumentItem) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(sapMatDoc.ToMaterialDocumentItem))
+	}
+
+	it := sapMatDoc.ToMaterialDocumentItem[0]
+	if it.Material != "SP006" {
+		t.Errorf("expected Material 'SP006', got %q", it.Material)
+	}
+	if it.Plant != "5110" {
+		t.Errorf("expected Plant '5110', got %q", it.Plant)
+	}
+	if it.GoodsMovementType != "101" {
+		t.Errorf("expected GoodsMovementType '101', got %q", it.GoodsMovementType)
+	}
+	if it.PurchaseOrder != "4100001372" {
+		t.Errorf("expected PurchaseOrder '4100001372', got %q", it.PurchaseOrder)
+	}
+	if it.PurchaseOrderItem != "1" {
+		t.Errorf("expected PurchaseOrderItem '1', got %q", it.PurchaseOrderItem)
+	}
+	if it.GoodsMovementRefDocType != "B" {
+		t.Errorf("expected GoodsMovementRefDocType 'B', got %q", it.GoodsMovementRefDocType)
+	}
+	if it.QuantityInEntryUnit != "5" {
+		t.Errorf("expected QuantityInEntryUnit '5', got %q", it.QuantityInEntryUnit)
+	}
+}
+
+func TestSyncService_TransformGRN_Return(t *testing.T) {
+	svc := &SyncService{}
+
+	returnJSON := []byte(`{
+		"BPIGRNUMBER": "2026/GRN-03102",
+		"PACKINGSLIPNUM": "3215/TSL/09/26 BOH not recorded",
+		"ISSUETYPE": "RETURN",
+		"PONUM": "4100001372",
+		"ACTUALDATE": "2026-10-29",
+		"RECEIPTREF": "48045",
+		"REF_BPIGRNUMBER": "2026/GRN-03102",
+		"STATUS": "COMP",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"QTY": -1.0,
+				"RECEIPTREF": "48045"
+			}
+		]
+	}`)
+
+	sapPayloadBytes, err := svc.transformGRN(context.Background(), returnJSON)
+	if err != nil {
+		t.Fatalf("unexpected transformGRN error: %v", err)
+	}
+
+	var sapMatDoc model.SAPGrowMaterialDocumentPayload
+	if err := json.Unmarshal(sapPayloadBytes, &sapMatDoc); err != nil {
+		t.Fatalf("failed to unmarshal transformed SAP Material Document: %v", err)
+	}
+
+	if sapMatDoc.GoodsMovementCode != "01" {
+		t.Errorf("expected GoodsMovementCode '01', got %q", sapMatDoc.GoodsMovementCode)
+	}
+	if len(sapMatDoc.ToMaterialDocumentItem) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(sapMatDoc.ToMaterialDocumentItem))
+	}
+
+	it := sapMatDoc.ToMaterialDocumentItem[0]
+	if it.GoodsMovementType != "122" {
+		t.Errorf("expected GoodsMovementType '122', got %q", it.GoodsMovementType)
+	}
+	if it.GoodsMovementReasonCode != "1" {
+		t.Errorf("expected GoodsMovementReasonCode '1', got %q", it.GoodsMovementReasonCode)
+	}
+	// Verify Qty is positive 1 despite -1 in Maximo
+	if it.QuantityInEntryUnit != "1" {
+		t.Errorf("expected QuantityInEntryUnit '1', got %q", it.QuantityInEntryUnit)
+	}
+	if it.MaterialDocumentItemText != "Goods Receipt from Maximo" {
+		t.Errorf("expected MaterialDocumentItemText 'Goods Receipt from Maximo', got %q", it.MaterialDocumentItemText)
+	}
+}
+
+func TestSyncService_TransformGRN_VoidReturn(t *testing.T) {
+	svc := &SyncService{}
+
+	voidJSON := []byte(`{
+		"BPIGRNUMBER": "2026/GRN-03102",
+		"ISSUETYPE": "VOIDRETURN",
+		"ACTUALDATE": "2026-10-29",
+		"RECEIPTREF": "48045",
+		"REF_BPIGRNUMBER": "2026/GRN-03102"
+	}`)
+
+	sapPayloadBytes, err := svc.transformGRN(context.Background(), voidJSON)
+	if err != nil {
+		t.Fatalf("unexpected transformGRN error: %v", err)
+	}
+
+	var cancelParam model.SAPCancelMaterialDocPayload
+	if err := json.Unmarshal(sapPayloadBytes, &cancelParam); err != nil {
+		t.Fatalf("failed to unmarshal cancel payload: %v", err)
+	}
+
+	if cancelParam.MaterialDocumentYear != "2026" {
+		t.Errorf("expected MaterialDocumentYear '2026', got %q", cancelParam.MaterialDocumentYear)
+	}
+}
+
+func TestSyncService_TransformItem(t *testing.T) {
+	os.Setenv("SAP_PRODUCT_PLANTS", "1000,2000")
+	defer os.Unsetenv("SAP_PRODUCT_PLANTS")
+
+	svc := &SyncService{}
+
+	itemJSON := []byte(`{
+		"ITEMNUM": "DANDRUFFAH",
+		"ITEMGROUPID": "IN-01",
+		"ITEMTYPE": "ITEM",
+		"STOCKTYPE": "STOCK",
+		"ISSUEUNIT": "PC",
+		"ORDERUNIT": "BAG",
+		"DESCRIPTION": "DANDRUFFFFF"
+	}`)
+
+	sapBytes, err := svc.transformItem(context.Background(), itemJSON)
+	if err != nil {
+		t.Fatalf("unexpected transformItem error: %v", err)
+	}
+
+	var product model.SAPProductPayload
+	if err := json.Unmarshal(sapBytes, &product); err != nil {
+		t.Fatalf("failed to unmarshal SAP product payload: %v", err)
+	}
+
+	if product.Product != "DANDRUFFAH" {
+		t.Errorf("expected Product 'DANDRUFFAH', got %q", product.Product)
+	}
+	if product.ProductType != "ZITM" {
+		t.Errorf("expected ProductType 'ZITM', got %q", product.ProductType)
+	}
+	if product.ProductGroup != "STOCK" {
+		t.Errorf("expected ProductGroup 'STOCK', got %q", product.ProductGroup)
+	}
+	if product.BaseUnit != "PC" {
+		t.Errorf("expected BaseUnit 'PC', got %q", product.BaseUnit)
+	}
+	if product.PurchaseOrderQuantityUnit != "BAG" {
+		t.Errorf("expected PurchaseOrderQuantityUnit 'BAG', got %q", product.PurchaseOrderQuantityUnit)
+	}
+
+	// Descriptions
+	if len(product.ToDescription.Results) != 1 {
+		t.Fatalf("expected 1 description, got %d", len(product.ToDescription.Results))
+	}
+	if product.ToDescription.Results[0].Language != "EN" {
+		t.Errorf("expected Language 'EN', got %q", product.ToDescription.Results[0].Language)
+	}
+	if product.ToDescription.Results[0].ProductDescription != "DANDRUFFFFF" {
+		t.Errorf("expected ProductDescription 'DANDRUFFFFF', got %q", product.ToDescription.Results[0].ProductDescription)
+	}
+
+	// Plants (configured 1000 and 2000)
+	if len(product.ToPlant.Results) != 2 {
+		t.Fatalf("expected 2 plants, got %d", len(product.ToPlant.Results))
+	}
+	if product.ToPlant.Results[0].Plant != "1000" || product.ToPlant.Results[1].Plant != "2000" {
+		t.Errorf("expected Plants 1000 and 2000, got %v and %v", product.ToPlant.Results[0].Plant, product.ToPlant.Results[1].Plant)
+	}
+
+	// Valuation (configured 1000 and 2000 with Procedure V)
+	if len(product.ToValuation.Results) != 2 {
+		t.Fatalf("expected 2 valuations, got %d", len(product.ToValuation.Results))
+	}
+	if product.ToValuation.Results[0].ValuationArea != "1000" || product.ToValuation.Results[1].ValuationArea != "2000" {
+		t.Errorf("expected ValuationAreas 1000 and 2000, got %v and %v", product.ToValuation.Results[0].ValuationArea, product.ToValuation.Results[1].ValuationArea)
+	}
+	if product.ToValuation.Results[0].InventoryValuationProcedure != "V" {
+		t.Errorf("expected Procedure 'V', got %q", product.ToValuation.Results[0].InventoryValuationProcedure)
+	}
+
+	// Units of measure (when ORDERUNIT != ISSUEUNIT)
+	if product.ToProductUnitsOfMeasure == nil || len(product.ToProductUnitsOfMeasure.Results) != 1 {
+		t.Fatalf("expected 1 UOM, got %v", product.ToProductUnitsOfMeasure)
+	}
+	uom := product.ToProductUnitsOfMeasure.Results[0]
+	if uom.AlternativeUnit != "BAG" || uom.BaseUnit != "PC" {
+		t.Errorf("expected AlternativeUnit BAG and BaseUnit PC, got %s and %s", uom.AlternativeUnit, uom.BaseUnit)
+	}
+	if uom.QuantityNumerator != "1" || uom.QuantityDenominator != "1" {
+		t.Errorf("expected 1:1 ratio, got %s:%s", uom.QuantityNumerator, uom.QuantityDenominator)
+	}
+
+	// Test case: when ORDERUNIT == ISSUEUNIT, to_ProductUnitsOfMeasure should be omitted to prevent SAP error M3/332
+	sameUOMJSON := []byte(`{
+		"ITEMNUM": "ITEM-SAME-UOM",
+		"ISSUEUNIT": "PC",
+		"ORDERUNIT": "PC"
+	}`)
+	sameBytes, err := svc.transformItem(context.Background(), sameUOMJSON)
+	if err != nil {
+		t.Fatalf("unexpected transformItem error: %v", err)
+	}
+	var sameProduct model.SAPProductPayload
+	if err := json.Unmarshal(sameBytes, &sameProduct); err != nil {
+		t.Fatalf("failed unmarshal: %v", err)
+	}
+	if sameProduct.ToProductUnitsOfMeasure != nil {
+		t.Errorf("expected to_ProductUnitsOfMeasure to be nil when units match, got %+v", sameProduct.ToProductUnitsOfMeasure)
+	}
+	if sameProduct.PurchaseOrderQuantityUnit != "" {
+		t.Errorf("expected empty PurchaseOrderQuantityUnit when units match, got %q", sameProduct.PurchaseOrderQuantityUnit)
 	}
 }
 

@@ -1,10 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,8 +58,11 @@ func (s *SyncService) PullDataFromSQLServer(ctx context.Context, limit int) (int
 		if err := s.PGRepo.UpsertStagingDocument(ctx, doc); err == nil {
 			insertedCount++
 			_ = s.PGRepo.InsertIntegrationLog(ctx, fmt.Sprintf("GRP-%s-%s", rec.DocType, rec.DocumentNo), "MAXIMO", "MIDDLEWARE", rec.DocType, rec.DocumentNo, "RECEIVED", "", fmt.Sprintf("Data pulled from SQL Server (TransID: %s, Table: %s)", rec.TransID, rec.IfaceTbName))
-			if rec.TransID != "" {
+			if rec.TransID != "" && s.SQLRepo != nil {
 				_ = s.SQLRepo.MarkProcessed(ctx, rec.TransID, rec.IfaceTbName)
+				for _, aid := range rec.AssociatedTransIDs {
+					_ = s.SQLRepo.MarkProcessed(ctx, fmt.Sprintf("%d", aid), rec.IfaceTbName)
+				}
 			}
 		} else {
 			log.Printf("[WARN] Upsert staging gagal untuk %s %s: %v", rec.DocType, rec.DocumentNo, err)
@@ -88,6 +95,10 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 			sapPayloadBytes, transformErr = s.transformPO(ctx, stage.RawPayload)
 		case "AXVENDOR", "VENDOR", "COMPANIES", "BP":
 			sapPayloadBytes, transformErr = s.transformVendor(ctx, stage.RawPayload)
+		case "GRN", "AXRECEIPT", "MATRECTRANS", "RECEIPT":
+			sapPayloadBytes, transformErr = s.transformGRN(ctx, stage.RawPayload)
+		case "ITEM", "AXITEM", "PRODUCT":
+			sapPayloadBytes, transformErr = s.transformItem(ctx, stage.RawPayload)
 		default:
 			// Generic pass-through
 			sapPayloadBytes = stage.RawPayload
@@ -405,6 +416,406 @@ func splitBPName(name string) (string, string, string, string) {
 	return res[0], res[1], res[2], res[3]
 }
 
+// TransformItem mengekspor transformasi Item/Material Maximo ke SAP Product OData v2 untuk testing / controller
+func (s *SyncService) TransformItem(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	return s.transformItem(ctx, raw)
+}
+
+// transformItem mentransformasi data Item Maximo ke skema OData v2 A_Product Deep Insert
+func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	var itemNum, itemGroupID, itemType, stockType, issueUnit, orderUnit, description string
+
+	// 1. Coba unmarshal sebagai model.MaximoItemPayload
+	var p model.MaximoItemPayload
+	if err := json.Unmarshal(raw, &p); err == nil && p.ItemNum != "" {
+		itemNum = p.ItemNum
+		itemGroupID = p.ItemGroupID
+		itemType = p.ItemType
+		stockType = p.StockType
+		issueUnit = p.IssueUnit
+		orderUnit = p.OrderUnit
+		description = p.Description
+	} else {
+		// 2. Fallback parsing generic map
+		var m map[string]interface{}
+		if err := json.Unmarshal(raw, &m); err == nil {
+			getString := func(keys ...string) string {
+				for _, k := range keys {
+					if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+						return strings.TrimSpace(v)
+					}
+				}
+				return ""
+			}
+			itemNum = getString("ITEMNUM", "itemnum", "ItemNum", "Product", "product")
+			itemGroupID = getString("ITEMGROUPID", "itemgroupid", "bpiitemgroupid", "BPIITEMGROUPID", "ProductGroup", "ItemGroupID")
+			itemType = getString("ITEMTYPE", "itemtype", "ItemType", "ProductType")
+			stockType = getString("STOCKTYPE", "stocktype", "Stocktype", "StockType")
+			issueUnit = getString("ISSUEUNIT", "issueunit", "BaseUnit", "baseunit", "IssueUnit")
+			orderUnit = getString("ORDERUNIT", "orderunit", "PurchaseOrderQuantityUnit", "OrderUnit")
+			description = getString("DESCRIPTION", "description", "Description", "ProductDescription")
+
+			// Cek jika terbungkus di dalam array DATA (ekstraksi generic)
+			if itemNum == "" {
+				if dataArr, ok := m["DATA"].([]interface{}); ok && len(dataArr) > 0 {
+					if firstRow, ok := dataArr[0].(map[string]interface{}); ok {
+						for k, v := range firstRow {
+							valStr := fmt.Sprintf("%v", v)
+							switch strings.ToLower(k) {
+							case "itemnum", "product":
+								itemNum = valStr
+							case "itemgroupid", "bpiitemgroupid", "productgroup":
+								itemGroupID = valStr
+							case "itemtype", "producttype":
+								itemType = valStr
+							case "stocktype":
+								stockType = valStr
+							case "issueunit", "baseunit":
+								issueUnit = valStr
+							case "orderunit", "purchaseorderquantityunit":
+								orderUnit = valStr
+							case "description", "productdescription":
+								description = valStr
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	itemNum = strings.ToUpper(strings.TrimSpace(itemNum))
+	if itemNum == "" {
+		return nil, fmt.Errorf("field ITEMNUM / Product wajib terisi")
+	}
+
+	// 2. Mapping ProductType (Maximo ITEMTYPE -> SAP ProductType)
+	// Default: ZITM
+	productType := "ZITM"
+	if s.PGRepo != nil && itemType != "" {
+		if pt, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "ITEM_TYPE", itemType); err == nil && pt != "" {
+			productType = pt
+		} else if strings.EqualFold(itemType, "SERVICE") {
+			productType = "ZSVC"
+		} else if strings.EqualFold(itemType, "ROH") {
+			productType = "ROH"
+		}
+	} else if strings.EqualFold(itemType, "SERVICE") {
+		productType = "ZSVC"
+	}
+
+	// 3. Mapping ProductGroup (Kini dari Maximo StockType -> SAP ProductGroup / Material Group)
+	// Default: ZSTK atau fallback ke nilai stockType
+	productGroup := "ZSTK"
+	if s.PGRepo != nil && stockType != "" {
+		if pg, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "STOCK_TYPE", stockType); err == nil && pg != "" {
+			productGroup = pg
+		} else {
+			productGroup = strings.ToUpper(strings.TrimSpace(stockType))
+		}
+	} else if stockType != "" {
+		productGroup = strings.ToUpper(strings.TrimSpace(stockType))
+	}
+
+	// 4. Mapping BaseUnit & PurchaseOrderQuantityUnit via uom_mappings
+	baseUnit := "PC"
+	if s.PGRepo != nil && issueUnit != "" {
+		if u, err := s.PGRepo.GetSAPUOM(ctx, issueUnit); err == nil && u != "" {
+			baseUnit = u
+		} else {
+			baseUnit = strings.ToUpper(strings.TrimSpace(issueUnit))
+		}
+	} else if issueUnit != "" {
+		baseUnit = strings.ToUpper(strings.TrimSpace(issueUnit))
+	}
+
+	poUnit := baseUnit
+	if s.PGRepo != nil && orderUnit != "" {
+		if u, err := s.PGRepo.GetSAPUOM(ctx, orderUnit); err == nil && u != "" {
+			poUnit = u
+		} else {
+			poUnit = strings.ToUpper(strings.TrimSpace(orderUnit))
+		}
+	} else if orderUnit != "" {
+		poUnit = strings.ToUpper(strings.TrimSpace(orderUnit))
+	}
+
+	// 5. Mapping ValuationClass (Kini dari Maximo ITEMGROUPID -> SAP ValuationClass)
+	// Default: "3000" (Standard SAP Material Valuation Class)
+	valuationClass := "3000"
+	if s.PGRepo != nil && itemGroupID != "" {
+		if vc, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "ITEM_GROUP", itemGroupID); err == nil && vc != "" {
+			valuationClass = vc
+		}
+	}
+
+	// 6. Truncate Description to 40 chars (sesuai spesifikasi skema OData v2 A_ProductDescription MaxLength: 40)
+	desc := strings.TrimSpace(description)
+	if len(desc) > 40 {
+		desc = desc[:40]
+	}
+
+	// 7. Plant & Valuation Areas (dapat dikonfigurasi via SAP_PRODUCT_PLANTS, default ke 5110 & BTNG untuk tenant my445160)
+	plants := []string{"5110", "BTNG"}
+	if envPlants := os.Getenv("SAP_PRODUCT_PLANTS"); envPlants != "" {
+		parts := strings.Split(envPlants, ",")
+		var cleaned []string
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		if len(cleaned) > 0 {
+			plants = cleaned
+		}
+	}
+
+	var plantItems []model.SAPProductPlant
+	var valuationItems []model.SAPProductValuation
+	for _, pl := range plants {
+		plantItems = append(plantItems, model.SAPProductPlant{
+			Product: itemNum,
+			Plant:   pl,
+		})
+		valuationItems = append(valuationItems, model.SAPProductValuation{
+			Product:                     itemNum,
+			ValuationArea:               pl,
+			ValuationClass:              valuationClass,
+			InventoryValuationProcedure: "V",
+		})
+	}
+
+	// 8. Aturan SAP OData v2 M3/332: Alternative Unit dan PurchaseOrderQuantityUnit hanya dikirim jika BERBEDA dari BaseUnit.
+	// Jika sama, SAP mengembalikan error 'The alternative unit of measure is the same as the base unit of measure'.
+	var uomWrapper *model.SAPProductUOMWrapper
+	poUnitToSend := ""
+	if poUnit != "" && !strings.EqualFold(poUnit, baseUnit) {
+		poUnitToSend = poUnit
+		uomWrapper = &model.SAPProductUOMWrapper{
+			Results: []model.SAPProductUOM{
+				{
+					Product:             itemNum,
+					AlternativeUnit:     poUnit,
+					BaseUnit:            baseUnit,
+					QuantityNumerator:   "1",
+					QuantityDenominator: "1",
+				},
+			},
+		}
+	}
+
+	// 9. Bangun struktur Deep Insert OData v2 A_Product
+	sapProduct := model.SAPProductPayload{
+		Product:                   itemNum,
+		ProductType:               productType,
+		CrossPlantStatus:          "",
+		CrossPlantStatusValidity:  nil,
+		IsMarkedForDeletion:       false,
+		PurchaseOrderQuantityUnit: poUnitToSend,
+		ProductGroup:              productGroup,
+		BaseUnit:                  baseUnit,
+		ToDescription: model.SAPProductDescriptionWrapper{
+			Results: []model.SAPProductDescription{
+				{
+					Product:            itemNum,
+					Language:           "EN",
+					ProductDescription: desc,
+				},
+			},
+		},
+		ToPlant: model.SAPProductPlantWrapper{
+			Results: plantItems,
+		},
+		ToProductUnitsOfMeasure: uomWrapper,
+		ToValuation: model.SAPProductValuationWrapper{
+			Results: valuationItems,
+		},
+	}
+
+	return json.Marshal(sapProduct)
+}
+
+func formatQuantity(qty float64) string {
+	return strconv.FormatFloat(qty, 'f', -1, 64)
+}
+
+// Transformasi khusus Penerimaan Barang Maximo (RECEIPT / RETURN / VOIDRETURN) -> SAP Grow OData Material Document
+func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	var maxReceipt model.MaximoReceiptHeader
+	if err := json.Unmarshal(raw, &maxReceipt); err != nil {
+		return nil, fmt.Errorf("invalid json maximo receipt: %w", err)
+	}
+
+	issueType := strings.ToUpper(strings.TrimSpace(maxReceipt.IssueType))
+	if issueType == "" {
+		issueType = "RECEIPT"
+	}
+
+	// 1. Kasus VOIDRETURN / VOIDRECEIPT (Cancel GR)
+	if issueType == "VOIDRETURN" || issueType == "VOIDRECEIPT" {
+		lookupDocNo := strings.TrimSpace(maxReceipt.RefBPIGRNNumber)
+		if lookupDocNo == "" || lookupDocNo == "-" {
+			lookupDocNo = strings.TrimSpace(maxReceipt.BPIGRNNumber)
+		}
+		if lookupDocNo == "" || lookupDocNo == "-" {
+			lookupDocNo = strings.TrimSpace(maxReceipt.ReceiptRef)
+		}
+
+		targetMatDoc := ""
+		targetDocYear := ""
+
+		// Coba cari di PostgreSQL core_documents terlebih dahulu
+		if lookupDocNo != "" && lookupDocNo != "-" && s.PGRepo != nil {
+			if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", lookupDocNo); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && *existingDoc.SAPDocumentNo != "" {
+				targetMatDoc = *existingDoc.SAPDocumentNo
+			}
+		}
+
+		// Jika belum ketemu di local DB, lakukan lookup API ke SAP berdasarkan no doc maximo
+		if targetMatDoc == "" && lookupDocNo != "" && lookupDocNo != "-" && s.SAPClient != nil && s.PGRepo != nil {
+			ep, epErr := s.PGRepo.GetSAPEndpointByCode(ctx, "GRN")
+			if epErr == nil && ep != nil {
+				if matDoc, docYear, err := s.SAPClient.GetMaterialDocumentByMaximoDocNo(ep, lookupDocNo); err == nil && matDoc != "" {
+					targetMatDoc = matDoc
+					targetDocYear = docYear
+				}
+			}
+		}
+
+		// Fallback: Jika pengguna sementara menaruh nomor SAP Material Document di field PONum
+		if targetMatDoc == "" {
+			trimmedPO := strings.TrimSpace(maxReceipt.PONum)
+			if trimmedPO != "" && trimmedPO != "-" {
+				if len(trimmedPO) == 10 && strings.HasPrefix(trimmedPO, "500") {
+					targetMatDoc = trimmedPO
+				} else if s.PGRepo != nil {
+					if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", trimmedPO); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && *existingDoc.SAPDocumentNo != "" {
+						targetMatDoc = *existingDoc.SAPDocumentNo
+					} else {
+						targetMatDoc = trimmedPO
+					}
+				} else {
+					targetMatDoc = trimmedPO
+				}
+			}
+		}
+
+		// Fallback tahun jika kosong: ambil tahun dari ActualDate atau tahun sekarang
+		if targetDocYear == "" {
+			if len(maxReceipt.ActualDate) >= 4 {
+				targetDocYear = maxReceipt.ActualDate[:4]
+			} else {
+				targetDocYear = fmt.Sprintf("%d", time.Now().Year())
+			}
+		}
+
+		cancelPayload := model.SAPCancelMaterialDocPayload{
+			MaterialDocumentYear: targetDocYear,
+			MaterialDocument:     targetMatDoc,
+		}
+		return json.Marshal(cancelPayload)
+	}
+
+	// 2. Kasus RETURN (Return to Vendor - Movement 122)
+	if issueType == "RETURN" {
+		lookupDocNo := strings.TrimSpace(maxReceipt.RefBPIGRNNumber)
+		if lookupDocNo == "" || lookupDocNo == "-" {
+			lookupDocNo = strings.TrimSpace(maxReceipt.BPIGRNNumber)
+		}
+		if lookupDocNo == "" || lookupDocNo == "-" {
+			lookupDocNo = strings.TrimSpace(maxReceipt.ReceiptRef)
+		}
+
+		refMatDoc := ""
+		// Coba cari di PostgreSQL core_documents
+		if lookupDocNo != "" && lookupDocNo != "-" && s.PGRepo != nil {
+			if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", lookupDocNo); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && *existingDoc.SAPDocumentNo != "" {
+				refMatDoc = *existingDoc.SAPDocumentNo
+			}
+		}
+
+		// Jika belum ada di local DB, lookup langsung ke SAP via API berdasarkan no doc maximo
+		if refMatDoc == "" && lookupDocNo != "" && lookupDocNo != "-" && s.SAPClient != nil && s.PGRepo != nil {
+			ep, epErr := s.PGRepo.GetSAPEndpointByCode(ctx, "GRN")
+			if epErr == nil && ep != nil {
+				if matDoc, _, err := s.SAPClient.GetMaterialDocumentByMaximoDocNo(ep, lookupDocNo); err == nil && matDoc != "" {
+					refMatDoc = matDoc
+				}
+			}
+		}
+
+		// Fallback: Jika lookupDocNo sudah merupakan nomor dokumen SAP (misal 5000000097)
+		if refMatDoc == "" && len(lookupDocNo) == 10 && strings.HasPrefix(lookupDocNo, "500") {
+			refMatDoc = lookupDocNo
+		}
+
+		var items []model.SAPMaterialDocumentItem
+		for _, line := range maxReceipt.Lines {
+			poNum := line.PONum
+			if poNum == "" {
+				poNum = maxReceipt.PONum
+			}
+
+			// Kuantitas return di Maximo negatif (-1.00), harus positif di SAP
+			qtyAbs := math.Abs(line.Qty)
+			qtyStr := formatQuantity(qtyAbs)
+
+			items = append(items, model.SAPMaterialDocumentItem{
+				Material:                    line.ItemNum,
+				Plant:                       "5110",
+				GoodsMovementType:           "122",
+				PurchaseOrder:               poNum,
+				PurchaseOrderItem:           fmt.Sprintf("%d", line.POLineNum),
+				GoodsMovementReasonCode:     "1",
+				GoodsMovementRefDocType:     "B",
+				QuantityInEntryUnit:         qtyStr,
+				InvtryMgmtReferenceDocument: refMatDoc,
+				MaterialDocumentItemText:    "Goods Receipt from Maximo",
+			})
+		}
+
+		sapPayload := model.SAPGrowMaterialDocumentPayload{
+			MaterialDocumentHeaderText: maxReceipt.BPIGRNNumber,
+			ReferenceDocument:          maxReceipt.PackingSlipNum,
+			GoodsMovementCode:          "01",
+			VersionForPrintingSlip:     "3",
+			ToMaterialDocumentItem:     items,
+		}
+		return json.Marshal(sapPayload)
+	}
+
+	// 3. Kasus Standard RECEIPT (GRN - Movement 101)
+	var items []model.SAPMaterialDocumentItem
+	for _, line := range maxReceipt.Lines {
+		poNum := line.PONum
+		if poNum == "" {
+			poNum = maxReceipt.PONum
+		}
+
+		qtyAbs := math.Abs(line.Qty)
+		qtyStr := formatQuantity(qtyAbs)
+
+		items = append(items, model.SAPMaterialDocumentItem{
+			Material:                line.ItemNum,
+			Plant:                   "5110",
+			GoodsMovementType:       "101",
+			PurchaseOrder:           poNum,
+			PurchaseOrderItem:       fmt.Sprintf("%d", line.POLineNum),
+			GoodsMovementRefDocType: "B",
+			QuantityInEntryUnit:     qtyStr,
+		})
+	}
+
+	sapPayload := model.SAPGrowMaterialDocumentPayload{
+		MaterialDocumentHeaderText: maxReceipt.BPIGRNNumber,
+		ReferenceDocument:          maxReceipt.PackingSlipNum,
+		GoodsMovementCode:          "01",
+		VersionForPrintingSlip:     "3",
+		ToMaterialDocumentItem:     items,
+	}
+	return json.Marshal(sapPayload)
+}
+
 // 3. PUSH CORE DOCUMENTS KE SAP GROW (Tier 2 Dispatcher)
 func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 	docs, err := s.PGRepo.FetchAndLockPendingDocuments(ctx, 20)
@@ -442,8 +853,61 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		}
 
 		// 2. Eksekusi request ke SAP Grow OData dengan auth & token handshake terisolasi
-		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(ep, "POST", doc.SAPPayload)
-		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
+		epToSend := ep
+		payloadToSend := doc.SAPPayload
+
+		// Perlakuan khusus jika GRN adalah VOIDRETURN / VOIDRECEIPT (Cancel function import)
+		if strings.EqualFold(doc.DocType, "GRN") {
+			isCancelDoc := false
+			var rawMap map[string]interface{}
+			if rErr := json.Unmarshal(doc.RawPayload, &rawMap); rErr == nil {
+				it, _ := rawMap["ISSUETYPE"].(string)
+				if it == "" {
+					it, _ = rawMap["issuetype"].(string)
+				}
+				if strings.EqualFold(it, "VOIDRECEIPT") || strings.EqualFold(it, "VOIDRETURN") {
+					isCancelDoc = true
+				}
+			}
+
+			// Juga cek apakah payloadnya adalah SAPCancelMaterialDocPayload (memiliki MaterialDocument dan tanpa to_MaterialDocumentItem)
+			if !isCancelDoc && bytes.Contains(doc.SAPPayload, []byte(`"MaterialDocument"`)) && !bytes.Contains(doc.SAPPayload, []byte(`"to_MaterialDocumentItem"`)) {
+				isCancelDoc = true
+			}
+
+			if isCancelDoc {
+				var cancelParam model.SAPCancelMaterialDocPayload
+				_ = json.Unmarshal(doc.SAPPayload, &cancelParam)
+				targetMatDoc := strings.TrimSpace(cancelParam.MaterialDocument)
+				targetDocYear := strings.TrimSpace(cancelParam.MaterialDocumentYear)
+
+				// Fallback jika MaterialDocument di SAPPayload masih kosong, coba ambil dari raw_payload (REF_BPIGRNUMBER atau PONUM 500xxx)
+				if targetMatDoc == "" && rawMap != nil {
+					if r, ok := rawMap["REF_BPIGRNUMBER"].(string); ok && r != "" && r != "-" {
+						targetMatDoc = strings.TrimSpace(r)
+					} else if p, ok := rawMap["PONUM"].(string); ok && p != "" && p != "-" && len(p) == 10 && strings.HasPrefix(p, "500") {
+						targetMatDoc = strings.TrimSpace(p)
+					}
+				}
+
+				if targetMatDoc != "" {
+					if targetDocYear == "" {
+						targetDocYear = fmt.Sprintf("%d", time.Now().Year())
+					}
+					cancelEP := *ep
+					cancelEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel?MaterialDocumentYear='%s'&MaterialDocument='%s'",
+						targetDocYear, targetMatDoc)
+					cancelEP.CSRFPath = "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
+					epToSend = &cancelEP
+					payloadToSend = nil
+				} else {
+					log.Printf("[WARN] Dokumen Cancel GRN %s belum memiliki nomor Material Document SAP", doc.DocumentNo)
+				}
+			}
+		}
+
+		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(epToSend, "POST", payloadToSend)
+		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(epToSend.BaseURL, "/"), epToSend.EndpointPath)
 
 		if sapErr != nil {
 			log.Printf("[WARN] Push to SAP Failed for %s (%s) [Target API: %s]: %v", doc.DocumentNo, doc.DocType, targetURL, sapErr)

@@ -1,4 +1,4 @@
-package controller
+﻿package controller
 
 import (
 	"context"
@@ -211,6 +211,99 @@ func (c *WebController) IngestManualVendor(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, IngestManualPOResponse{
 		Message:     "Vendor successfully ingested into staging_documents and transformed to core documents",
+		DocumentNo:  docNo,
+		Transformed: transformed,
+	})
+}
+
+// IngestManualItem godoc
+// @Summary      Ingest Manual Item / Product Master Maximo
+// @Description  Simulasi webhook atau inject payload Item Maximo secara langsung ke staging_documents dan mentransformasikannya ke documents siap kirim ke SAP Product
+// @Tags         Ingestion
+// @Accept       json
+// @Produce      json
+// @Param        payload  body      model.MaximoItemPayload  true  "Maximo Item JSON Payload"
+// @Success      200      {object}  IngestManualPOResponse
+// @Failure      400      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Failure      503      {object}  ErrorResponse
+// @Router       /ingest/item [post]
+func (c *WebController) IngestManualItem(ctx *gin.Context) {
+	if c.PGRepo == nil || c.PGRepo.Pool == nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "PostgreSQL database pool is not connected"})
+		return
+	}
+
+	var req map[string]interface{}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	var docNo string
+	var payloadBytes []byte
+
+	if tidVal, ok := req["transid"]; ok && c.SyncSvc != nil && c.SyncSvc.SQLRepo != nil {
+		var tid int64
+		switch t := tidVal.(type) {
+		case float64:
+			tid = int64(t)
+		case string:
+			tid, _ = strconv.ParseInt(t, 10, 64)
+		}
+		if tid > 0 {
+			rec, err := c.SyncSvc.SQLRepo.ExtractItemByTransID(ctx.Request.Context(), tid)
+			if err == nil && rec != nil {
+				docNo = rec.DocumentNo
+				payloadBytes = rec.PayloadJSON
+			}
+		}
+	}
+
+	if len(payloadBytes) == 0 {
+		itemNum := ""
+		for _, k := range []string{"ITEMNUM", "itemnum", "ItemNum", "Product", "product"} {
+			if v, ok := req[k].(string); ok && strings.TrimSpace(v) != "" {
+				itemNum = strings.TrimSpace(v)
+				break
+			}
+		}
+
+		if itemNum == "" {
+			ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "Field ITEMNUM or Product is required in payload"})
+			return
+		}
+
+		docNo = fmt.Sprintf("ITEM-%s", itemNum)
+		b, err := json.Marshal(req)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("Invalid JSON: %v", err)})
+			return
+		}
+		payloadBytes = b
+	}
+
+	stageDoc := model.StagingDocument{
+		ID:         uuid.New(),
+		DocType:    "ITEM",
+		DocumentNo: docNo,
+		FlowType:   "forward",
+		RawPayload: payloadBytes,
+		Status:     "PENDING",
+	}
+
+	if err := c.PGRepo.UpsertStagingDocument(ctx.Request.Context(), stageDoc); err != nil {
+		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("Failed to save to staging: %v", err)})
+		return
+	}
+
+	transformed := 0
+	if c.SyncSvc != nil {
+		transformed = c.SyncSvc.TransformStagingToCore(ctx.Request.Context())
+	}
+
+	ctx.JSON(http.StatusOK, IngestManualPOResponse{
+		Message:     "Item successfully ingested into staging_documents and transformed to core documents",
 		DocumentNo:  docNo,
 		Transformed: transformed,
 	})

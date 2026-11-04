@@ -126,12 +126,25 @@ func (r *dashboardRepo) GetChildDocuments(parentNo string) ([]models.Document, e
 
 func (r *dashboardRepo) GetDocumentByTypeAndNo(docType, documentNo string) (models.Document, error) {
 	var doc models.Document
-	err := r.db.Where("doc_type = ? AND document_no = ?", docType, documentNo).First(&doc).Error
+	err := r.db.Where("UPPER(doc_type) = UPPER(?) AND document_no = ?", docType, documentNo).First(&doc).Error
 	return doc, err
 }
 
 func (r *dashboardRepo) UpdateDocument(doc *models.Document) error {
-	return r.db.Save(doc).Error
+	updates := map[string]interface{}{
+		"status":      doc.Status,
+		"retry_count": doc.RetryCount,
+		"updated_at":  time.Now(),
+	}
+	if doc.SAPPayload != nil {
+		updates["sap_payload"] = gorm.Expr("?::jsonb", *doc.SAPPayload)
+	}
+	if doc.ErrorMessage != nil {
+		updates["error_message"] = *doc.ErrorMessage
+	}
+	return r.db.Model(&models.Document{}).
+		Where("UPPER(doc_type) = UPPER(?) AND document_no = ?", doc.DocType, doc.DocumentNo).
+		Updates(updates).Error
 }
 
 func (r *dashboardRepo) GetDocumentStats(docType, startDate, endDate string) (int64, int64, int64, int64, int64) {

@@ -82,6 +82,29 @@ func main() {
         Password:     "PowerofOne@123456789",
         IsActive:     true,
     })
+    _ = sapRepo.Save(&models.SAPEndpoint{
+        ServiceCode:  "GRN",
+        ServiceName:  "Material Document / Goods Movement (OData v2)",
+        ScenarioID:   "SAP_COM_0108",
+        ODataVersion: "v2",
+        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
+        EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
+        Username:     "Y_BPI_CU_SAP_COM_0108",
+        Password:     "PowerofOne@123456789",
+        IsActive:     true,
+    })
+    _ = sapRepo.Save(&models.SAPEndpoint{
+        ServiceCode:  "CANCEL_GR",
+        ServiceName:  "Cancel Goods Movement / Material Document (OData v2)",
+        ScenarioID:   "SAP_COM_0108",
+        ODataVersion: "v2",
+        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
+        EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel",
+        CSRFPath:     "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
+        Username:     "Y_BPI_CU_SAP_COM_0108",
+        Password:     "PowerofOne@123456789",
+        IsActive:     true,
+    })
 
     // Seed Table-to-API Mappings & Default Admin User
     tableMappingRepo := repository.NewTableAPIMappingRepository(config.DB)

@@ -15,12 +15,13 @@ type SQLServerRepository struct {
 }
 
 type ExtractedRecord struct {
-	TransID       string
-	IfaceTbName   string
-	DocType       string
-	DocumentNo    string
-	PayloadJSON   json.RawMessage
-	LastUpdatedAt time.Time
+	TransID            string
+	IfaceTbName        string
+	DocType            string
+	DocumentNo         string
+	PayloadJSON        json.RawMessage
+	AssociatedTransIDs []int64
+	LastUpdatedAt      time.Time
 }
 
 // InboundControlRecord merepresentasikan data kontrol integrasi masuk ke Maximo (mxin_inter_trans)
@@ -131,10 +132,12 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 				rec, extractErr = r.extractPO(ctx, it.transID, it.action)
 			case "AXPR":
 				rec, extractErr = r.extractPR(ctx, it.transID, it.action)
-			case "AXRECEIPT":
-				rec, extractErr = r.extractReceipt(ctx, it.transID, it.action)
+			case "AXRECEIPT", "MATRECTRANS", "RECEIPT":
+				rec, extractErr = r.extractReceipt(ctx, it.transID, it.ifacetbname, it.action)
 			case "AXVENDOR", "VENDOR":
 				rec, extractErr = r.extractVendor(ctx, it.transID, it.action)
+			case "AXITEM", "ITEM":
+				rec, extractErr = r.extractItem(ctx, it.transID, it.action)
 			default:
 				rec, extractErr = r.extractGeneric(ctx, it.transID, it.ifacetbname, it.action)
 			}
@@ -159,6 +162,9 @@ func (r *SQLServerRepository) ExtractData(ctx context.Context, limit int) ([]Ext
 
 			// Data valid ditemukan lengkap di kedua tabel!
 			records = append(records, *rec)
+			for _, aid := range rec.AssociatedTransIDs {
+				seenTransIDs[aid] = true
+			}
 			if len(records) >= limit {
 				break
 			}
@@ -408,58 +414,165 @@ func (r *SQLServerRepository) extractPR(ctx context.Context, transID int64, acti
 	}, nil
 }
 
-// Ekstraksi data Penerimaan Barang (GRN/Receipt) dari tabel axreceipt
-func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
-	query := `
+// Ekstraksi data Penerimaan Barang (GRN/Receipt/Return/Void) dari tabel axreceipt atau MATRECTRANS
+func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64, ifacetbname string, action string) (*ExtractedRecord, error) {
+	if r.DB == nil {
+		return nil, nil
+	}
+
+	targetTable := "axreceipt"
+	if strings.EqualFold(strings.TrimSpace(ifacetbname), "MATRECTRANS") {
+		targetTable = "MATRECTRANS"
+	}
+
+	// 1. Ambil data baris awal berdasarkan transid
+	querySingle := fmt.Sprintf(`
 		SELECT 
-			ISNULL(bpigrnnumber, ''), ISNULL(ponum, ''), ISNULL(polinenum, 0), ISNULL(itemnum, ''),
-			ISNULL(qty, 0), actualdate, ISNULL(status, 'APPR'), transseq
-		FROM axreceipt
+			ISNULL(bpigrnnumber, ''), 
+			ISNULL(issuetype, 'RECEIPT'), 
+			ISNULL(packingslipnum, ''), 
+			ISNULL(ponum, ''), 
+			ISNULL(polinenum, 0), 
+			ISNULL(itemnum, ''),
+			ISNULL(qty, 0), 
+			ISNULL(receiptref, ''), 
+			ISNULL(matrectransid, 0), 
+			ISNULL(conditioncode, ''),
+			actualdate, 
+			transdate, 
+			ISNULL(status, 'COMP'), 
+			transseq
+		FROM %s
 		WHERE transid = @p1
 		ORDER BY transseq ASC
-	`
-	rows, err := r.DB.QueryContext(ctx, query, transID)
+	`, targetTable)
+
+	rows, err := r.DB.QueryContext(ctx, querySingle, transID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var grnNo, poNum, status string
-	var actDate sql.NullTime
+	var grnNo, issueType, packSlip, poNum, status, receiptRef, condCode string
+	var actDate, trDate sql.NullTime
 	var lines []map[string]interface{}
+	var associatedTransIDs []int64
 	isFirst := true
 
 	for rows.Next() {
-		var gNo, pNo, itm, st string
+		var gNo, iType, pSlip, pNo, itm, rRef, cCode, st string
 		var pLine, seq int
+		var matID int64
 		var qty float64
-		var aDate sql.NullTime
+		var aDate, tDate sql.NullTime
 
-		if err := rows.Scan(&gNo, &pNo, &pLine, &itm, &qty, &aDate, &st, &seq); err != nil {
+		if err := rows.Scan(
+			&gNo, &iType, &pSlip, &pNo, &pLine, &itm,
+			&qty, &rRef, &matID, &cCode, &aDate, &tDate, &st, &seq,
+		); err != nil {
 			continue
 		}
 
 		if isFirst {
-			grnNo = gNo
-			poNum = pNo
-			status = st
+			grnNo = strings.TrimSpace(gNo)
+			issueType = strings.ToUpper(strings.TrimSpace(iType))
+			if issueType == "" {
+				issueType = "RECEIPT"
+			}
+			packSlip = strings.TrimSpace(pSlip)
+			poNum = strings.TrimSpace(pNo)
+			status = strings.TrimSpace(st)
+			receiptRef = strings.TrimSpace(rRef)
+			condCode = strings.TrimSpace(cCode)
 			actDate = aDate
+			trDate = tDate
 			isFirst = false
 		}
 
 		lines = append(lines, map[string]interface{}{
-			"POLINENUM": pLine,
-			"ITEMNUM":   itm,
-			"QTY":       qty,
+			"POLINENUM":     pLine,
+			"ITEMNUM":       itm,
+			"QTY":           qty,
+			"RECEIPTREF":    rRef,
+			"MATRECTRANSID": matID,
+			"CONDITIONCODE": cCode,
+			"TRANSID":       transID,
+			"TRANSSEQ":      seq,
+			"PONUM":         pNo,
 		})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating axreceipt rows: %w", err)
-	}
+	_ = rows.Close()
 
-	// Jika tidak ada data detail sama sekali di axreceipt untuk transid ini
 	if isFirst || len(lines) == 0 {
 		return nil, nil
+	}
+
+	// 2. Jika grnNo ada, kumpulkan seluruh line item dengan BPIGRNNumber dan issuetype yang sama
+	if grnNo != "" {
+		queryMulti := fmt.Sprintf(`
+			SELECT 
+				ISNULL(polinenum, 0), 
+				ISNULL(itemnum, ''), 
+				ISNULL(qty, 0), 
+				ISNULL(receiptref, ''), 
+				ISNULL(matrectransid, 0), 
+				ISNULL(conditioncode, ''), 
+				transid, 
+				transseq, 
+				ISNULL(ponum, '')
+			FROM %s
+			WHERE bpigrnnumber = @p1 AND (issuetype = @p2 OR (@p2 = 'RECEIPT' AND issuetype IS NULL))
+			ORDER BY polinenum ASC, transseq ASC
+		`, targetTable)
+
+		mRows, mErr := r.DB.QueryContext(ctx, queryMulti, grnNo, issueType)
+		if mErr == nil {
+			var combinedLines []map[string]interface{}
+			seenLines := make(map[string]bool)
+
+			for mRows.Next() {
+				var pLine, seq int
+				var itm, rRef, cCode, pNo string
+				var matID, tID int64
+				var qty float64
+
+				if err := mRows.Scan(&pLine, &itm, &qty, &rRef, &matID, &cCode, &tID, &seq, &pNo); err == nil {
+					key := fmt.Sprintf("%d|%s|%d|%d", pLine, itm, tID, seq)
+					if !seenLines[key] {
+						seenLines[key] = true
+						if tID != transID {
+							associatedTransIDs = append(associatedTransIDs, tID)
+						}
+						combinedLines = append(combinedLines, map[string]interface{}{
+							"POLINENUM":     pLine,
+							"ITEMNUM":       itm,
+							"QTY":           qty,
+							"RECEIPTREF":    rRef,
+							"MATRECTRANSID": matID,
+							"CONDITIONCODE": cCode,
+							"TRANSID":       tID,
+							"TRANSSEQ":      seq,
+							"PONUM":         pNo,
+						})
+					}
+				}
+			}
+			mRows.Close()
+
+			if len(combinedLines) > 0 {
+				lines = combinedLines
+			}
+		}
+	}
+
+	// 3. Jika issuetype adalah RETURN / VOIDRETURN / VOIDRECEIPT dan ada receiptref (matrectransid), cari nomor GRN aslinya
+	refBPIGRNNumber := ""
+	if receiptRef != "" && (issueType == "RETURN" || issueType == "VOIDRETURN" || issueType == "VOIDRECEIPT") {
+		var origGRN string
+		qOrig := fmt.Sprintf("SELECT TOP 1 ISNULL(bpigrnnumber, '') FROM %s WHERE matrectransid = @p1", targetTable)
+		if err := r.DB.QueryRowContext(ctx, qOrig, receiptRef).Scan(&origGRN); err == nil && origGRN != "" {
+			refBPIGRNNumber = origGRN
+		}
 	}
 
 	docNo := grnNo
@@ -471,24 +584,35 @@ func (r *SQLServerRepository) extractReceipt(ctx context.Context, transID int64,
 	if actDate.Valid {
 		dateStr = actDate.Time.Format("2006-01-02")
 	}
+	transDateStr := time.Now().Format("2006-01-02 15:04:05")
+	if trDate.Valid {
+		transDateStr = trDate.Time.Format("2006-01-02 15:04:05")
+	}
 
 	receiptPayload := map[string]interface{}{
-		"GRNNUM":     docNo,
-		"PONUM":      poNum,
-		"ACTUALDATE": dateStr,
-		"STATUS":     status,
-		"ACTION":     action,
-		"LINES":      lines,
+		"BPIGRNUMBER":     grnNo,
+		"PACKINGSLIPNUM":  packSlip,
+		"ISSUETYPE":       issueType,
+		"PONUM":           poNum,
+		"ACTUALDATE":      dateStr,
+		"TRANSDATE":       transDateStr,
+		"STATUS":          status,
+		"ACTION":          action,
+		"CONDITIONCODE":   condCode,
+		"RECEIPTREF":      receiptRef,
+		"REF_BPIGRNUMBER": refBPIGRNNumber,
+		"LINES":           lines,
 	}
 
 	payloadBytes, _ := json.Marshal(receiptPayload)
 	return &ExtractedRecord{
-		TransID:       fmt.Sprintf("%d", transID),
-		IfaceTbName:   "axreceipt",
-		DocType:       "GRN",
-		DocumentNo:    docNo,
-		PayloadJSON:   payloadBytes,
-		LastUpdatedAt: time.Now(),
+		TransID:            fmt.Sprintf("%d", transID),
+		IfaceTbName:        targetTable,
+		DocType:            "GRN",
+		DocumentNo:         docNo,
+		PayloadJSON:        payloadBytes,
+		AssociatedTransIDs: associatedTransIDs,
+		LastUpdatedAt:      time.Now(),
 	}, nil
 }
 
@@ -577,6 +701,77 @@ func (r *SQLServerRepository) extractVendor(ctx context.Context, transID int64, 
 // ExtractVendorByTransID mengekstrak vendor tertentu berdasarkan transid (bisa dipakai untuk pengujian atau manual ingestion)
 func (r *SQLServerRepository) ExtractVendorByTransID(ctx context.Context, transID int64) (*ExtractedRecord, error) {
 	return r.extractVendor(ctx, transID, "Add")
+}
+
+// extractItem mengekstrak data Item Master / Material dari dbo.axitem
+func (r *SQLServerRepository) extractItem(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
+	// 1. Cek keberadaan tabel dbo.axitem
+	var tableExists int
+	_ = r.DB.QueryRowContext(ctx, "IF OBJECT_ID('dbo.[axitem]', 'U') IS NOT NULL SELECT 1 ELSE SELECT 0").Scan(&tableExists)
+	if tableExists == 0 {
+		return r.extractGeneric(ctx, transID, "axitem", action)
+	}
+
+	query := `
+		SELECT 
+			ISNULL(itemnum, ''),
+			ISNULL(itemgroupid, ''),
+			ISNULL(itemtype, 'ITEM'),
+			ISNULL(stocktype, 'STOCK'),
+			ISNULL(issueunit, 'PC'),
+			ISNULL(orderunit, 'PC'),
+			ISNULL(description, ''),
+			ISNULL(status, 'ACTIVE'),
+			ISNULL(siteid, ''),
+			ISNULL(location, '')
+		FROM dbo.axitem
+		WHERE transid = @p1
+	`
+	var itemNum, itemGroupID, itemType, stockType, issueUnit, orderUnit, desc, status, siteID, loc string
+	err := r.DB.QueryRowContext(ctx, query, transID).Scan(
+		&itemNum, &itemGroupID, &itemType, &stockType, &issueUnit, &orderUnit, &desc, &status, &siteID, &loc,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return r.extractGeneric(ctx, transID, "axitem", action)
+	}
+
+	itemNum = strings.TrimSpace(itemNum)
+	if itemNum == "" {
+		return nil, nil
+	}
+
+	rawPayload := map[string]interface{}{
+		"ITEMNUM":     itemNum,
+		"ITEMGROUPID": strings.TrimSpace(itemGroupID),
+		"ITEMTYPE":    strings.TrimSpace(itemType),
+		"STOCKTYPE":   strings.TrimSpace(stockType),
+		"ISSUEUNIT":   strings.TrimSpace(issueUnit),
+		"ORDERUNIT":   strings.TrimSpace(orderUnit),
+		"DESCRIPTION": strings.TrimSpace(desc),
+		"STATUS":      strings.TrimSpace(status),
+		"SITEID":      strings.TrimSpace(siteID),
+		"LOCATION":    strings.TrimSpace(loc),
+		"TRANSID":     transID,
+		"ACTION":      action,
+	}
+
+	payloadBytes, _ := json.Marshal(rawPayload)
+	return &ExtractedRecord{
+		TransID:       fmt.Sprintf("%d", transID),
+		IfaceTbName:   "AXITEM",
+		DocType:       "ITEM",
+		DocumentNo:    fmt.Sprintf("ITEM-%s", itemNum),
+		PayloadJSON:   payloadBytes,
+		LastUpdatedAt: time.Now(),
+	}, nil
+}
+
+// ExtractItemByTransID mengekstrak item tertentu berdasarkan transid
+func (r *SQLServerRepository) ExtractItemByTransID(ctx context.Context, transID int64) (*ExtractedRecord, error) {
+	return r.extractItem(ctx, transID, "Add")
 }
 
 // Ekstraksi umum untuk tabel-tabel lainnya (AXITEM, AXUOM, AXVENDOR, AXBUDGET, AXINVISSUE, dll)

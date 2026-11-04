@@ -43,9 +43,9 @@ func (c *DashboardController) ShowDashboard(ctx *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
+	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "20"))
 	if limit < 1 {
-		limit = 10
+		limit = 20
 	}
 
 	// 1. UBAH: Tambahkan variabel 'trends' untuk menampung balikan dari service
@@ -476,3 +476,4 @@ func (c *DashboardController) HandleUpdatePayload(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Payload berhasil diperbarui"})
 }
+

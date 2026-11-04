@@ -8,7 +8,7 @@
     <link href="/static/css/fonts.css" rel="stylesheet">
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
-    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">    
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">    
     <style>
         :root {
             --bg-body: #F8FAFC;
@@ -34,6 +34,25 @@
         .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
         .table-custom td { padding: 14px 18px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
         .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .pagination-sm .page-link {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 6px;
+            color: var(--text-main);
+            border-color: var(--border-soft);
+        }
+        .pagination-sm .page-item.active .page-link {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+        .pagination-sm .page-item.disabled .page-link {
+            background-color: #F8FAFC;
+            color: var(--text-muted);
+            border-color: var(--border-soft);
+        }
 
         .maximo-uom-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
         .sap-uom-badge { background-color: #F0FDF4; color: #15803D; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #BBF7D0; display: inline-flex; align-items: center; gap: 6px; }
@@ -105,9 +124,16 @@
         </div>
 
         <!-- Data Table -->
-        <div class="main-card">
+        <div class="main-card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div class="input-group" style="max-width: 320px;">
+                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" id="searchUOM" class="form-control border-start-0 ps-0" placeholder="Cari UOM Maximo / SAP...">
+                </div>
+                <div class="text-muted small">Maksimal 20 aturan per halaman</div>
+            </div>
             <div class="table-responsive">
-                <table class="table table-custom mb-0 align-middle">
+                <table class="table table-custom mb-0 align-middle" id="tableUOM">
                     <thead>
                         <tr>
                             <th style="width: 60px;">ID</th>
@@ -179,6 +205,12 @@
                     </tbody>
                 </table>
             </div>
+            <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top flex-wrap gap-2">
+                <div class="text-muted small" id="infoUOM">Menampilkan 1–20 entri</div>
+                <nav>
+                    <ul class="pagination pagination-sm mb-0 gap-1" id="paginationUOM"></ul>
+                </nav>
+            </div>
         </div>
     </div>
 
@@ -233,8 +265,122 @@
     <script>
         let modalInstance = null;
 
+        function initClientPagination(tableId, searchInputId, paginationNavId, paginationInfoId, pageSize = 20) {
+            const table = document.getElementById(tableId);
+            if (!table) return null;
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return null;
+            const allRows = Array.from(tbody.querySelectorAll('tr'));
+            const dataRows = allRows.filter(r => !r.querySelector('td[colspan]'));
+            if (dataRows.length === 0) return null;
+
+            let currentPage = 1;
+            let searchQuery = '';
+
+            function getFilteredRows() {
+                if (!searchQuery) return dataRows;
+                return dataRows.filter(row => row.innerText.toLowerCase().includes(searchQuery));
+            }
+
+            function render() {
+                const filtered = getFilteredRows();
+                const total = filtered.length;
+                const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                if (currentPage > totalPages) currentPage = totalPages;
+                if (currentPage < 1) currentPage = 1;
+
+                const startIdx = (currentPage - 1) * pageSize;
+                const endIdx = Math.min(startIdx + pageSize, total);
+
+                dataRows.forEach(r => r.style.display = 'none');
+
+                for (let i = startIdx; i < endIdx; i++) {
+                    if (filtered[i]) filtered[i].style.display = '';
+                }
+
+                const infoEl = document.getElementById(paginationInfoId);
+                if (infoEl) {
+                    if (total === 0) {
+                        infoEl.innerText = 'Tidak ada entri yang cocok';
+                    } else {
+                        infoEl.innerHTML = `Menampilkan <b class="text-dark">${startIdx + 1}–${endIdx}</b> dari <b class="text-dark">${total}</b> entri (20 per halaman)`;
+                    }
+                }
+
+                const navEl = document.getElementById(paginationNavId);
+                if (!navEl) return;
+                navEl.innerHTML = '';
+
+                if (totalPages <= 1) return;
+
+                const prevLi = document.createElement('li');
+                prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+                prevLi.innerHTML = `<button class="page-link" type="button" aria-label="Previous"><i class="bi bi-chevron-left"></i></button>`;
+                if (currentPage > 1) {
+                    prevLi.onclick = (e) => { e.preventDefault(); currentPage--; render(); };
+                }
+                navEl.appendChild(prevLi);
+
+                let pages = [];
+                if (totalPages <= 7) {
+                    for (let i = 1; i <= totalPages; i++) pages.push(i);
+                } else {
+                    pages.push(1);
+                    if (currentPage > 3) pages.push('...');
+                    let start = Math.max(2, currentPage - 1);
+                    let end = Math.min(totalPages - 1, currentPage + 1);
+                    for (let i = start; i <= end; i++) pages.push(i);
+                    if (currentPage < totalPages - 2) pages.push('...');
+                    pages.push(totalPages);
+                }
+
+                pages.forEach(p => {
+                    const li = document.createElement('li');
+                    if (p === '...') {
+                        li.className = 'page-item disabled';
+                        li.innerHTML = '<span class="page-link">…</span>';
+                    } else {
+                        li.className = `page-item ${p === currentPage ? 'active' : ''}`;
+                        li.innerHTML = `<button class="page-link" type="button">${p}</button>`;
+                        if (p !== currentPage) {
+                            li.onclick = (e) => { e.preventDefault(); currentPage = p; render(); };
+                        }
+                    }
+                    navEl.appendChild(li);
+                });
+
+                const nextLi = document.createElement('li');
+                nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+                nextLi.innerHTML = `<button class="page-link" type="button" aria-label="Next"><i class="bi bi-chevron-right"></i></button>`;
+                if (currentPage < totalPages) {
+                    nextLi.onclick = (e) => { e.preventDefault(); currentPage++; render(); };
+                }
+                navEl.appendChild(nextLi);
+            }
+
+            if (searchInputId) {
+                const searchInput = document.getElementById(searchInputId);
+                if (searchInput) {
+                    searchInput.addEventListener('input', function(e) {
+                        searchQuery = e.target.value.toLowerCase().trim();
+                        currentPage = 1;
+                        render();
+                    });
+                }
+            }
+
+            render();
+            return {
+                refresh: () => render(),
+                setPage: (p) => { currentPage = p; render(); }
+            };
+        }
+
+        let uomPaginator = null;
+
         document.addEventListener('DOMContentLoaded', function() {
             modalInstance = new bootstrap.Modal(document.getElementById('uomModal'));
+            uomPaginator = initClientPagination('tableUOM', 'searchUOM', 'paginationUOM', 'infoUOM', 20);
         });
 
         function showToast(message, isSuccess = true) {

@@ -1,7 +1,26 @@
 /* =========================================
    DEFAULT THEME: LIGHT MODE (PUTIH)
    ========================================= */
-.sidebar { min-height: 100vh; width: 260px; min-width: 260px; background-color: #ffffff; display: flex; flex-direction: column; z-index: 100; border-right: 1px solid #E2E8F0; transition: background-color 0.2s ease, border-color 0.2s ease; }
+.sidebar { 
+    position: sticky; 
+    top: 0; 
+    height: 100vh; 
+    max-height: 100vh; 
+    align-self: flex-start;
+    overflow-y: auto; 
+    overflow-x: hidden; 
+    width: 260px; 
+    min-width: 260px; 
+    background-color: #ffffff; 
+    display: flex; 
+    flex-direction: column; 
+    z-index: 100; 
+    border-right: 1px solid #E2E8F0; 
+    transition: background-color 0.2s ease, border-color 0.2s ease; 
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+body.dark-sidebar .sidebar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); }
 .sidebar-header { padding: 24px 20px 20px 20px; border-bottom: 1px solid #F1F5F9; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; transition: border-color 0.2s ease; }
 
 /* KUNCI PERBAIKAN: Gunakan ukuran dan margin logo mode gelap untuk semua mode */
@@ -30,11 +49,14 @@
 .brand-subtitle { color: #64748B; font-size: 10.5px; font-weight: 600; line-height: 1.3; margin-top: 2px; white-space: nowrap; }
 .sidebar-section { font-size: 10.5px; text-transform: uppercase; color: #94A3B8; font-weight: 700; letter-spacing: 0.06em; margin: 12px 0 6px 20px; }
 
+/* Menu navigasi rapi menyatu tanpa celah flexbox yang melar */
+.sidebar .nav { margin-bottom: 6px !important; }
+.sidebar .nav.mb-auto { margin-bottom: 6px !important; }
 .sidebar .nav-link { color: #475569; padding: 12px 18px; font-size: 13.5px; font-weight: 500; display: flex; align-items: center; gap: 12px; margin: 2px 12px; border-radius: 8px; transition: all 0.2s ease; text-decoration: none; }
 .sidebar .nav-link:hover { color: #0F172A; background-color: #F8FAFC; transform: translateX(4px); }
 .sidebar .nav-link.active { background-color: #EFF6FF; border-left: 3px solid #2563EB; color: #1D4ED8; font-weight: 600; border-radius: 6px; padding-left: 15px; }
 
-.sidebar-footer { padding: 20px 16px; margin-top: auto; border-top: 1px solid #F1F5F9; }
+.sidebar-footer { padding: 20px 16px; margin-top: auto !important; border-top: 1px solid #F1F5F9; }
 
 /* =========================================
    OVERRIDE THEME: DARK MODE (HITAM)

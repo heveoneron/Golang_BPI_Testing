@@ -9,7 +9,7 @@
     <link href="/static/css/fonts.css" rel="stylesheet">
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
-    <link href="/static/css/sidebar.css?v=5" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">
     <!-- Select2 CSS -->
     <link href="/static/css/select2.min.css" rel="stylesheet" />
     <link href="/static/css/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
@@ -297,13 +297,13 @@
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            padding: 16px 20px !important;
+            padding: 12px 14px !important;
             background-color: #ffffff !important;
             border-bottom: 1px solid var(--border-soft) !important;
         }
 
         td {
-            padding: 20px !important;
+            padding: 12px 14px !important;
             vertical-align: middle !important;
             border-bottom: 1px solid #F1F5F9;
             transition: background-color 0.2s ease;
@@ -1301,7 +1301,7 @@
                     </div>
 
                     <form action="/dashboard" method="GET" id="filterForm"
-                        class="d-flex align-items-center gap-2 m-0 flex-nowrap" style="justify-content: flex-end;">
+                        class="d-flex align-items-center gap-2 m-0 flex-wrap" style="justify-content: flex-end;">
                         <input type="hidden" name="limit" value="{{ .limit }}">
                         <input type="hidden" name="page" value="1" id="pageInput">
 
@@ -1327,9 +1327,9 @@
                                 <option value="error" {{ if eq .status "error" }}selected{{ end }}>All Error / Failed
                                 </option>
                                 <option value="error_conn" {{ if eq .status "error_conn" }}selected{{ end }}>
-                                    &nbsp;&nbsp;&nbsp;&nbsp;└─ Error: Connection</option>
+                                    &nbsp;&nbsp;&nbsp;&nbsp;â””â”€ Error: Connection</option>
                                 <option value="error_data" {{ if eq .status "error_data" }}selected{{ end }}>
-                                    &nbsp;&nbsp;&nbsp;&nbsp;└─ Error: Data Validation</option>
+                                    &nbsp;&nbsp;&nbsp;&nbsp;â””â”€ Error: Data Validation</option>
                                 <option value="sent" {{ if eq .status "sent" }}selected{{ end }}>Sent / Processing
                                 </option>
                                 <option value="pending" {{ if eq .status "pending" }}selected{{ end }}>Pending /
@@ -1382,10 +1382,10 @@
                         <tr>
                             <th style="width: 4%; text-align: center;"><input type="checkbox" class="form-check-input"
                                     id="checkAll"></th>
-                            <th style="width: 38%;">DOCUMENT IDENTIFIER</th>
-                            <th style="width: 10%; text-align: center;">PAYLOAD & LOGS</th>
-                            <th style="width: 13%; text-align: center;">STATUS</th>
-                            <th style="width: 20%;">INFORMATION</th>
+                            <th style="width: 31%;">DOCUMENT IDENTIFIER</th>
+                            <th style="width: 13%; text-align: center;">PAYLOAD & LOGS</th>
+                            <th style="width: 12%; text-align: center;">STATUS</th>
+                            <th style="width: 25%;">INFORMATION</th>
                             <th style="width: 15%; text-align: center;">ACTION</th>
                         </tr>
                     </thead>
@@ -1481,7 +1481,7 @@
                             </td>
 
                             <td class="text-center">
-                                <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
+                                <div class="d-flex flex-column gap-2 align-items-center w-100">
                                     <button type="button" class="btn-view-json"
                                         onclick="showPayloadModal('{{ .DocType }}', '{{ .DocumentNo }}')">
                                         <i class="bi bi-braces"></i> JSON
@@ -1600,13 +1600,13 @@
             </div>
 
             <div class="table-footer">
-                <div class="pagination-info">Showing <b class="text-dark">{{ .startIndex }}–{{ .endIndex }}</b> of <b
+                <div class="pagination-info">Showing <b class="text-dark">{{ .startIndex }}â€“{{ .endIndex }}</b> of <b
                         class="text-dark">{{ .totalData }}</b> records</div>
                 <div class="pagination-actions">
                     <select id="limitSelect" class="form-select">
-                        <option value="10" {{ if eq .limit 10 }}selected{{ end }}>10 per page</option>
-                        <option value="25" {{ if eq .limit 25 }}selected{{ end }}>25 per page</option>
+                        <option value="20" {{ if eq .limit 20 }}selected{{ end }}>20 per page</option>
                         <option value="50" {{ if eq .limit 50 }}selected{{ end }}>50 per page</option>
+                        <option value="100" {{ if eq .limit 100 }}selected{{ end }}>100 per page</option>
                     </select>
                     <div class="d-flex align-items-center gap-2">
 
@@ -1832,6 +1832,21 @@
                                     </div>
                                 </div>
                                 <div class="card-body p-4 bg-white">
+                                    <!-- TARGET SAP ENDPOINT BANNER -->
+                                    <div id="sap-target-endpoint-box" class="p-3 mb-3 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2 border" style="background: #F8FAFC; border-color: #E2E8F0;">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden">
+                                            <span id="sap-endpoint-method" class="badge bg-primary px-2 py-1 font-monospace" style="font-size: 11px;">POST</span>
+                                            <span id="sap-endpoint-service" class="badge bg-light text-secondary border font-monospace" style="font-size: 11px;">GRN</span>
+                                            <div class="d-flex flex-column overflow-hidden flex-grow-1">
+                                                <span class="text-muted" style="font-size: 10.5px;"><i class="bi bi-send-check text-primary me-1"></i> Target SAP S/4HANA Grow OData Endpoint:</span>
+                                                <code id="sap-endpoint-url" class="text-dark fw-bold text-truncate font-monospace" style="font-size: 12px;" title="Target Endpoint URL">https://my445160-api.s4hana.cloud.sap/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader</code>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-1 px-2" style="font-size: 11px;" onclick="copyEndpointUrl(this)" title="Salin Target Endpoint URL">
+                                            <i class="bi bi-link-45deg me-1"></i> Salin URL
+                                        </button>
+                                    </div>
+
                                     <div class="position-relative">
                                         <pre id="sap-json-container" class="json-viewer m-0 shadow-sm"
                                             style="border-radius: 12px;"></pre>
@@ -2321,7 +2336,7 @@
                         </div>
                     </td>
                     <td class="text-center">
-                        <div class="d-flex flex-column gap-2 align-items-center w-100 px-3">
+                        <div class="d-flex flex-column gap-2 align-items-center w-100">
                             <button type="button" class="btn-view-json" onclick="showPayloadModal('${child.DocType}', '${child.DocumentNo}', '${(child.Payload || '{}').replace(/'/g, "&#39;")}', '${(child.SAPPayload || '').replace(/'/g, "&#39;")}', '${(child.SAPResponse || '').replace(/'/g, "&#39;")}')"><i class="bi bi-braces"></i> JSON</button>
                             <button type="button" class="btn-view-log" 
                                     data-doctype="${child.DocType}" 
@@ -2362,8 +2377,13 @@
                 return data.map(item => organizeJsonHeaderFirst(item));
             }
 
-            // Urutan prioritas field header (SAP BP & PO) agar selalu tampil paling atas dan teratur
+            // Urutan prioritas field header (SAP BP & PO & GRN) agar selalu tampil paling atas dan teratur
             const priorityHeaders = [
+                // GRN / Material Document Header
+                "MaterialDocumentHeaderText",
+                "ReferenceDocument",
+                "GoodsMovementCode",
+                "VersionForPrintingSlip",
                 // BP Header
                 "BusinessPartner",
                 "BusinessPartnerCategory",
@@ -2388,6 +2408,18 @@
                 "PaymentTerms",
                 "IncotermsClassification",
                 "IncotermsLocation1",
+                // GRN / Item Fields
+                "Material",
+                "Plant",
+                "GoodsMovementType",
+                "PurchaseOrderItem",
+                "GoodsMovementReasonCode",
+                "GoodsMovementRefDocType",
+                "QuantityInEntryUnit",
+                "InvtryMgmtReferenceDocument",
+                "MaterialDocumentItemText",
+                "MaterialDocumentYear",
+                "MaterialDocument",
                 // Sub-Item / Sub-Header fields
                 "Country",
                 "ReconciliationAccount",
@@ -2396,6 +2428,7 @@
 
             // Urutan prioritas relasi/detail array/object
             const priorityDetails = [
+                "to_MaterialDocumentItem",
                 "to_BusinessPartnerAddress",
                 "to_BusinessPartnerRole",
                 "to_Supplier",
@@ -2517,6 +2550,21 @@
                 })
                 .then(data => {
                     if (data.status === 'success') {
+                        const hiddenSapEl = document.getElementById('sap-payload-' + currentModalDocType + '-' + currentModalDocNo);
+                        if (hiddenSapEl) {
+                            hiddenSapEl.innerText = newJsonStr;
+                        }
+                        const sapContainer = document.getElementById('sap-json-container');
+                        if (sapContainer) {
+                            try {
+                                const sapObj = JSON.parse(newJsonStr);
+                                const orderedSap = organizeJsonHeaderFirst(sapObj);
+                                sapContainer.innerHTML = syntaxHighlight(JSON.stringify(orderedSap, null, 4));
+                            } catch (e) {
+                                sapContainer.innerHTML = syntaxHighlight(newJsonStr);
+                            }
+                        }
+                        cancelEditSapJson();
                         alert(repost ? 'Payload berhasil diperbarui dan dokumen sedang diposting ke SAP!' : 'Payload berhasil disimpan!');
                         const modalEl = document.getElementById('globalPayloadModal');
                         const modalInstance = bootstrap.Modal.getInstance(modalEl);
@@ -2565,7 +2613,7 @@
 
             // Set Title & Subtitle
             document.getElementById('payloadModalTitle').innerText = `Payload: ${docNo}`;
-            document.getElementById('payloadModalSubtitle').innerText = `${docType} | Maximo ERP Staging ➔ SAP Cloud Dispatcher`;
+            document.getElementById('payloadModalSubtitle').innerText = `${docType} | Maximo ERP Staging âž” SAP Cloud Dispatcher`;
 
             // Tab 1: Render Sumber Maximo ERP
             let maximoObj = null;
@@ -2582,6 +2630,80 @@
             // Tab 2: Render Outbound ke SAP
             const sapContainer = document.getElementById('sap-json-container');
             const btnEdit = document.getElementById('btnEditSapJson');
+
+            // Hitung Target SAP Endpoint URL & Method
+            let epMethod = 'POST';
+            let epService = docType || 'SAP';
+            let epUrl = 'https://my445160-api.s4hana.cloud.sap';
+
+            if (docType === 'GRN') {
+                let isCancel = false;
+                let cancelYear = '2026';
+                let cancelMatDoc = '';
+
+                // Cek Maximo raw payload
+                if (maximoObj) {
+                    const it = (maximoObj.ISSUETYPE || maximoObj.issuetype || '').toUpperCase();
+                    if (it === 'VOIDRECEIPT' || it === 'VOIDRETURN') {
+                        isCancel = true;
+                    }
+                    if (maximoObj.PONUM && maximoObj.PONUM !== '-' && String(maximoObj.PONUM).length === 10) {
+                        cancelMatDoc = String(maximoObj.PONUM).trim();
+                    } else if (maximoObj.REF_BPIGRNUMBER && maximoObj.REF_BPIGRNUMBER !== '-') {
+                        cancelMatDoc = String(maximoObj.REF_BPIGRNUMBER).trim();
+                    }
+                }
+
+                // Cek SAP payload
+                if (sapJson && sapJson !== 'null' && sapJson.trim() !== '') {
+                    try {
+                        const sapObj = JSON.parse(sapJson);
+                        if (sapObj.MaterialDocument !== undefined) {
+                            isCancel = true;
+                            if (sapObj.MaterialDocumentYear) cancelYear = sapObj.MaterialDocumentYear;
+                            if (sapObj.MaterialDocument) cancelMatDoc = sapObj.MaterialDocument;
+                        }
+                    } catch (e) {}
+                }
+
+                if (isCancel) {
+                    epService = 'CANCEL_GR';
+                    epUrl += `/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel?MaterialDocumentYear='${cancelYear}'&MaterialDocument='${cancelMatDoc || docNo}'`;
+                } else {
+                    epService = 'GRN';
+                    epUrl += '/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader';
+                }
+            } else if (docType === 'PO') {
+                epService = 'PO';
+                epUrl += '/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder';
+            } else if (docType === 'BP') {
+                epService = 'BP';
+                epUrl += '/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner';
+            } else if (docType === 'PRODUCT' || docType === 'ITEM' || docType === 'AXITEM') {
+                epService = 'PRODUCT';
+                epUrl += '/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product';
+            } else if (docType === 'PO_CHANGE_HEADER') {
+                epMethod = 'PATCH';
+                epService = 'PO_CHANGE_HEADER';
+                epUrl += '/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder';
+            } else if (docType === 'PO_CHANGE_ITEM') {
+                epMethod = 'PATCH';
+                epService = 'PO_CHANGE_ITEM';
+                epUrl += '/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrderItem';
+            } else {
+                epUrl += '/sap/opu/odata/...';
+            }
+
+            const mEl = document.getElementById('sap-endpoint-method');
+            const sEl = document.getElementById('sap-endpoint-service');
+            const uEl = document.getElementById('sap-endpoint-url');
+            if (mEl) mEl.innerText = epMethod;
+            if (sEl) sEl.innerText = epService;
+            if (uEl) {
+                uEl.innerText = epUrl;
+                uEl.title = epUrl;
+            }
+
             if (sapJson && sapJson !== 'null' && sapJson !== '{}' && sapJson.trim() !== '') {
                 try {
                     const sapObj = JSON.parse(sapJson);
@@ -2644,6 +2766,25 @@
                 jsonWrapper.style.display = 'none';
                 formContainer.style.display = 'block';
             }
+        }
+
+        function copyEndpointUrl(btn) {
+            const el = document.getElementById('sap-endpoint-url');
+            if (!el) return;
+            const text = el.innerText || el.textContent;
+            if (!text || text.trim() === '') return;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="bi bi-check2 text-success me-1"></i> Tersalin!';
+                btn.classList.add('btn-success', 'text-white');
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success', 'text-white');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
         }
 
         function copyCustomJSON(elementId, btn) {

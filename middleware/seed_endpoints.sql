@@ -51,6 +51,16 @@ VALUES
 	'PowerofOne@123456789'
 ),
 (
+	'CANCEL_GR',
+	'Cancel Goods Movement / Material Document (OData v2)',
+	'SAP_COM_0108',
+	'v2',
+	'https://my445160-api.s4hana.cloud.sap',
+	'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel',
+	'Y_BPI_CU_SAP_COM_0108',
+	'PowerofOne@123456789'
+),
+(
 	'GL_ACCOUNT_LINE_ITEMS',
 	'G/L Account Line Items Query (OData v2)',
 	'SAP_COM_0303',

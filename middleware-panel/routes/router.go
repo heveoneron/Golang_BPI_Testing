@@ -1,4 +1,4 @@
-package routes
+﻿package routes
 
 import (
 	"middleware-panel/controllers"
@@ -84,6 +84,8 @@ func getFirstAllowedPath(allowed string) string {
 			return "/uom-mapping"
 		case "bp_group_mapping", "recon_account_mapping":
 			return "/recon-account-mapping"
+		case "material_mapping":
+			return "/material-mapping"
 		case "config":
 			return "/config"
 		case "sap_endpoints":
@@ -192,6 +194,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	reconAccountMappingService := services.NewReconAccountMappingService(reconAccountMappingRepo)
 	reconAccountMappingController := controllers.NewReconAccountMappingController(reconAccountMappingService)
 
+	// 12. Material Config Mapping Domain
+	materialConfigMappingRepo := repository.NewMaterialConfigMappingRepository(db)
+	materialConfigMappingService := services.NewMaterialConfigMappingService(materialConfigMappingRepo)
+	materialConfigMappingController := controllers.NewMaterialConfigMappingController(materialConfigMappingService)
+
 	// ==========================================
 	// ROUTES MAPPING
 	// ==========================================
@@ -250,6 +257,12 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/recon-account-mapping", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleSave)
 	r.POST("/api/recon-account-mapping/toggle/:id", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleToggleActive)
 	r.DELETE("/api/recon-account-mapping/:id", requireMenuGuard("recon_account_mapping"), reconAccountMappingController.HandleDelete)
+
+	// Material Config Mapping (menu: material_mapping)
+	r.GET("/material-mapping", requireMenuGuard("material_mapping"), materialConfigMappingController.ShowMaterialMappings)
+	r.POST("/api/material-mapping", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleSave)
+	r.POST("/api/material-mapping/toggle/:id", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleToggleActive)
+	r.DELETE("/api/material-mapping/:id", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleDelete)
 
 	// Scheduler Config & Manual Pull (menu: scheduler)
 	r.GET("/scheduler-config", requireMenuGuard("scheduler"), schedController.ShowSchedulerConfig)

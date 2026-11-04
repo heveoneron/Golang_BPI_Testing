@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -106,12 +107,14 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 			"PurchaseOrder":    docNo,
 			"BusinessPartner":  docNo,
 			"MaterialDocument": docNo,
+			"Product":          docNo,
 			"Status":           "Created",
 			"Timestamp":        time.Now().Format(time.RFC3339),
 			"d": map[string]interface{}{
 				"PurchaseOrder":    docNo,
 				"BusinessPartner":  docNo,
 				"MaterialDocument": docNo,
+				"Product":          docNo,
 				"Status":           "Created",
 			},
 		}
@@ -161,6 +164,8 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 	var reqBody io.Reader
 	if len(payloadJSON) > 0 {
 		reqBody = strings.NewReader(string(payloadJSON))
+	} else if method == "POST" || method == "PATCH" || method == "PUT" {
+		reqBody = strings.NewReader("")
 	}
 
 	reqMain, err := http.NewRequest(method, fullURL, reqBody)
@@ -202,6 +207,12 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 					sapDocNo = po
 				} else if mat, exists := d["MaterialDocument"].(string); exists && mat != "" {
 					sapDocNo = mat
+				} else if prod, exists := d["Product"].(string); exists && prod != "" {
+					sapDocNo = prod
+				} else if cancel, exists := d["Cancel"].(map[string]interface{}); exists {
+					if mat, ok := cancel["MaterialDocument"].(string); ok && mat != "" {
+						sapDocNo = mat
+					}
 				}
 			}
 		} else {
@@ -236,4 +247,76 @@ func (s *SAPClient) PostODataDocument(endpointPath string, payloadJSON []byte) (
 	}
 	_, _, body, err := s.ExecuteOData(ep, "POST", payloadJSON)
 	return body, err
+}
+
+// GetMaterialDocumentByMaximoDocNo mencari nomor Material Document SAP berdasarkan nomor dokumen Maximo (MaterialDocumentHeaderText atau ReferenceDocument)
+func (s *SAPClient) GetMaterialDocumentByMaximoDocNo(ep *model.SAPEndpoint, maximoDocNo string) (string, string, error) {
+	if maximoDocNo == "" {
+		return "", "", fmt.Errorf("nomor dokumen maximo kosong")
+	}
+
+	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
+		// Mock fallback
+		return "5000000041", "2026", nil
+	}
+
+	// Filter berdasarkan MaterialDocumentHeaderText atau ReferenceDocument
+	safeDocNo := strings.ReplaceAll(maximoDocNo, "'", "''")
+	filterQuery := fmt.Sprintf("(MaterialDocumentHeaderText eq '%s' or ReferenceDocument eq '%s')", safeDocNo, safeDocNo)
+
+	basePath := "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
+	queryURL := fmt.Sprintf("%s%s?$filter=%s&$select=MaterialDocument,MaterialDocumentYear,MaterialDocumentHeaderText&$top=1",
+		ep.BaseURL, basePath, url.QueryEscape(filterQuery))
+
+	req, err := http.NewRequest("GET", queryURL, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("failed create lookup request: %w", err)
+	}
+
+	username := ep.Username
+	if username == "" {
+		username = s.Username
+	}
+	password := ep.Password
+	if password == "" {
+		password = s.Password
+	}
+
+	req.SetBasicAuth(username, password)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("network error during lookup: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", fmt.Errorf("failed read lookup response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("SAP lookup HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &respMap); err != nil {
+		return "", "", fmt.Errorf("failed parse lookup json: %w", err)
+	}
+
+	// OData v2 membungkus array di d.results
+	if d, ok := respMap["d"].(map[string]interface{}); ok {
+		if results, ok := d["results"].([]interface{}); ok && len(results) > 0 {
+			if first, ok := results[0].(map[string]interface{}); ok {
+				matDoc, _ := first["MaterialDocument"].(string)
+				docYear, _ := first["MaterialDocumentYear"].(string)
+				if matDoc != "" {
+					return matDoc, docYear, nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("dokumen SAP tidak ditemukan untuk nomor Maximo: %s", maximoDocNo)
 }

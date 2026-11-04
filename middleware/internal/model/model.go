@@ -206,6 +206,63 @@ type SAPSupplierPurchasingOrg struct {
 	PurchaseOrderCurrency  string `json:"PurchaseOrderCurrency"`
 }
 
+// MaximoReceiptHeader merepresentasikan header penerimaan barang (GRN / Return / Void) dari Maximo
+type MaximoReceiptHeader struct {
+	BPIGRNNumber    string              `json:"BPIGRNUMBER" example:"2026/GRN-03581"`
+	PackingSlipNum  string              `json:"PACKINGSLIPNUM" example:"3215/TSL/09/26"`
+	IssueType       string              `json:"ISSUETYPE" example:"RECEIPT"` // RECEIPT, RETURN, VOIDRETURN
+	PONum           string              `json:"PONUM" example:"4500016528"`
+	ActualDate      string              `json:"ACTUALDATE" example:"2026-10-29"`
+	TransDate       string              `json:"TRANSDATE,omitempty"`
+	Status          string              `json:"STATUS" example:"COMP"`
+	Action          string              `json:"ACTION,omitempty"`
+	ReceiptRef      string              `json:"RECEIPTREF,omitempty"`
+	RefBPIGRNNumber string              `json:"REF_BPIGRNUMBER,omitempty"`
+	Lines           []MaximoReceiptLine `json:"LINES"`
+}
+
+// MaximoReceiptLine merepresentasikan baris item penerimaan barang dari Maximo
+type MaximoReceiptLine struct {
+	POLineNum     int     `json:"POLINENUM" example:"1"`
+	ItemNum       string  `json:"ITEMNUM" example:"91-01193"`
+	Qty           float64 `json:"QTY" example:"1.00"`
+	ReceiptRef    string  `json:"RECEIPTREF,omitempty" example:"48045"`
+	MatrecTransID int64   `json:"MATRECTRANSID,omitempty" example:"49303"`
+	ConditionCode string  `json:"CONDITIONCODE,omitempty"`
+	TransID       int64   `json:"TRANSID,omitempty"`
+	TransSeq      int     `json:"TRANSSEQ,omitempty"`
+	PONum         string  `json:"PONUM,omitempty"`
+}
+
+// SAPGrowMaterialDocumentPayload merepresentasikan struktur OData v2 A_MaterialDocumentHeader Deep Insert
+type SAPGrowMaterialDocumentPayload struct {
+	MaterialDocumentHeaderText string                    `json:"MaterialDocumentHeaderText"`
+	ReferenceDocument          string                    `json:"ReferenceDocument,omitempty"`
+	GoodsMovementCode          string                    `json:"GoodsMovementCode"`
+	VersionForPrintingSlip     string                    `json:"VersionForPrintingSlip"`
+	ToMaterialDocumentItem     []SAPMaterialDocumentItem `json:"to_MaterialDocumentItem"`
+}
+
+// SAPMaterialDocumentItem merepresentasikan baris item pergerakan barang di SAP Grow
+type SAPMaterialDocumentItem struct {
+	Material                    string `json:"Material"`
+	Plant                       string `json:"Plant"`
+	GoodsMovementType           string `json:"GoodsMovementType"`
+	PurchaseOrder               string `json:"PurchaseOrder"`
+	PurchaseOrderItem           string `json:"PurchaseOrderItem"`
+	GoodsMovementRefDocType     string `json:"GoodsMovementRefDocType"`
+	QuantityInEntryUnit         string `json:"QuantityInEntryUnit"`
+	GoodsMovementReasonCode     string `json:"GoodsMovementReasonCode,omitempty"`
+	InvtryMgmtReferenceDocument string `json:"InvtryMgmtReferenceDocument,omitempty"`
+	MaterialDocumentItemText    string `json:"MaterialDocumentItemText,omitempty"`
+}
+
+// SAPCancelMaterialDocPayload merepresentasikan parameter function import Cancel
+type SAPCancelMaterialDocPayload struct {
+	MaterialDocumentYear string `json:"MaterialDocumentYear"`
+	MaterialDocument     string `json:"MaterialDocument"`
+}
+
 // BPGroupMapping mewakili pemetaan vendor group Maximo ke BusinessPartnerGrouping SAP Grow
 type BPGroupMapping struct {
 	ID          int       `json:"id"`
@@ -228,6 +285,18 @@ type ReconAccountMapping struct {
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// MaterialConfigMapping mewakili pemetaan konfigurasi material/item (Item Type, Item Group, Stock Type)
+type MaterialConfigMapping struct {
+	ID          int       `json:"id"`
+	ConfigType  string    `json:"config_type"`
+	MaximoValue string    `json:"maximo_value"`
+	SAPValue    string    `json:"sap_value"`
+	Description string    `json:"description"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // TableAPIMapping mewakili pemetaan dinamis dari tabel Maximo ke service API SAP Grow
@@ -295,4 +364,78 @@ type UOMMapping struct {
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// MaximoItemPayload mewakili baris item mentah dari IBM Maximo (tabel axitem)
+type MaximoItemPayload struct {
+	ItemNum     string `json:"ITEMNUM"`
+	ItemGroupID string `json:"ITEMGROUPID"`
+	ItemType    string `json:"ITEMTYPE"`
+	StockType   string `json:"STOCKTYPE"`
+	IssueUnit   string `json:"ISSUEUNIT"`
+	OrderUnit   string `json:"ORDERUNIT"`
+	Description string `json:"DESCRIPTION"`
+	Status      string `json:"STATUS,omitempty"`
+	SiteID      string `json:"SITEID,omitempty"`
+	Location    string `json:"LOCATION,omitempty"`
+	TransID     int64  `json:"TRANSID,omitempty"`
+	Action      string `json:"ACTION,omitempty"`
+}
+
+// SAPProductPayload mewakili payload OData v2 A_Product untuk Deep Insert ke SAP Grow
+type SAPProductPayload struct {
+	Product                   string                        `json:"Product"`
+	ProductType               string                        `json:"ProductType"`
+	CrossPlantStatus          string                        `json:"CrossPlantStatus"`
+	CrossPlantStatusValidity  *string                       `json:"CrossPlantStatusValidityDate"`
+	IsMarkedForDeletion       bool                          `json:"IsMarkedForDeletion"`
+	PurchaseOrderQuantityUnit string                        `json:"PurchaseOrderQuantityUnit,omitempty"`
+	ProductGroup              string                        `json:"ProductGroup"`
+	BaseUnit                  string                        `json:"BaseUnit"`
+	ToDescription             SAPProductDescriptionWrapper  `json:"to_Description"`
+	ToPlant                   SAPProductPlantWrapper        `json:"to_Plant"`
+	ToProductUnitsOfMeasure   *SAPProductUOMWrapper         `json:"to_ProductUnitsOfMeasure,omitempty"`
+	ToValuation               SAPProductValuationWrapper    `json:"to_Valuation"`
+}
+
+type SAPProductDescriptionWrapper struct {
+	Results []SAPProductDescription `json:"results"`
+}
+
+type SAPProductDescription struct {
+	Product            string `json:"Product"`
+	Language           string `json:"Language"`
+	ProductDescription string `json:"ProductDescription"`
+}
+
+type SAPProductPlantWrapper struct {
+	Results []SAPProductPlant `json:"results"`
+}
+
+type SAPProductPlant struct {
+	Product string `json:"Product"`
+	Plant   string `json:"Plant"`
+}
+
+type SAPProductUOMWrapper struct {
+	Results []SAPProductUOM `json:"results"`
+}
+
+type SAPProductUOM struct {
+	Product             string `json:"Product"`
+	AlternativeUnit     string `json:"AlternativeUnit"`
+	BaseUnit            string `json:"BaseUnit"`
+	QuantityNumerator   string `json:"QuantityNumerator"`
+	QuantityDenominator string `json:"QuantityDenominator"`
+}
+
+type SAPProductValuationWrapper struct {
+	Results []SAPProductValuation `json:"results"`
+}
+
+type SAPProductValuation struct {
+	Product                     string `json:"Product"`
+	ValuationArea               string `json:"ValuationArea"`
+	ValuationClass              string `json:"ValuationClass"`
+	InventoryValuationProcedure string `json:"InventoryValuationProcedure"`
 }
