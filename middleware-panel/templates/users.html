@@ -291,6 +291,12 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="finance" id="new_menu_finance" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_finance"><i class="bi bi-bank2 me-1 text-primary"></i> Finance (RICEF 1-9)</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input new-menu-cb" type="checkbox" value="exchange_rates" id="new_menu_exchange_rates" checked onchange="onCheckboxChange('new')">
                                         <label class="form-check-label small" for="new_menu_exchange_rates"><i class="bi bi-currency-exchange me-1 text-warning"></i> Exchange Rate</label>
                                     </div>
@@ -428,6 +434,12 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="finance" id="edit_menu_finance" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_finance"><i class="bi bi-bank2 me-1 text-primary"></i> Finance (RICEF 1-9)</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input edit-menu-cb" type="checkbox" value="exchange_rates" id="edit_menu_exchange_rates" onchange="onCheckboxChange('edit')">
                                         <label class="form-check-label small" for="edit_menu_exchange_rates"><i class="bi bi-currency-exchange me-1 text-warning"></i> Exchange Rate</label>
                                     </div>
@@ -506,7 +518,7 @@
         }
 
         const allMenuCodes = [
-            'dashboard', 'swagger', 'exchange_rates', 'uom_mapping',
+            'dashboard', 'swagger', 'finance', 'exchange_rates', 'uom_mapping',
             'config', 'sap_endpoints', 'table_mapping', 'scheduler',
             'backup', 'users'
         ];

@@ -43,15 +43,18 @@ type Document struct {
 	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
-// BudgetMaster menampung pagu anggaran
+// BudgetMaster menampung pagu anggaran. BudgetCombination berformat [MainAccount]-[BudgetCode].
 type BudgetMaster struct {
-	ID                int64     `json:"id"`
-	BudgetCombination string    `json:"budget_combination"`
-	BudgetYear        int       `json:"budget_year"`
-	ApprovedBudget    float64   `json:"approved_budget"`
-	RemainingBudget   float64   `json:"remaining_budget"`
-	Status            string    `json:"status"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                          int64     `json:"id"`
+	BudgetCombination           string    `json:"budget_combination"`
+	BudgetYear                  int       `json:"budget_year"`
+	BudgetCode                  string    `json:"budget_code"`
+	Type                        string    `json:"type"` // OPX / CPX
+	ApprovedBudget              float64   `json:"approved_budget"`
+	RemainingBudget             float64   `json:"remaining_budget"` // approved - lock RESERVED/COMMITTED
+	RemainingBudgetPaymentBased *float64  `json:"remaining_budget_payment_based"`
+	Status                      string    `json:"status"`
+	UpdatedAt                   time.Time `json:"updated_at"`
 }
 
 // BudgetTransactionLock menyimpan hold budget reservation
@@ -105,6 +108,7 @@ type MaximoPOLine struct {
 	BudgetCode   string  `json:"BUDGETCODE" example:"10081"`
 	CostCenter   string  `json:"DEPARTMENT" example:"3000"`
 	MainAccount  string  `json:"MAINACCOUNT" example:"513043"`
+	BudgetYear   string  `json:"BUDGETYEAR,omitempty" example:"2026"`
 	TaxCodePPN   string  `json:"TAXCODE1,omitempty" example:"V1"`
 	SiteID       string  `json:"SITEID,omitempty"`
 }

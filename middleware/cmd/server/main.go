@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -94,16 +95,40 @@ func main() {
 	sqlRepo := repository.NewSQLServerRepository(sqlDB)
 	pgRepo := repository.NewPostgresRepository(pgPool)
 	syncSvc := service.NewSyncService(sqlRepo, pgRepo, sapClient)
+	finSvc := service.NewFinanceService(pgRepo, sapClient)
+	if sqlDB != nil {
+		finSvc.MaximoWriter = sqlRepo // tulis invoice/jurnal SAP ke dbo.mxinvoice
+	}
 
-	// 5. Jalankan Dual-Thread Background Worker (Pull 3 Menit & Push Dispatcher)
+	// 4b. Migrasi tabel & endpoint RICEF 1-9 (idempotent)
+	if pgRepo.Pool != nil {
+		if err := pgRepo.MigrateFinance(ctx); err != nil {
+			log.Printf("[WARN] Migrasi finance (RICEF 1-9) gagal: %v", err)
+		} else {
+			log.Println("[INFO] Migrasi finance (RICEF 1-9) selesai.")
+		}
+	}
+
+	// 5. Jalankan Background Worker (Pull Maximo, Push SAP, Finance Pull SAP)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go startPullWorker(ctx, syncSvc, pgRepo, &wg)
 	go startPushWorker(ctx, syncSvc, &wg)
+	go startFinancePullWorker(ctx, finSvc, pgRepo, &wg)
 
 	// 6. Jalankan HTTP API Server
 	webCtrl := controller.NewWebController(pgRepo, syncSvc)
+	if !strings.EqualFold(os.Getenv("FIN_EXRATE_AUTO_PUSH"), "false") {
+		webCtrl.OnExchangeRatesSaved = func(reqCtx context.Context, kmk string) {
+			if res, err := finSvc.QueueExchangeRates(reqCtx, kmk); err != nil {
+				log.Printf("[WARN] Antre kurs KMK %s ke SAP gagal: %v", kmk, err)
+			} else {
+				log.Printf("[INFO] Kurs KMK %s diantre ke SAP: %d baru, %d sudah terkirim", kmk, len(res.Queued), len(res.Skipped))
+			}
+		}
+	}
 	router := routes.SetupRouter(webCtrl)
+	routes.RegisterFinanceRoutes(router, controller.NewFinanceController(finSvc))
 
 	appPort := os.Getenv("APP_PORT")
 	if appPort == "" {
@@ -188,6 +213,45 @@ func startPullWorker(ctx context.Context, svc *service.SyncService, pgRepo *repo
 			pulled, transformed := svc.PullDataFromSQLServer(ctx, pullLimit)
 			if pulled > 0 {
 				log.Printf("[WORKER-PULL] Berhasil menarik %d record dari SQL Server (Transformed: %d).", pulled, transformed)
+			}
+		}
+	}
+}
+
+// Background Worker 3: Tarik data finance dari SAP (RICEF 3/4 GL, 5 Payment Proposal, 9 Fixed Asset)
+func startFinancePullWorker(ctx context.Context, svc *service.FinanceService, pgRepo *repository.PostgresRepository, wg *sync.WaitGroup) {
+	defer wg.Done()
+	if strings.EqualFold(os.Getenv("FIN_PULL_ENABLED"), "false") {
+		log.Println("[WORKER] Finance Pull Worker NONAKTIF (FIN_PULL_ENABLED=false).")
+		return
+	}
+	intervalMin := 60
+	if v, err := strconv.Atoi(os.Getenv("FIN_PULL_INTERVAL_MINUTES")); err == nil && v > 0 {
+		intervalMin = v
+	}
+	log.Printf("[WORKER] Finance Pull Worker aktif (Interval: %d Menit)...", intervalMin)
+	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if pgRepo.Pool == nil {
+				continue
+			}
+			svc.SyncAll(ctx)
+			// SAP -> Maximo: hanya bila diaktifkan eksplisit karena menulis ke database Maximo.
+			if strings.EqualFold(os.Getenv("FIN_MAXIMO_EXPORT_ENABLED"), "true") {
+				if r := svc.SyncSupplierInvoices(ctx, service.InvoicePullOptions{}); r.Error != "" {
+					log.Printf("[WORKER-FINANCE] Tarik supplier invoice gagal: %s", r.Error)
+				}
+				if res, err := svc.ExportToMaximo(ctx, service.MaximoExportOptions{Limit: 100}); err != nil {
+					log.Printf("[WORKER-FINANCE] Tulis ke Maximo gagal: %v", err)
+				} else if res.Exported+res.Failed > 0 {
+					log.Printf("[WORKER-FINANCE] Tulis ke Maximo: %d sukses, %d gagal", res.Exported, res.Failed)
+				}
 			}
 		}
 	}

@@ -211,15 +211,21 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	}
 
 	// 4. Hitung total nilai PO untuk verifikasi Budget Lock & bangun items
-	var totalPOAmount float64
-	var budgetCode, costCenter string
+	// Pagu ditahan per kombinasi [MAINACCOUNT]-[BUDGETCODE] dan tahun budget baris PO.
+	type budgetKey struct {
+		combo string
+		year  int
+	}
+	budgetLines := map[budgetKey]float64{}
 	var sapItems []model.SAPGrowPOItem
 
 	for idx, line := range maxPO.Lines {
-		totalPOAmount += line.OrderQty * line.UnitCost
-		if budgetCode == "" {
-			budgetCode = line.BudgetCode
-			costCenter = line.CostCenter
+		if strings.TrimSpace(line.MainAccount) != "" && strings.TrimSpace(line.BudgetCode) != "" {
+			year := time.Now().Year()
+			if y, err := strconv.Atoi(strings.TrimSpace(line.BudgetYear)); err == nil && y > 2000 {
+				year = y
+			}
+			budgetLines[budgetKey{BudgetCombination(line.MainAccount, line.BudgetCode), year}] += line.OrderQty * line.UnitCost
 		}
 
 		itemNum := strings.TrimSpace(line.ItemNum)
@@ -331,13 +337,15 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		sapItems = append(sapItems, itemObj)
 	}
 
-	// Validasi & Lock Budget
-	if budgetCode != "" && s.PGRepo != nil {
-		combo := fmt.Sprintf("%s-%s", costCenter, budgetCode)
-		year := time.Now().Year()
-		ok, err := s.PGRepo.CheckAndLockBudget(ctx, combo, year, "PO", maxPO.PONum, totalPOAmount)
-		if !ok || err != nil {
-			return nil, fmt.Errorf("transaction lock budget rejected: %v", err)
+	// Validasi & Lock Budget: lock lama PO ini dilepas dulu agar revisi baris tidak meninggalkan lock basi.
+	if len(budgetLines) > 0 && s.PGRepo != nil && s.PGRepo.Pool != nil {
+		_ = s.PGRepo.ReleaseBudgetLocks(ctx, "PO", cleanPO)
+		for k, amount := range budgetLines {
+			ok, err := s.PGRepo.CheckAndLockBudget(ctx, k.combo, k.year, "PO", cleanPO+"|"+k.combo, math.Round(amount*100)/100)
+			if !ok || err != nil {
+				_ = s.PGRepo.ReleaseBudgetLocks(ctx, "PO", cleanPO)
+				return nil, fmt.Errorf("transaction lock budget rejected (%s): %v", k.combo, err)
+			}
 		}
 	}
 
@@ -1044,7 +1052,9 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		if mapErr == nil && mapping != nil {
 			// Cek apakah relasi tabel sumber -> API SAP ini berstatus aktif di Web Panel
 			if !mapping.IsActive {
-				log.Printf("[SKIP] Dokumen %s (%s) dilewati: Status pemetaan tabel '%s' ke SAP sedang NONAKTIF di Table-to-API Mapping Matrix", doc.DocumentNo, doc.DocType, mapping.SourceTable)
+				reason := fmt.Sprintf("Pemetaan tabel '%s' ke SAP sedang NONAKTIF di Table-to-API Mapping Matrix", mapping.SourceTable)
+				log.Printf("[SKIP] Dokumen %s (%s) dilewati: %s", doc.DocumentNo, doc.DocType, reason)
+				_ = s.PGRepo.MarkDocumentSkipped(ctx, doc.ID, reason)
 				continue
 			}
 			if mapping.TargetServiceCode != "" {
@@ -1061,7 +1071,9 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		}
 
 		if !ep.IsActive {
-			log.Printf("[SKIP] Dokumen %s (%s) dilewati: Layanan SAP '%s' berstatus NONAKTIF di registry", doc.DocumentNo, doc.DocType, ep.ServiceCode)
+			reason := fmt.Sprintf("Layanan SAP '%s' berstatus NONAKTIF di registry", ep.ServiceCode)
+			log.Printf("[SKIP] Dokumen %s (%s) dilewati: %s", doc.DocumentNo, doc.DocType, reason)
+			_ = s.PGRepo.MarkDocumentSkipped(ctx, doc.ID, reason)
 			continue
 		}
 
@@ -1141,7 +1153,14 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 			httpMethod = "PATCH"
 		}
 
-		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(epToSend, httpMethod, payloadToSend)
+		var statusCode int
+		var sapDocNo, respBody string
+		var sapErr error
+		if strings.EqualFold(epToSend.ODataVersion, "soap") {
+			statusCode, sapDocNo, respBody, sapErr = s.executeSOAPDocument(epToSend, payloadToSend)
+		} else {
+			statusCode, sapDocNo, respBody, sapErr = s.SAPClient.ExecuteOData(epToSend, httpMethod, payloadToSend)
+		}
 		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(epToSend.BaseURL, "/"), epToSend.EndpointPath)
 
 		if sapErr != nil {
@@ -1150,11 +1169,15 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 			if statusCode == 0 {
 				statusType = "error_conn"
 			}
-			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, statusType, sapErr.Error(), json.RawMessage(respBody))
+			_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, statusType, sapErr.Error(), toJSONResponse(respBody))
 			errMsg := fmt.Sprintf("Failed sending to SAP Grow via %s [Target API: %s]: %s", ep.ServiceCode, targetURL, sapErr.Error())
 			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", sapErr.Error(), errMsg)
+			if statusType == "error_data" {
+				s.afterPushRejected(ctx, doc, sapErr.Error())
+			}
 		} else {
-			_ = s.PGRepo.UpdateSAPSuccess(ctx, doc.ID, sapDocNo, json.RawMessage(respBody))
+			_ = s.PGRepo.UpdateSAPSuccess(ctx, doc.ID, sapDocNo, toJSONResponse(respBody))
+			s.afterPushSuccess(ctx, doc, sapDocNo)
 			successMsg := fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s] (SAP Doc: %s)", ep.ServiceCode, targetURL, sapDocNo)
 			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "SUCCESS", "", successMsg)
 			pushedCount++

@@ -21,6 +21,46 @@ type SAPClient struct {
 	HTTP     *http.Client
 	mu       sync.Mutex
 	tokenMap map[string]string // key: username@url -> csrfToken
+	clients  map[string]*http.Client
+}
+
+// httpFor mengembalikan http.Client dengan cookie jar terpisah per technical user. Token CSRF SAP
+// terikat ke session cookie, sehingga beberapa communication user pada host yang sama tidak boleh
+// berbagi satu jar.
+func (s *SAPClient) httpFor(username string) *http.Client {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.HTTP == nil {
+		s.HTTP = &http.Client{Timeout: 25 * time.Second}
+	}
+	if s.clients == nil {
+		s.clients = make(map[string]*http.Client)
+	}
+	if c, ok := s.clients[username]; ok {
+		return c
+	}
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Timeout: s.HTTP.Timeout, Transport: s.HTTP.Transport, Jar: jar}
+	s.clients[username] = c
+	return c
+}
+
+// credentials memilih kredensial endpoint, atau default client bila kosong.
+func (s *SAPClient) credentials(ep *model.SAPEndpoint) (string, string) {
+	username := ep.Username
+	if username == "" {
+		username = s.Username
+	}
+	password := ep.Password
+	if password == "" {
+		password = s.Password
+	}
+	return username, password
+}
+
+// IsMock bernilai true bila endpoint diarahkan ke mode simulasi.
+func IsMock(ep *model.SAPEndpoint) bool {
+	return ep == nil || ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK")
 }
 
 func NewSAPClient(baseURL, user, pass string) *SAPClient {
@@ -77,7 +117,7 @@ func (s *SAPClient) TestConnection(ep *model.SAPEndpoint) (string, int64, error)
 	reqGet.Header.Set("x-csrf-token", "fetch")
 	reqGet.Header.Set("Accept", "application/json")
 
-	resp, err := s.HTTP.Do(reqGet)
+	resp, err := s.httpFor(username).Do(reqGet)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", latency, fmt.Errorf("network connection error: %w", err)
@@ -149,7 +189,7 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 		reqGet.Header.Set("x-csrf-token", "fetch")
 		reqGet.Header.Set("Accept", "application/json")
 
-		respGet, err := s.HTTP.Do(reqGet)
+		respGet, err := s.httpFor(username).Do(reqGet)
 		if err != nil {
 			return 0, "", "", fmt.Errorf("network error fetching csrf token: %w", err)
 		}
@@ -180,7 +220,7 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 		reqMain.Header.Set("x-csrf-token", csrfToken)
 	}
 
-	respMain, err := s.HTTP.Do(reqMain)
+	respMain, err := s.httpFor(username).Do(reqMain)
 	if err != nil {
 		return 0, "", "", fmt.Errorf("network error executing %s to SAP Grow: %w", method, err)
 	}
@@ -210,6 +250,11 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 					sapDocNo = mat
 				} else if prod, exists := d["Product"].(string); exists && prod != "" {
 					sapDocNo = prod
+				} else if inv, exists := d["SupplierInvoice"].(string); exists && inv != "" {
+					sapDocNo = inv
+					if fy, ok := d["FiscalYear"].(string); ok && fy != "" {
+						sapDocNo = inv + "/" + fy
+					}
 				} else if cancel, exists := d["Cancel"].(map[string]interface{}); exists {
 					if mat, ok := cancel["MaterialDocument"].(string); ok && mat != "" {
 						sapDocNo = mat
@@ -222,6 +267,10 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 				sapDocNo = po
 			} else if bp, exists := respMap["BusinessPartner"].(string); exists && bp != "" {
 				sapDocNo = bp
+			} else if acc, exists := respMap["AccountingDocument"].(string); exists && acc != "" {
+				sapDocNo = acc
+			} else if inv, exists := respMap["SupplierInvoice"].(string); exists && inv != "" {
+				sapDocNo = inv
 			} else if id, exists := respMap["id"].(string); exists && id != "" {
 				sapDocNo = id
 			}
@@ -286,7 +335,7 @@ func (s *SAPClient) GetMaterialDocumentByMaximoDocNo(ep *model.SAPEndpoint, maxi
 	req.SetBasicAuth(username, password)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := s.HTTP.Do(req)
+	resp, err := s.httpFor(username).Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("network error during lookup: %w", err)
 	}
@@ -356,7 +405,7 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 	req.SetBasicAuth(username, password)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := s.HTTP.Do(req)
+	resp, err := s.httpFor(username).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("network error querying matdoc items: %w", err)
 	}

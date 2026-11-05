@@ -21,6 +21,8 @@ import (
 type WebController struct {
 	PGRepo  *repository.PostgresRepository
 	SyncSvc *service.SyncService
+	// OnExchangeRatesSaved dipanggil setelah kurs KMK tersimpan (RICEF 6 auto-push).
+	OnExchangeRatesSaved func(ctx context.Context, kmkNumber string)
 }
 
 func NewWebController(pgRepo *repository.PostgresRepository, syncSvc *service.SyncService) *WebController {
@@ -1022,6 +1024,11 @@ func (c *WebController) ReceiveExchangeRate(ctx *gin.Context) {
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
+	}
+
+	// RICEF 6: antre pengiriman kurs ke SAP (bila diaktifkan).
+	if c.OnExchangeRatesSaved != nil {
+		c.OnExchangeRatesSaved(ctx.Request.Context(), payload.Period.KMKNumber)
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{

@@ -78,6 +78,8 @@ func getFirstAllowedPath(allowed string) string {
 		switch strings.TrimSpace(p) {
 		case "dashboard":
 			return "/dashboard"
+		case "finance":
+			return "/finance"
 		case "exchange_rates":
 			return "/exchange-rates"
 		case "uom_mapping":
@@ -286,6 +288,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/table-mapping", requireMenuGuard("table_mapping"), tableMappingController.HandleSaveMapping)
 	r.POST("/api/table-mapping/toggle/:id", requireMenuGuard("table_mapping"), tableMappingController.HandleToggleActive)
 	r.DELETE("/api/table-mapping/:id", requireMenuGuard("table_mapping"), tableMappingController.HandleDeleteMapping)
+
+	// Finance Integration (RICEF 1-9) — halaman + proxy ke Middleware Engine
+	financeController := controllers.NewFinanceController()
+	r.GET("/finance", requireMenuGuard("finance"), financeController.ShowPage)
+	r.Any("/api/finance/*path", requireMenuGuard("finance"), financeController.Proxy)
 
 	// User Access Management (menu: users)
 	r.GET("/users", requireMenuGuard("users"), userController.ShowUsers)

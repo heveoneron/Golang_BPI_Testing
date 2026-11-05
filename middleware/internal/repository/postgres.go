@@ -131,7 +131,11 @@ func (r *PostgresRepository) FetchAndLockPendingDocuments(ctx context.Context, l
 		SET status = 'processing', last_attempt_at = NOW()
 		WHERE id IN (
 			SELECT id FROM documents
-			WHERE (status = 'pending' OR (status = 'error_conn' AND retry_count < 5))
+			WHERE (status = 'pending'
+			       OR (status = 'error_conn' AND retry_count < 5)
+			       -- Pemulihan: dokumen tertahan di 'processing' (worker crash) atau 'skipped'
+			       -- (mapping/endpoint nonaktif) dicoba lagi setelah 10 menit.
+			       OR (status IN ('processing', 'skipped') AND last_attempt_at < NOW() - INTERVAL '10 minutes'))
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
@@ -207,32 +211,17 @@ func (r *PostgresRepository) CheckAndLockBudget(ctx context.Context, budgetCombo
 	}
 	defer tx.Rollback(ctx)
 
-	// Hitung total lock aktif
-	var totalLocked float64
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(SUM(lock_amount), 0) 
-		FROM budget_transaction_locks 
-		WHERE budget_combination = $1 AND budget_year = $2 AND lock_status IN ('RESERVED', 'COMMITTED')
-		  AND NOT (reference_doc_type = $3 AND reference_doc_no = $4)
-	`, budgetCombo, year, docType, docNo).Scan(&totalLocked)
+	// Kunci baris pagu (FOR UPDATE) lalu hitung sisa, agar dua transaksi paralel tidak lolos bersamaan.
+	currentRemaining, found, err := availableBudgetTx(ctx, tx, budgetCombo, year, docType, docNo)
 	if err != nil {
 		return false, err
 	}
-
-	// Ambil pagu anggaran
-	var approvedBudget, remainingBudget float64
-	err = tx.QueryRow(ctx, `
-		SELECT approved_budget, remaining_budget 
-		FROM budget_masters 
-		WHERE budget_combination = $1 AND budget_year = $2
-	`, budgetCombo, year).Scan(&approvedBudget, &remainingBudget)
-
-	if err != nil {
-		// Jika budget master belum terdaftar, default izinkan dengan log peringatan
+	if !found {
+		// Budget master belum terdaftar: diizinkan dengan peringatan (menunggu keputusan bisnis).
+		r.LogFinanceWarning(ctx, docType, docNo, fmt.Sprintf("Budget master %s tahun %d belum terdaftar; pagu tidak ditahan", budgetCombo, year))
 		return true, nil
 	}
 
-	currentRemaining := approvedBudget - totalLocked
 	if currentRemaining < amount {
 		return false, fmt.Errorf("budget deficit: required %.2f but available %.2f", amount, currentRemaining)
 	}

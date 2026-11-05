@@ -58,3 +58,49 @@ func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 
 	return r
 }
+
+// RegisterFinanceRoutes mendaftarkan endpoint RICEF 1-9 di bawah /api/v1/finance.
+func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
+	fin := r.Group("/api/v1/finance")
+	{
+		// RICEF 1
+		fin.GET("/budget/masters", fc.ListBudgetMasters)
+		fin.POST("/budget/masters", fc.SaveBudgetMaster)
+		fin.POST("/budget/supplement", fc.SupplementBudget)
+		fin.POST("/budget/transfer", fc.TransferBudget)
+		fin.GET("/budget/locks", fc.ListBudgetLocks)
+		fin.POST("/budget/locks/release", fc.ReleaseBudgetLock)
+		// RICEF 2
+		fin.GET("/journal-entries", fc.ListJournalEntries)
+		fin.POST("/journal-entries", fc.CreateJournalEntry)
+		// RICEF 3/4, 5, 9
+		fin.GET("/gl-line-items", fc.ListGLLineItems)
+		fin.GET("/gl-line-items/detail", fc.GetGLLineItemDetail)
+		fin.GET("/payment-proposals", fc.ListPaymentProposals)
+		fin.GET("/fixed-assets", fc.ListFixedAssets)
+		fin.GET("/fixed-assets/detail", fc.GetFixedAssetDetail)
+		fin.POST("/sync/:target", fc.TriggerSync)
+		// RICEF 6
+		fin.POST("/exchange-rates/queue", fc.QueueExchangeRates)
+		fin.GET("/exchange-rates/documents", fc.ListExchangeRateDocuments)
+		// RICEF 7
+		fin.POST("/supplier-invoices/upload", fc.UploadSupplierInvoices)
+		fin.GET("/supplier-invoices", fc.ListSupplierInvoices)
+		fin.GET("/reimbursement-mappings", fc.ListReimbursementMappings)
+		fin.POST("/reimbursement-mappings", fc.SaveReimbursementMapping)
+		fin.DELETE("/reimbursement-mappings/:id", fc.DeleteReimbursementMapping)
+		fin.GET("/employee-vendors", fc.ListEmployeeVendors)
+		fin.POST("/employee-vendors", fc.SaveEmployeeVendor)
+		fin.POST("/employee-vendors/import", fc.ImportEmployeeVendors)
+		fin.DELETE("/employee-vendors/:code", fc.DeleteEmployeeVendor)
+		// SAP -> Maximo (dbo.mxinvoice)
+		fin.POST("/maximo/export", fc.ExportToMaximo)
+		fin.GET("/maximo/exports", fc.ListMaximoExports)
+		// RICEF 8
+		fin.GET("/assets/acquisitions", fc.ListAssetAcquisitions)
+		fin.POST("/assets/acquisitions", fc.ParkAssetAcquisition)
+		fin.GET("/assets/acquisitions/:id", fc.GetAssetAcquisition)
+		fin.POST("/assets/acquisitions/:id/approve", fc.ApproveAssetAcquisition)
+		fin.POST("/assets/acquisitions/:id/reject", fc.RejectAssetAcquisition)
+	}
+}

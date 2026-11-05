@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Integration - Middleware Panel</title>
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">
+    <style>
+        :root { --bg-body: #F8FAFC; --border-soft: #E2E8F0; --text-main: #0F172A; --text-muted: #64748B; --shadow-card: 0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); }
+        html, body { background-color: var(--bg-body); }
+        body { overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); }
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .top-nav-title h3 { font-weight: 800; margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px; }
+        .main-card { background: #fff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); padding: 20px; margin-bottom: 20px; }
+        .nav-tabs .nav-link { font-weight: 600; font-size: 13.5px; color: var(--text-muted); }
+        .nav-tabs .nav-link.active { color: #2563EB; }
+        .table-custom th { background: #F8FAFC; color: #64748B; font-size: 11.5px; font-weight: 700; text-transform: uppercase; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+        .table-custom td { padding: 10px 12px; font-size: 13px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); }
+        .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .section-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+        .section-hint { color: var(--text-muted); font-size: 12.5px; margin-bottom: 14px; }
+        .form-label { font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 2px; }
+        .badge-status { font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
+        .st-success, .st-POSTED, .st-APPLIED, .st-QUEUED, .st-COMMITTED { background: #DCFCE7; color: #166534; }
+        .st-pending, .st-processing, .st-PARKED, .st-APPROVED, .st-PENDING, .st-RESERVED { background: #FEF9C3; color: #854D0E; }
+        .st-error_data, .st-error_conn, .st-FAILED, .st-REJECTED { background: #FEE2E2; color: #991B1B; }
+        .st-skipped, .st-RELEASED { background: #E2E8F0; color: #334155; }
+        .table-wrap { max-height: 460px; overflow: auto; }
+        pre.json { background: #0F172A; color: #E2E8F0; font-size: 12px; padding: 12px; border-radius: 8px; max-height: 420px; overflow: auto; }
+    </style>
+</head>
+<body class="d-flex">
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert">
+            <div class="d-flex"><div class="toast-body" id="toastMessage"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-4" style="max-width: 100%; min-width: 0;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-bank2 text-primary"></i> Finance Integration</h3>
+                <span class="text-muted" style="font-size: 13.5px;">RICEF 1–9: budget, jurnal GI, data GL/payment/aset dari SAP, kurs KMK, reimbursement, dan parking aset</span>
+            </div>
+            <span class="text-muted small"><i class="bi bi-person-circle me-1"></i>{{ .Username }}</span>
+        </div>
+
+        <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-budget" data-load="budget">Budget (1)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-journal" data-load="journal">Jurnal GI (2)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-gl" data-load="gl">GL Line Item (3/4)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-payment" data-load="payment">Payment (5)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-kurs" data-load="kurs">Kurs KMK (6)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-invoice" data-load="invoice">Reimbursement (7)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-asset" data-load="asset">Aset (8/9)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-maximo" data-load="maximo">SAP → Maximo</button></li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- RICEF 1 -->
+            <div class="tab-pane fade show active" id="tab-budget">
+                <div class="row g-3">
+                    <div class="col-lg-6"><div class="main-card">
+                        <div class="section-title">Supplement budget</div>
+                        <div class="section-hint">Menambah pagu satu kombinasi Main Account (GL) – Budget Code. Pagu lokal bertambah setelah SAP mengonfirmasi.</div>
+                        <form id="formSupplement" class="row g-2">
+                            <div class="col-4"><label class="form-label">Main account (GL)</label><input class="form-control form-control-sm" name="main_account" required></div>
+                            <div class="col-4"><label class="form-label">Budget code</label><input class="form-control form-control-sm" name="budget_code" required></div>
+                            <div class="col-4"><label class="form-label">Cost center (opsional)</label><input class="form-control form-control-sm" name="cost_center"></div>
+                            <div class="col-4"><label class="form-label">Tahun</label><input class="form-control form-control-sm" name="year" type="number" data-default-year></div>
+                            <div class="col-8"><label class="form-label">Jumlah (IDR)</label><input class="form-control form-control-sm" name="amount" type="number" step="0.01" min="0.01" required></div>
+                            <div class="col-12"><label class="form-label">Alasan</label><input class="form-control form-control-sm" name="reason"></div>
+                            <div class="col-12"><button class="btn btn-primary btn-sm">Kirim supplement</button></div>
+                        </form>
+                    </div></div>
+                    <div class="col-lg-6"><div class="main-card">
+                        <div class="section-title">Transfer budget</div>
+                        <div class="section-hint">Pagu asal langsung ditahan; ditolak bila sisa pagu asal tidak cukup.</div>
+                        <form id="formTransfer" class="row g-2">
+                            <div class="col-6"><label class="form-label">Main account asal</label><input class="form-control form-control-sm" name="from_main_account" required></div>
+                            <div class="col-6"><label class="form-label">Budget code asal</label><input class="form-control form-control-sm" name="from_budget_code" required></div>
+                            <div class="col-6"><label class="form-label">Main account tujuan</label><input class="form-control form-control-sm" name="to_main_account" required></div>
+                            <div class="col-6"><label class="form-label">Budget code tujuan</label><input class="form-control form-control-sm" name="to_budget_code" required></div>
+                            <div class="col-4"><label class="form-label">Tahun</label><input class="form-control form-control-sm" name="year" type="number" data-default-year></div>
+                            <div class="col-8"><label class="form-label">Jumlah (IDR)</label><input class="form-control form-control-sm" name="amount" type="number" step="0.01" min="0.01" required></div>
+                            <div class="col-12"><label class="form-label">Alasan</label><input class="form-control form-control-sm" name="reason"></div>
+                            <div class="col-12"><button class="btn btn-primary btn-sm">Kirim transfer</button></div>
+                        </form>
+                    </div></div>
+                </div>
+                <div class="main-card">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                        <div><div class="section-title">Pagu per kombinasi</div><div class="section-hint mb-0">Kombinasi = [Main Account]-[Budget Code]. Sisa = approved − lock RESERVED/COMMITTED</div></div>
+                        <form id="formMaster" class="d-flex flex-wrap gap-2 align-items-end">
+                            <input class="form-control form-control-sm" name="main_account" placeholder="Main account" required style="width:120px">
+                            <input class="form-control form-control-sm" name="budget_code" placeholder="Budget code" required style="width:110px">
+                            <input class="form-control form-control-sm" name="year" type="number" data-default-year style="width:80px">
+                            <select class="form-select form-select-sm" name="type" style="width:90px"><option value="">Type</option><option>OPX</option><option>CPX</option></select>
+                            <input class="form-control form-control-sm" name="approved_budget" type="number" step="0.01" min="0" placeholder="Pagu" required style="width:140px">
+                            <button class="btn btn-outline-primary btn-sm text-nowrap">Simpan pagu</button>
+                        </form>
+                    </div>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblBudget"></table></div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-lg-6"><div class="main-card"><div class="section-title mb-2">Riwayat penyesuaian</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblAdjust"></table></div></div></div>
+                    <div class="col-lg-6"><div class="main-card"><div class="section-title mb-2">Budget lock</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblLocks"></table></div></div></div>
+                </div>
+            </div>
+
+            <!-- RICEF 2 -->
+            <div class="tab-pane fade" id="tab-journal">
+                <div class="main-card">
+                    <div class="section-title">Buat Journal Entry GI</div>
+                    <div class="section-hint">Dikirim ke SAP via SOAP. Total debit (S) harus sama dengan kredit (H). Baris debit yang berisi budget code menahan pagu kombinasi GL account – budget code.</div>
+                    <form id="formJournal">
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-3"><label class="form-label">Reference</label><input class="form-control form-control-sm" name="reference" maxlength="40" required></div>
+                            <div class="col-md-1"><label class="form-label">Company</label><input class="form-control form-control-sm" name="company_code" value="5110"></div>
+                            <div class="col-md-1"><label class="form-label">Doc type</label><input class="form-control form-control-sm" name="document_type" value="SA"></div>
+                            <div class="col-md-2"><label class="form-label">Document date</label><input class="form-control form-control-sm" name="document_date" type="date" data-default-today required></div>
+                            <div class="col-md-2"><label class="form-label">Posting date</label><input class="form-control form-control-sm" name="posting_date" type="date" data-default-today required></div>
+                            <div class="col-md-1"><label class="form-label">Currency</label><input class="form-control form-control-sm" name="currency" value="IDR"></div>
+                            <div class="col-md-2"><label class="form-label">Header text</label><input class="form-control form-control-sm" name="header_text" maxlength="25"></div>
+                        </div>
+                        <table class="table table-custom mb-2"><thead><tr><th>GL account</th><th>D/K</th><th>Jumlah</th><th>Cost center</th><th>Budget code</th><th>Item text</th><th></th></tr></thead><tbody id="jeLines"></tbody></table>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnAddLine"><i class="bi bi-plus"></i> Baris</button>
+                            <span class="small text-muted" id="jeTotals"></span>
+                            <button class="btn btn-primary btn-sm">Antre kirim ke SAP</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="main-card"><div class="section-title mb-2">Jurnal GI</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblJournal"></table></div></div>
+            </div>
+
+            <!-- RICEF 3/4 -->
+            <div class="tab-pane fade" id="tab-gl">
+                <div class="main-card">
+                    <form id="formGL" class="row g-2 align-items-end mb-3">
+                        <div class="col-md-2"><label class="form-label">Kategori</label><select class="form-select form-select-sm" name="category"><option value="">Semua</option><option value="journal">Jurnal (RICEF 3)</option><option value="invoice">Invoice non-PO (RICEF 4)</option></select></div>
+                        <div class="col-md-2"><label class="form-label">Dari</label><input class="form-control form-control-sm" type="date" name="from"></div>
+                        <div class="col-md-2"><label class="form-label">Sampai</label><input class="form-control form-control-sm" type="date" name="to"></div>
+                        <div class="col-md-3"><label class="form-label">Cari</label><input class="form-control form-control-sm" name="q" placeholder="No. dokumen / GL / teks"></div>
+                        <div class="col-md-3 d-flex gap-2"><button class="btn btn-outline-primary btn-sm">Tampilkan</button><button type="button" class="btn btn-primary btn-sm" data-sync="gl"><i class="bi bi-cloud-download"></i> Tarik dari SAP</button></div>
+                    </form>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblGL"></table></div>
+                </div>
+            </div>
+
+            <!-- RICEF 5 -->
+            <div class="tab-pane fade" id="tab-payment">
+                <div class="main-card">
+                    <form id="formPayment" class="d-flex gap-2 mb-3">
+                        <input class="form-control form-control-sm" name="q" placeholder="Cari payment run / supplier / dokumen" style="max-width:320px">
+                        <button class="btn btn-outline-primary btn-sm">Tampilkan</button>
+                        <button type="button" class="btn btn-primary btn-sm" data-sync="payment"><i class="bi bi-cloud-download"></i> Tarik dari SAP</button>
+                    </form>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblPayment"></table></div>
+                </div>
+            </div>
+
+            <!-- RICEF 6 -->
+            <div class="tab-pane fade" id="tab-kurs">
+                <div class="main-card">
+                    <div class="section-title">Kirim kurs KMK ke SAP</div>
+                    <div class="section-hint">Satu dokumen per mata uang. Kurs yang sudah sukses tidak dikirim ulang. Data kurs dikelola di menu Exchange Rate.</div>
+                    <form id="formKurs" class="d-flex gap-2 mb-3">
+                        <input class="form-control form-control-sm" name="kmk_number" placeholder="Nomor KMK (kosong = terbaru)" style="max-width:320px">
+                        <button class="btn btn-primary btn-sm">Antre kirim</button>
+                    </form>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblKurs"></table></div>
+                </div>
+            </div>
+
+            <!-- RICEF 7 -->
+            <div class="tab-pane fade" id="tab-invoice">
+                <div class="main-card">
+                    <div class="section-title">Upload Excel Talenta / Mekari</div>
+                    <div class="section-hint">File .xlsx (sheet pertama) atau .csv. Kolom wajib: InvoiceRef, DocumentDate, PostingDate, InvoicingParty, GrossAmount, Amount, dan <strong>PolicyName</strong> (GL &amp; budget code ditentukan dari mapping di bawah) atau GLAccount. Opsional: CIP (CIP / Non CIP; kosong = dari mapping vendor karyawan), CompanyCode, Currency, HeaderText, DocType, PaymentTerms, CostCenter, TaxCode (default V0), ItemText, AssignmentRef. Satu baris salah = seluruh file ditolak.</div>
+                    <form id="formUpload" class="d-flex gap-2 mb-2">
+                        <input class="form-control form-control-sm" type="file" name="file" accept=".xlsx,.csv" required style="max-width:360px">
+                        <button class="btn btn-primary btn-sm">Upload</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnTemplate"><i class="bi bi-download"></i> Template CSV</button>
+                    </form>
+                    <div id="uploadErrors"></div>
+                </div>
+                <div class="main-card"><div class="section-title mb-2">Supplier invoice</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblInvoice"></table></div></div>
+                <div class="main-card"><div class="section-title mb-2">Riwayat upload</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblBatches"></table></div></div>
+                <div class="row g-3">
+                    <div class="col-xl-7"><div class="main-card">
+                        <div class="section-title">Mapping kebijakan → GL &amp; budget code</div>
+                        <div class="section-hint">Sumber: Mapping Table Reimbers &amp; Business trip (sheet BT). Simpan dengan nama + CIP yang sama untuk mengubah.</div>
+                        <form id="formReimbMap" class="d-flex flex-wrap gap-2 mb-2">
+                            <input class="form-control form-control-sm" name="policy_name" placeholder="Nama kebijakan" required style="width:220px">
+                            <select class="form-select form-select-sm" name="cip_flag" style="width:110px"><option value="CIP">CIP</option><option value="NON_CIP">Non CIP</option></select>
+                            <input class="form-control form-control-sm" name="gl_account" placeholder="GL account" required style="width:110px">
+                            <input class="form-control form-control-sm" name="budget_code" placeholder="Budget code" required style="width:110px">
+                            <button class="btn btn-outline-primary btn-sm">Simpan</button>
+                        </form>
+                        <div class="table-wrap"><table class="table table-custom mb-0" id="tblReimbMap"></table></div>
+                    </div></div>
+                    <div class="col-xl-5"><div class="main-card">
+                        <div class="section-title">Vendor karyawan (CIP / Non CIP)</div>
+                        <div class="section-hint">Menentukan GL bila kolom CIP di file upload kosong. Import file berkolom Vendor Code + Comment (CIP/Non CIP).</div>
+                        <form id="formVendor" class="d-flex flex-wrap gap-2 mb-2">
+                            <input class="form-control form-control-sm" name="vendor_code" placeholder="Vendor code" required style="width:130px">
+                            <select class="form-select form-select-sm" name="cip_flag" style="width:110px"><option value="CIP">CIP</option><option value="NON_CIP">Non CIP</option></select>
+                            <input class="form-control form-control-sm" name="description" placeholder="Nama" style="width:130px">
+                            <button class="btn btn-outline-primary btn-sm">Simpan</button>
+                        </form>
+                        <form id="formVendorImport" class="d-flex gap-2 mb-2">
+                            <input class="form-control form-control-sm" type="file" name="file" accept=".xlsx,.csv" required>
+                            <button class="btn btn-outline-secondary btn-sm text-nowrap">Import</button>
+                        </form>
+                        <div id="vendorImportErrors"></div>
+                        <div class="table-wrap"><table class="table table-custom mb-0" id="tblVendors"></table></div>
+                    </div></div>
+                </div>
+            </div>
+
+            <!-- RICEF 8/9 -->
+            <div class="tab-pane fade" id="tab-asset">
+                <div class="main-card">
+                    <div class="section-title">Parking jurnal pengakuan aset (RICEF 8)</div>
+                    <div class="section-hint">Aset wajib sudah tersinkron dari SAP (RICEF 9). Approve harus oleh user berbeda dari pembuat parking; setelah approve, dokumen diposting ke SAP.</div>
+                    <form id="formAsset" class="row g-2">
+                        <div class="col-md-2"><label class="form-label">Reference</label><input class="form-control form-control-sm" name="reference" maxlength="50" required></div>
+                        <div class="col-md-1"><label class="form-label">Company</label><input class="form-control form-control-sm" name="company_code" value="5110"></div>
+                        <div class="col-md-2"><label class="form-label">Master fixed asset</label><input class="form-control form-control-sm" name="master_fixed_asset" required list="assetList"></div>
+                        <div class="col-md-1"><label class="form-label">Sub</label><input class="form-control form-control-sm" name="fixed_asset" value="0"></div>
+                        <div class="col-md-2"><label class="form-label">Document date</label><input class="form-control form-control-sm" type="date" name="document_date" data-default-today required></div>
+                        <div class="col-md-2"><label class="form-label">Posting date</label><input class="form-control form-control-sm" type="date" name="posting_date" data-default-today required></div>
+                        <div class="col-md-2"><label class="form-label">Asset value date</label><input class="form-control form-control-sm" type="date" name="asset_value_date" data-default-today required></div>
+                        <div class="col-md-2"><label class="form-label">Jumlah</label><input class="form-control form-control-sm" type="number" step="0.01" min="0.01" name="amount" required></div>
+                        <div class="col-md-1"><label class="form-label">Currency</label><input class="form-control form-control-sm" name="currency" value="IDR"></div>
+                        <div class="col-md-2"><label class="form-label">Offsetting account</label><input class="form-control form-control-sm" name="offsetting_account" required></div>
+                        <div class="col-md-5"><label class="form-label">Item text</label><input class="form-control form-control-sm" name="item_text" maxlength="50"></div>
+                        <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary btn-sm w-100">Simpan parking</button></div>
+                    </form>
+                    <datalist id="assetList"></datalist>
+                </div>
+                <div class="main-card"><div class="section-title mb-2">Parking aset</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblAcq"></table></div></div>
+                <div class="main-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title mb-0">Master fixed asset dari SAP (RICEF 9)</div>
+                        <button type="button" class="btn btn-primary btn-sm" data-sync="asset"><i class="bi bi-cloud-download"></i> Tarik dari SAP</button>
+                    </div>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblAssets"></table></div>
+                </div>
+            </div>
+
+            <!-- SAP -> Maximo -->
+            <div class="tab-pane fade" id="tab-maximo">
+                <div class="main-card">
+                    <div class="section-title">Invoice &amp; jurnal SAP → Maximo (dbo.mxinvoice)</div>
+                    <div class="section-hint">1) Tarik supplier invoice dari SAP (jurnal diambil dari data GL Line Item). 2) Pratinjau baris yang akan ditulis. 3) Tulis ke Maximo: setiap baris masuk dbo.mxinvoice + dbo.mxin_inter_trans. Dokumen yang sudah tertulis tidak ditulis ulang.</div>
+                    <form id="formMxPull" class="d-flex flex-wrap gap-2 align-items-end mb-2">
+                        <div><label class="form-label">Posting dari</label><input class="form-control form-control-sm" type="date" name="from"></div>
+                        <div><label class="form-label">Sampai</label><input class="form-control form-control-sm" type="date" name="to"></div>
+                        <button class="btn btn-outline-primary btn-sm"><i class="bi bi-cloud-download"></i> Tarik invoice dari SAP</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnMxPreview"><i class="bi bi-eye"></i> Pratinjau</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnMxExport"><i class="bi bi-box-arrow-in-right"></i> Tulis ke Maximo</button>
+                        <span class="small text-muted" id="mxWriterState"></span>
+                    </form>
+                    <div id="mxWarnings"></div>
+                    <div class="table-wrap"><table class="table table-custom mb-0" id="tblMxPreview"></table></div>
+                </div>
+                <div class="main-card"><div class="section-title mb-2">Riwayat tulis ke Maximo</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblMxExports"></table></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="jsonModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><h6 class="modal-title" id="jsonModalTitle">Detail</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body"><pre class="json" id="jsonModalBody"></pre></div>
+    </div></div></div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+    (function () {
+        const fmt = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const num = v => `<span class="num d-block">${fmt.format(Number(v || 0))}</span>`;
+        const badge = s => `<span class="badge-status st-${esc(s)}">${esc(s)}</span>`;
+        const dt = v => v ? esc(String(v).replace('T', ' ').slice(0, 16)) : '';
+
+        function toast(msg, ok) {
+            const el = document.getElementById('liveToast');
+            el.classList.remove('bg-success', 'bg-danger');
+            el.classList.add(ok ? 'bg-success' : 'bg-danger');
+            document.getElementById('toastMessage').textContent = msg;
+            bootstrap.Toast.getOrCreateInstance(el, { delay: 6000 }).show();
+        }
+
+        async function api(method, path, body, isForm) {
+            const opt = { method, headers: {} };
+            if (body !== undefined) {
+                if (isForm) { opt.body = body; } else { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+            }
+            const res = await fetch('/api/finance' + path, opt);
+            let data = null;
+            try { data = await res.json(); } catch (e) { data = {}; }
+            if (!res.ok) {
+                const msg = data && (data.details ? data.details.join('; ') : (data.error || data.message)) || ('HTTP ' + res.status);
+                const err = new Error(msg); err.data = data; err.status = res.status; throw err;
+            }
+            return data;
+        }
+
+        function table(id, cols, rows, empty) {
+            const el = document.getElementById(id);
+            const head = '<thead><tr>' + cols.map(c => `<th>${esc(c[0])}</th>`).join('') + '</tr></thead>';
+            const body = (rows && rows.length)
+                ? rows.map(r => '<tr>' + cols.map(c => `<td>${c[1](r)}</td>`).join('') + '</tr>').join('')
+                : `<tr><td colspan="${cols.length}" class="text-center text-muted py-4">${esc(empty || 'Belum ada data')}</td></tr>`;
+            el.innerHTML = head + '<tbody>' + body + '</tbody>';
+        }
+
+        function formJSON(form, numeric) {
+            const o = {};
+            new FormData(form).forEach((v, k) => { o[k] = (numeric || []).includes(k) ? (v === '' ? 0 : Number(v)) : String(v).trim(); });
+            return o;
+        }
+
+        function showJSON(title, obj) {
+            document.getElementById('jsonModalTitle').textContent = title;
+            document.getElementById('jsonModalBody').textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('jsonModal')).show();
+        }
+        const store = {};
+        window.finShow = (key, i) => showJSON(key, store[key][i]);
+
+        const today = new Date().toISOString().slice(0, 10);
+        document.querySelectorAll('[data-default-today]').forEach(i => i.value = today);
+        document.querySelectorAll('[data-default-year]').forEach(i => i.value = new Date().getFullYear());
+
+        // ---------- RICEF 1 ----------
+        async function loadBudget() {
+            try {
+                const d = await api('GET', '/budget/masters');
+                table('tblBudget', [
+                    ['Kombinasi', r => esc(r.budget_combination)], ['Budget code', r => esc(r.budget_code)], ['Tahun', r => esc(r.budget_year)],
+                    ['Type', r => esc(r.type)], ['Approved', r => num(r.approved_budget)], ['Sisa', r => num(r.remaining_budget)],
+                    ['Status', r => badge(r.status)], ['Update', r => dt(r.updated_at)]
+                ], d.data, 'Belum ada pagu');
+                table('tblAdjust', [
+                    ['Dokumen', r => esc(r.document_no)], ['Tipe', r => esc(r.adjustment_type)],
+                    ['Asal → Tujuan', r => esc((r.from_combination ? r.from_combination + ' → ' : '') + r.to_combination)],
+                    ['Jumlah', r => num(r.amount)], ['Status', r => badge(r.status) + (r.error_message ? `<div class="small text-danger">${esc(r.error_message)}</div>` : '')]
+                ], d.adjustments);
+                const l = await api('GET', '/budget/locks?limit=200');
+                table('tblLocks', [
+                    ['Referensi', r => esc(r.reference_doc_type + ' ' + r.reference_doc_no)], ['Kombinasi', r => esc(r.budget_combination)],
+                    ['Jumlah', r => num(r.lock_amount)], ['Status', r => badge(r.lock_status)],
+                    ['', r => r.lock_status === 'RELEASED' ? '' : `<button class="btn btn-link btn-sm p-0" data-release="${esc(r.reference_doc_type)}|${esc(r.reference_doc_no)}">Lepas</button>`]
+                ], l.data);
+            } catch (e) { toast(e.message, false); }
+        }
+        document.getElementById('tblLocks').addEventListener('click', async ev => {
+            const v = ev.target.getAttribute('data-release'); if (!v) return;
+            const i = v.indexOf('|');
+            if (!confirm('Lepas lock ' + v.replace('|', ' ') + '?')) return;
+            try { await api('POST', '/budget/locks/release', { reference_doc_type: v.slice(0, i), reference_doc_no: v.slice(i + 1) }); toast('Lock dilepas', true); loadBudget(); }
+            catch (e) { toast(e.message, false); }
+        });
+        function bindPost(formId, path, numeric, done) {
+            document.getElementById(formId).addEventListener('submit', async ev => {
+                ev.preventDefault();
+                const btn = ev.target.querySelector('button:not([type=button])'); if (btn) btn.disabled = true;
+                try { const r = await api('POST', path, formJSON(ev.target, numeric)); done(r, ev.target); }
+                catch (e) { toast(e.message, false); }
+                finally { if (btn) btn.disabled = false; }
+            });
+        }
+        bindPost('formSupplement', '/budget/supplement', ['year', 'amount'], r => { toast('Supplement ' + r.document_no + ' diantre ke SAP', true); loadBudget(); });
+        bindPost('formTransfer', '/budget/transfer', ['year', 'amount'], r => { toast('Transfer ' + r.document_no + ' diantre ke SAP', true); loadBudget(); });
+        bindPost('formMaster', '/budget/masters', ['year', 'approved_budget'], r => { toast('Pagu ' + r.budget_combination + ' disimpan', true); loadBudget(); });
+
+        // ---------- RICEF 2 ----------
+        const jeLines = document.getElementById('jeLines');
+        function addLine(dc) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><input class="form-control form-control-sm" data-f="gl_account" required></td>
+                <td><select class="form-select form-select-sm" data-f="debit_credit"><option value="S">S (Debit)</option><option value="H">H (Kredit)</option></select></td>
+                <td><input class="form-control form-control-sm" type="number" step="0.01" min="0.01" data-f="amount" required></td>
+                <td><input class="form-control form-control-sm" data-f="cost_center"></td>
+                <td><input class="form-control form-control-sm" data-f="budget_code"></td>
+                <td><input class="form-control form-control-sm" data-f="item_text" maxlength="50"></td>
+                <td><button type="button" class="btn btn-link btn-sm text-danger p-0" data-remove>Hapus</button></td>`;
+            tr.querySelector('[data-f=debit_credit]').value = dc || 'S';
+            jeLines.appendChild(tr); updateTotals();
+        }
+        function updateTotals() {
+            let d = 0, k = 0;
+            jeLines.querySelectorAll('tr').forEach(tr => {
+                const a = Number(tr.querySelector('[data-f=amount]').value || 0);
+                if (tr.querySelector('[data-f=debit_credit]').value === 'S') d += a; else k += a;
+            });
+            const el = document.getElementById('jeTotals');
+            el.textContent = `Debit ${fmt.format(d)} · Kredit ${fmt.format(k)}` + (Math.abs(d - k) < 0.005 ? ' · seimbang' : ' · TIDAK seimbang');
+            el.className = 'small ' + (Math.abs(d - k) < 0.005 ? 'text-success' : 'text-danger');
+        }
+        jeLines.addEventListener('input', updateTotals);
+        jeLines.addEventListener('click', ev => { if (ev.target.hasAttribute('data-remove')) { ev.target.closest('tr').remove(); updateTotals(); } });
+        document.getElementById('btnAddLine').addEventListener('click', () => addLine('S'));
+        addLine('S'); addLine('H');
+        document.getElementById('formJournal').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const body = formJSON(ev.target);
+            body.items = [...jeLines.querySelectorAll('tr')].map(tr => {
+                const o = {}; tr.querySelectorAll('[data-f]').forEach(i => o[i.dataset.f] = i.dataset.f === 'amount' ? Number(i.value || 0) : i.value.trim()); return o;
+            });
+            try { const r = await api('POST', '/journal-entries', body); toast('Jurnal ' + r.document_no + ' diantre ke SAP', true); loadJournal(); }
+            catch (e) { toast(e.message, false); }
+        });
+        function docCols(key) {
+            return [
+                ['Dokumen', r => esc(r.document_no)], ['Status', r => badge(r.status)],
+                ['No. SAP', r => esc(r.sap_document_no || '')],
+                ['Pesan', r => `<span class="small text-danger">${esc(r.error_message || '')}</span>`],
+                ['Update', r => dt(r.updated_at)],
+                ['', (r) => `<button class="btn btn-link btn-sm p-0" onclick="finShow('${key}', ${store[key].indexOf(r)})">Payload</button>`]
+            ];
+        }
+        async function loadJournal() {
+            try { const d = await api('GET', '/journal-entries'); store.journal = (d.data || []).map(x => x); table('tblJournal', docCols('journal'), store.journal); }
+            catch (e) { toast(e.message, false); }
+        }
+
+        // ---------- RICEF 3/4 ----------
+        async function loadGL(ev) {
+            if (ev) ev.preventDefault();
+            const p = new URLSearchParams(new FormData(document.getElementById('formGL')));
+            try {
+                const d = await api('GET', '/gl-line-items?' + p.toString());
+                table('tblGL', [
+                    ['Posting', r => esc(r.posting_date || '')], ['Dokumen', r => esc(r.accounting_document + '/' + r.fiscal_year)],
+                    ['Item', r => esc(r.ledger_gl_line_item)], ['Tipe', r => esc(r.accounting_document_type)], ['GL', r => esc(r.gl_account)],
+                    ['Cost center', r => esc(r.cost_center)], ['D/K', r => esc(r.debit_credit_code)],
+                    ['Jumlah', r => num(r.amount_in_company_code_currency)], ['Teks', r => esc(r.document_item_text)],
+                    ['', r => `<button class="btn btn-link btn-sm p-0" data-glkey="${esc(r.gl_line_item_key)}">Detail SAP</button>`]
+                ], d.data, 'Belum ada data. Klik "Tarik dari SAP".');
+            } catch (e) { toast(e.message, false); }
+        }
+        document.getElementById('formGL').addEventListener('submit', loadGL);
+        document.getElementById('tblGL').addEventListener('click', async ev => {
+            const k = ev.target.getAttribute('data-glkey'); if (!k) return;
+            try { showJSON('GL line item ' + k, await api('GET', '/gl-line-items/detail?key=' + encodeURIComponent(k))); } catch (e) { toast(e.message, false); }
+        });
+
+        // ---------- RICEF 5 ----------
+        async function loadPayment(ev) {
+            if (ev) ev.preventDefault();
+            const q = new FormData(document.getElementById('formPayment')).get('q') || '';
+            try {
+                const d = await api('GET', '/payment-proposals?q=' + encodeURIComponent(q));
+                store.payment = d.data || [];
+                table('tblPayment', [
+                    ['Run date', r => esc(r.payment_run_date || '')], ['Run ID', r => esc(r.payment_run_id)], ['Company', r => esc(r.company_code)],
+                    ['Supplier', r => esc(r.supplier)], ['Dokumen', r => esc(r.payment_document)], ['Jumlah', r => num(r.amount)], ['Cur', r => esc(r.currency)],
+                    ['', r => `<button class="btn btn-link btn-sm p-0" onclick="finShow('payment', ${store.payment.indexOf(r)})">Raw</button>`]
+                ], store.payment, 'Belum ada data. Klik "Tarik dari SAP".');
+            } catch (e) { toast(e.message, false); }
+        }
+        document.getElementById('formPayment').addEventListener('submit', loadPayment);
+
+        // ---------- RICEF 6 ----------
+        async function loadKurs() {
+            try { const d = await api('GET', '/exchange-rates/documents'); store.kurs = d.data || []; table('tblKurs', docCols('kurs'), store.kurs); }
+            catch (e) { toast(e.message, false); }
+        }
+        document.getElementById('formKurs').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            try {
+                const r = await api('POST', '/exchange-rates/queue', formJSON(ev.target));
+                toast(`KMK ${r.kmk_number}: ${(r.queued || []).length} diantre, ${(r.skipped || []).length} sudah terkirim` + ((r.errors || []).length ? `, ${r.errors.length} error` : ''), !(r.errors || []).length);
+                loadKurs();
+            } catch (e) { toast(e.message, false); }
+        });
+
+        // ---------- RICEF 7 ----------
+        async function loadInvoice() {
+            try {
+                const d = await api('GET', '/supplier-invoices');
+                table('tblInvoice', [
+                    ['InvoiceRef', r => esc(r.invoice_ref)], ['Invoicing party', r => esc(r.invoicing_party)], ['Tanggal', r => esc(r.document_date)],
+                    ['Gross', r => num(r.gross_amount)], ['Cur', r => esc(r.currency)], ['Status', r => badge(r.status)],
+                    ['No. SAP', r => esc(r.sap_document_no || '')], ['Pesan', r => `<span class="small text-danger">${esc(r.error_message || '')}</span>`]
+                ], d.data);
+                table('tblBatches', [
+                    ['Waktu', r => dt(r.created_at)], ['File', r => esc(r.file_name)], ['Oleh', r => esc(r.uploaded_by)],
+                    ['Baris', r => esc(r.total_rows)], ['Invoice', r => esc(r.total_invoices)], ['Status', r => badge(r.status)]
+                ], d.batches);
+                const m = await api('GET', '/reimbursement-mappings');
+                table('tblReimbMap', [
+                    ['Kebijakan', r => esc(r.policy_name)], ['CIP', r => esc(r.cip_flag === 'NON_CIP' ? 'Non CIP' : 'CIP')],
+                    ['GL', r => esc(r.gl_account)], ['Budget code', r => esc(r.budget_code)],
+                    ['', r => `<button class="btn btn-link btn-sm text-danger p-0" data-del-map="${esc(r.id)}">Hapus</button>`]
+                ], m.data, 'Belum ada mapping');
+                const v = await api('GET', '/employee-vendors');
+                table('tblVendors', [
+                    ['Vendor', r => esc(r.vendor_code)], ['CIP', r => esc(r.cip_flag === 'NON_CIP' ? 'Non CIP' : 'CIP')], ['Nama', r => esc(r.description)],
+                    ['', r => `<button class="btn btn-link btn-sm text-danger p-0" data-del-vendor="${esc(r.vendor_code)}">Hapus</button>`]
+                ], v.data, 'Belum ada vendor karyawan');
+            } catch (e) { toast(e.message, false); }
+        }
+        bindPost('formReimbMap', '/reimbursement-mappings', [], () => { toast('Mapping disimpan', true); loadInvoice(); });
+        bindPost('formVendor', '/employee-vendors', [], () => { toast('Vendor karyawan disimpan', true); loadInvoice(); });
+        document.getElementById('tblReimbMap').addEventListener('click', async ev => {
+            const id = ev.target.getAttribute('data-del-map'); if (!id || !confirm('Hapus mapping ini?')) return;
+            try { await api('DELETE', '/reimbursement-mappings/' + encodeURIComponent(id)); loadInvoice(); } catch (e) { toast(e.message, false); }
+        });
+        document.getElementById('tblVendors').addEventListener('click', async ev => {
+            const code = ev.target.getAttribute('data-del-vendor'); if (!code || !confirm('Hapus vendor ' + code + '?')) return;
+            try { await api('DELETE', '/employee-vendors/' + encodeURIComponent(code)); loadInvoice(); } catch (e) { toast(e.message, false); }
+        });
+        document.getElementById('formVendorImport').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const box = document.getElementById('vendorImportErrors'); box.innerHTML = '';
+            try { const r = await api('POST', '/employee-vendors/import', new FormData(ev.target), true); toast(r.imported + ' vendor karyawan diimport', true); ev.target.reset(); loadInvoice(); }
+            catch (e) {
+                const errs = e.data && e.data.errors;
+                if (errs && errs.length) {
+                    box.innerHTML = '<div class="alert alert-danger small">File ditolak:<ul class="mb-0">' + errs.map(x => `<li>Baris ${esc(x.row)} (${esc(x.field)}): ${esc(x.message)}</li>`).join('') + '</ul></div>';
+                } else { toast(e.message, false); }
+            }
+        });
+        document.getElementById('formUpload').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const box = document.getElementById('uploadErrors'); box.innerHTML = '';
+            try {
+                const r = await api('POST', '/supplier-invoices/upload', new FormData(ev.target), true);
+                toast(`${(r.invoices || []).length} invoice diantre ke SAP`, true); ev.target.reset(); loadInvoice();
+            } catch (e) {
+                const errs = e.data && e.data.batch && e.data.batch.errors;
+                if (errs && errs.length) {
+                    box.innerHTML = '<div class="alert alert-danger small mb-0"><strong>File ditolak.</strong> Perbaiki baris berikut lalu upload ulang:<ul class="mb-0">' +
+                        errs.map(x => `<li>Baris ${esc(x.row)}${x.field ? ' (' + esc(x.field) + ')' : ''}: ${esc(x.message)}</li>`).join('') + '</ul></div>';
+                    loadInvoice();
+                } else { toast(e.message, false); }
+            }
+        });
+        document.getElementById('btnTemplate').addEventListener('click', () => {
+            const csv = 'InvoiceRef,CompanyCode,DocumentDate,PostingDate,InvoicingParty,Currency,GrossAmount,HeaderText,PaymentTerms,PolicyName,CIP,CostCenter,Amount,TaxCode,ItemText,AssignmentRef\n' +
+                `BT-2026-001,5110,${today},${today},VND-5072,IDR,1500000,Perjalanan dinas,NT15,Domestic,,51101101,1000000,V0,Tiket pesawat,BT-2026-001\n` +
+                `BT-2026-001,5110,${today},${today},VND-5072,IDR,1500000,Perjalanan dinas,NT15,Domestic,,51101101,500000,V0,Uang harian,BT-2026-001\n` +
+                `MED-2026-001,5110,${today},${today},VND-5072,IDR,350000,Rawat jalan,NT15,Medical Claim - Outpatient,,51101101,350000,V0,Klinik,MED-2026-001\n`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'template_reimbursement.csv'; a.click();
+        });
+
+        // ---------- RICEF 8/9 ----------
+        async function loadAsset() {
+            try {
+                const d = await api('GET', '/assets/acquisitions');
+                table('tblAcq', [
+                    ['Reference', r => esc(r.reference)], ['Aset', r => esc(r.company_code + '/' + r.master_fixed_asset + '-' + r.fixed_asset)],
+                    ['Posting', r => esc(r.posting_date)], ['Jumlah', r => num(r.amount)], ['Status', r => badge(r.status)],
+                    ['Parked / Approved', r => esc(r.parked_by + (r.approved_by ? ' / ' + r.approved_by : ''))],
+                    ['No. SAP / Pesan', r => esc(r.sap_document_no || '') + (r.error_message || r.reject_reason ? `<div class="small text-danger">${esc(r.error_message || r.reject_reason)}</div>` : '')],
+                    ['', r => (r.status === 'PARKED' || r.status === 'FAILED')
+                        ? `<button class="btn btn-success btn-sm py-0" data-approve="${esc(r.id)}">Approve</button>` + (r.status === 'PARKED' ? ` <button class="btn btn-outline-danger btn-sm py-0" data-reject="${esc(r.id)}">Tolak</button>` : '')
+                        : '']
+                ], d.data);
+                const a = await api('GET', '/fixed-assets');
+                table('tblAssets', [
+                    ['Company', r => esc(r.company_code)], ['Master', r => esc(r.master_fixed_asset)], ['Sub', r => esc(r.fixed_asset)],
+                    ['Deskripsi', r => esc(r.description)], ['Kelas', r => esc(r.asset_class)], ['Kapitalisasi', r => esc(r.capitalization_date || '')],
+                    ['Sinkron', r => dt(r.synced_at)]
+                ], a.data, 'Belum ada data. Klik "Tarik dari SAP".');
+                document.getElementById('assetList').innerHTML = (a.data || []).map(r => `<option value="${esc(r.master_fixed_asset)}">${esc(r.description)}</option>`).join('');
+            } catch (e) { toast(e.message, false); }
+        }
+        bindPost('formAsset', '/assets/acquisitions', ['amount'], r => { toast('Parking ' + r.reference + ' disimpan', true); loadAsset(); });
+        document.getElementById('tblAcq').addEventListener('click', async ev => {
+            const ap = ev.target.getAttribute('data-approve'), rj = ev.target.getAttribute('data-reject');
+            try {
+                if (ap) {
+                    if (!confirm('Approve dan posting ke SAP?')) return;
+                    await api('POST', `/assets/acquisitions/${encodeURIComponent(ap)}/approve`, {}); toast('Disetujui, diantre posting ke SAP', true); loadAsset();
+                } else if (rj) {
+                    const reason = prompt('Alasan penolakan:'); if (!reason) return;
+                    await api('POST', `/assets/acquisitions/${encodeURIComponent(rj)}/reject`, { reason }); toast('Parking ditolak', true); loadAsset();
+                }
+            } catch (e) { toast(e.message, false); }
+        });
+
+        // ---------- Sinkron manual ----------
+        document.querySelectorAll('[data-sync]').forEach(btn => btn.addEventListener('click', async () => {
+            const t = btn.dataset.sync; btn.disabled = true;
+            let qs = '';
+            if (t === 'gl') { const f = new FormData(document.getElementById('formGL')); qs = '?' + new URLSearchParams({ from: f.get('from') || '', to: f.get('to') || '' }).toString(); }
+            try {
+                const r = await api('POST', '/sync/' + t + qs);
+                const x = r.results[0]; toast(`Tarik ${x.target}: ${x.upserted} record disimpan`, true);
+            } catch (e) {
+                const x = e.data && e.data.results && e.data.results[0]; toast(x ? `Tarik ${x.target} gagal: ${x.error}` : e.message, false);
+            } finally {
+                btn.disabled = false;
+                ({ gl: loadGL, payment: loadPayment, asset: loadAsset })[t]();
+            }
+        }));
+
+        // ---------- SAP -> Maximo ----------
+        const mxDate = v => v ? esc(String(v).slice(0, 10)) : '';
+        function renderMxPreview(res) {
+            const rows = [];
+            const warns = [];
+            (res.messages || []).forEach(m => {
+                (m.rows || []).forEach(r => rows.push(Object.assign({ _src: m.source_type + ' ' + m.source_key }, r)));
+                (m.warnings || []).forEach(w => warns.push(m.source_key + ': ' + w));
+            });
+            (res.errors || []).forEach(e => warns.push(e));
+            document.getElementById('mxWarnings').innerHTML = warns.length
+                ? '<div class="alert alert-warning small"><ul class="mb-0">' + warns.map(w => `<li>${esc(w)}</li>`).join('') + '</ul></div>' : '';
+            table('tblMxPreview', [
+                ['Sumber', r => esc(r._src)], ['Type', r => esc(r.invoicetype)], ['Invoicenum', r => esc(r.invoicenum)],
+                ['Line', r => esc(r.invoicelinenum)], ['Vendor', r => esc(r.vendor)], ['PO / line', r => esc(r.ponum ? r.ponum + ' / ' + r.polinenum : '')],
+                ['Item', r => esc(r.itemnum)], ['Qty', r => num(r.invoiceqty)], ['Unit cost', r => num(r.unitcost)], ['Line cost', r => num(r.linecost)],
+                ['Budget', r => esc(r.budgetcode)], ['GL debit', r => esc(r.gldebitacct)], ['GRN', r => esc(r.bpigrnnumber)],
+                ['Posting', r => mxDate(r.glpostdate)], ['Transid', r => esc(r.transid || '')]
+            ], rows, 'Tidak ada dokumen yang menunggu ditulis ke Maximo');
+        }
+        async function loadMaximo() {
+            try {
+                const d = await api('GET', '/maximo/exports');
+                document.getElementById('mxWriterState').textContent = d.writer_configured ? 'SQL Server Maximo: terkonfigurasi' : 'SQL Server Maximo: belum dikonfigurasi (hanya pratinjau)';
+                table('tblMxExports', [
+                    ['Waktu', r => dt(r.updated_at)], ['Jenis', r => esc(r.source_type)], ['Dokumen', r => esc(r.source_key)],
+                    ['Baris', r => esc(r.line_count)], ['Status', r => badge(r.status === 'EXPORTED' ? 'success' : 'FAILED') + ' ' + esc(r.status)],
+                    ['Transid', r => esc(r.trans_ids)], ['Error', r => `<span class="small text-danger">${esc(r.error)}</span>`]
+                ], d.data, 'Belum ada riwayat');
+            } catch (e) { toast(e.message, false); }
+        }
+        document.getElementById('formMxPull').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const f = new FormData(ev.target);
+            try {
+                const r = await api('POST', '/sync/invoice?' + new URLSearchParams({ from: f.get('from') || '', to: f.get('to') || '' }).toString());
+                toast(`Tarik invoice: ${r.results[0].upserted} invoice disimpan`, true);
+            } catch (e) { const x = e.data && e.data.results && e.data.results[0]; toast(x ? 'Tarik invoice gagal: ' + x.error : e.message, false); }
+        });
+        document.getElementById('btnMxPreview').addEventListener('click', async () => {
+            try { renderMxPreview(await api('POST', '/maximo/export', { dry_run: true, limit: 100 })); } catch (e) { toast(e.message, false); }
+        });
+        document.getElementById('btnMxExport').addEventListener('click', async () => {
+            if (!confirm('Tulis dokumen yang menunggu ke tabel Maximo dbo.mxinvoice?')) return;
+            try {
+                const r = await api('POST', '/maximo/export', { dry_run: false, limit: 100 });
+                renderMxPreview(r); toast(`${r.exported} dokumen ditulis ke Maximo` + (r.failed ? `, ${r.failed} gagal` : ''), !r.failed);
+            } catch (e) {
+                if (e.data && e.data.messages) { renderMxPreview(e.data); toast(`${e.data.exported} ditulis, ${e.data.failed} gagal`, false); }
+                else toast(e.message, false);
+            }
+            loadMaximo();
+        });
+
+        const loaders = { budget: loadBudget, journal: loadJournal, gl: loadGL, payment: loadPayment, kurs: loadKurs, invoice: loadInvoice, asset: loadAsset, maximo: loadMaximo };
+        document.querySelectorAll('[data-load]').forEach(b => b.addEventListener('shown.bs.tab', () => loaders[b.dataset.load]()));
+        loadBudget();
+    })();
+    </script>
+</body>
+</html>
