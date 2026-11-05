@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -319,4 +320,89 @@ func (s *SAPClient) GetMaterialDocumentByMaximoDocNo(ep *model.SAPEndpoint, maxi
 	}
 
 	return "", "", fmt.Errorf("dokumen SAP tidak ditemukan untuk nomor Maximo: %s", maximoDocNo)
+}
+
+// GetMaterialDocumentItemsByPO mengambil daftar pergerakan barang (MaterialDocumentItem) di SAP berdasarkan nomor PurchaseOrder
+func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum string) ([]model.SAPMatDocItemSummary, error) {
+	if poNum == "" {
+		return nil, fmt.Errorf("nomor PurchaseOrder kosong")
+	}
+
+	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
+		return []model.SAPMatDocItemSummary{}, nil
+	}
+
+	safePO := strings.ReplaceAll(poNum, "'", "''")
+	filterQuery := fmt.Sprintf("PurchaseOrder eq '%s'", safePO)
+
+	basePath := "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentItem"
+	queryURL := fmt.Sprintf("%s%s?$filter=%s&$select=MaterialDocument,MaterialDocumentYear,GoodsMovementType,QuantityInEntryUnit",
+		ep.BaseURL, basePath, url.QueryEscape(filterQuery))
+
+	req, err := http.NewRequest("GET", queryURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed create matdoc items query: %w", err)
+	}
+
+	username := ep.Username
+	if username == "" {
+		username = s.Username
+	}
+	password := ep.Password
+	if password == "" {
+		password = s.Password
+	}
+
+	req.SetBasicAuth(username, password)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error querying matdoc items: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed read matdoc items response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("SAP matdoc items query HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &respMap); err != nil {
+		return nil, fmt.Errorf("failed parse matdoc items json: %w", err)
+	}
+
+	var items []model.SAPMatDocItemSummary
+	if d, ok := respMap["d"].(map[string]interface{}); ok {
+		if results, ok := d["results"].([]interface{}); ok {
+			for _, itemRaw := range results {
+				if itemMap, ok := itemRaw.(map[string]interface{}); ok {
+					matDoc, _ := itemMap["MaterialDocument"].(string)
+					matYear, _ := itemMap["MaterialDocumentYear"].(string)
+					movementType, _ := itemMap["GoodsMovementType"].(string)
+
+					var qty float64
+					switch v := itemMap["QuantityInEntryUnit"].(type) {
+					case float64:
+						qty = v
+					case string:
+						qty, _ = strconv.ParseFloat(v, 64)
+					}
+
+					items = append(items, model.SAPMatDocItemSummary{
+						MaterialDocument:     matDoc,
+						MaterialDocumentYear: matYear,
+						GoodsMovementType:    movementType,
+						QuantityInEntryUnit:  qty,
+					})
+				}
+			}
+		}
+	}
+
+	return items, nil
 }

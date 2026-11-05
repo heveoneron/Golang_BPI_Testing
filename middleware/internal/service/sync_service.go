@@ -131,14 +131,86 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 	return transformedCount
 }
 
-// Transformasi khusus PO Maximo -> SAP Grow OData + Budget Check
+// TransformPO mengekspor fungsi transformasi PO untuk testing dan controller
+func (s *SyncService) TransformPO(ctx context.Context, raw json.RawMessage) ([]byte, error) {
+	return s.transformPO(ctx, raw)
+}
+
+// Transformasi khusus PO Maximo -> SAP Grow OData v4 Purchase Order (Deep Insert)
 func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]byte, error) {
 	var maxPO model.MaximoPOHeader
 	if err := json.Unmarshal(raw, &maxPO); err != nil {
 		return nil, fmt.Errorf("invalid json maximo po: %w", err)
 	}
 
-	// Hitung total nilai PO untuk verifikasi Budget Lock
+	// Fallback jika LINES kosong, coba periksa apakah format generic map
+	if len(maxPO.Lines) == 0 {
+		var genericMap map[string]interface{}
+		if gErr := json.Unmarshal(raw, &genericMap); gErr == nil {
+			if po, ok := genericMap["PONUM"].(string); ok && po != "" {
+				maxPO.PONum = po
+			}
+			if v, ok := genericMap["VENDOR"].(string); ok && v != "" {
+				maxPO.Vendor = v
+			}
+			if d, ok := genericMap["ORDERDATE"].(string); ok && d != "" {
+				maxPO.OrderDate = d
+			}
+			if c, ok := genericMap["CURRENCYCODE"].(string); ok && c != "" {
+				maxPO.CurrencyCode = c
+			}
+			if dpType, ok := genericMap["DOWNPAYMENTTYPE"].(string); ok && dpType != "" {
+				maxPO.DownPaymentType = dpType
+			}
+			if dpDue, ok := genericMap["DOWNPAYMENTDUEDATE"].(string); ok && dpDue != "" {
+				maxPO.DownPaymentDueDate = dpDue
+			}
+			if dpPct, ok := genericMap["DOWNPAYMENTPERCENTAGE"].(float64); ok {
+				maxPO.DownPaymentPercentageOfTotAmt = dpPct
+			}
+		}
+	}
+
+	// 1. Tentukan PurchaseOrderType berdasarkan awalan PONUM
+	// "If Prefix PO 45 = ZPRC, Else If Prefix PO 47 = ZCTR, Else fallback ZBPI atau NB"
+	cleanPO := strings.TrimSpace(maxPO.PONum)
+	poType := "ZBPI"
+	if strings.HasPrefix(cleanPO, "45") {
+		poType = "ZPRC"
+	} else if strings.HasPrefix(cleanPO, "47") {
+		poType = "ZCTR"
+	}
+
+	// 2. Tentukan PO Kontrak (cth: 4700000012-63 atau 4100000567-25)
+	// Jika PO kontrak nomor PO tersebut ditaruh di SupplierRespSalesPersonName
+	salesPerson := ""
+	if strings.Contains(cleanPO, "-") {
+		salesPerson = cleanPO
+	}
+
+	docCurrency := strings.TrimSpace(maxPO.CurrencyCode)
+	if docCurrency == "" {
+		docCurrency = "IDR"
+	}
+
+	orderDate := strings.TrimSpace(maxPO.OrderDate)
+	if orderDate == "" {
+		orderDate = time.Now().Format("2006-01-02")
+	}
+
+	// 3. Down Payment (DP) fields di Header (Tipe 3 & 4)
+	var dpType string
+	var dpPct *float64
+	var dpDueDate string
+
+	if maxPO.DownPaymentPercentageOfTotAmt > 0 || maxPO.DownPaymentDueDate != "" || strings.EqualFold(maxPO.DownPaymentType, "V") {
+		dpType = "V"
+		val := maxPO.DownPaymentPercentageOfTotAmt
+		dpPct = &val
+		dpDueDate = maxPO.DownPaymentDueDate
+	}
+
+	// 4. Hitung total nilai PO untuk verifikasi Budget Lock & bangun items
 	var totalPOAmount float64
 	var budgetCode, costCenter string
 	var sapItems []model.SAPGrowPOItem
@@ -150,28 +222,117 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			costCenter = line.CostCenter
 		}
 
-		itemNum := line.ItemNum
+		itemNum := strings.TrimSpace(line.ItemNum)
 		if itemNum == "" {
-			itemNum = "PK0514"
+			itemNum = "SP006"
 		}
 
-		sapItems = append(sapItems, model.SAPGrowPOItem{
-			PurchaseOrderItem:         fmt.Sprintf("%d", (idx+1)*10),
-			PurchaseOrderItemText:     itemNum,
+		// Line Number: gunakan POLINENUM jika ada, jika tidak urutkan idx+1
+		lineNumStr := fmt.Sprintf("%d", line.POLineNum)
+		if line.POLineNum <= 0 {
+			lineNumStr = fmt.Sprintf("%d", idx+1)
+		}
+
+		// Deskripsi Item:
+		// PurchaseOrderItemText maksimal 40 karakter
+		desc := strings.TrimSpace(line.Description)
+		if desc == "" {
+			desc = itemNum
+		}
+		itemText := desc
+		if len(itemText) > 40 {
+			itemText = itemText[:40]
+		}
+
+		// UOM conversion
+		orderUnit := strings.TrimSpace(line.OrderUnit)
+		if orderUnit == "" {
+			orderUnit = "PC"
+		}
+		if s.PGRepo != nil {
+			if u, err := s.PGRepo.GetSAPUOM(ctx, orderUnit); err == nil && u != "" {
+				orderUnit = u
+			}
+		}
+
+		// Plant
+		plant := strings.TrimSpace(line.SiteID)
+		if plant == "" {
+			plant = strings.TrimSpace(maxPO.SiteID)
+		}
+		if plant == "" {
+			plant = "5110"
+		}
+
+		// Cost center untuk AccountAssignment
+		lineCostCenter := strings.TrimSpace(line.CostCenter)
+		if lineCostCenter == "" {
+			lineCostCenter = "51101101"
+		}
+
+		itemObj := model.SAPGrowPOItem{
+			PurchaseOrderItem:         lineNumStr,
 			Material:                  itemNum,
-			Plant:                     "5110",
-			StorageLocation:           "511C",
-			OrderQuantity:             fmt.Sprintf("%.0f", line.OrderQty),
-			PurchaseOrderQuantityUnit: line.OrderUnit,
-			NetPriceAmount:            fmt.Sprintf("%.0f", line.UnitCost),
-			DocumentCurrency:          maxPO.CurrencyCode,
-			NetPriceQuantity:          "1",
-			OrderPriceUnit:            line.OrderUnit,
-		})
+			Plant:                     plant,
+			AccountAssignmentCategory: "K",
+			PurchaseOrderItemText:     itemText,
+			PurchaseOrderQuantityUnit: orderUnit,
+			OrderPriceUnit:            orderUnit,
+			NetPriceAmount:            line.UnitCost,
+			DocumentCurrency:          docCurrency,
+			OrderQuantity:             line.OrderQty,
+			NetPriceQuantity:          1,
+			InvoiceIsGoodsReceiptBased: true,
+			PurOrdAccountAssignment: []model.SAPGrowPurOrdAccountAssignment{
+				{
+					PurchaseOrder:           cleanPO,
+					PurchaseOrderItem:       lineNumStr,
+					AccountAssignmentNumber: "1",
+					CostCenter:              lineCostCenter,
+				},
+			},
+			PurchaseOrderItemNote: []model.SAPGrowPurchaseOrderItemNote{
+				{
+					PurchaseOrder:     cleanPO,
+					PurchaseOrderItem: lineNumStr,
+					TextObjectType:    "F01",
+					Language:          "EN",
+					PlainLongText:     desc,
+				},
+			},
+		}
+
+		// 5. Logika Pajak (_PurOrdPricingElement vs TaxCode V0)
+		// Ketentuan:
+		// Jika TaxCode1 terisi maka ConditionType dan ConditionRatioUnit terisi hardcode,
+		// Lalu ConditionRateAmount diisi dari UnitCost (PMP0) dan tax rate (DRG1), NetPriceAmount diisi dari UnitCost.
+		// Jika tidak ada Tax maka _PurOrdPricingElement tidak usah diisi (hanya TaxCode: "V0" dan NetPriceAmount: UnitCost).
+		tax1 := strings.TrimSpace(line.TaxCodePPN)
+		if tax1 != "" {
+			taxRate := parseTaxRate(tax1)
+
+			itemObj.PurOrdPricingElement = []model.SAPGrowPurOrdPricingElement{
+				{
+					PurchaseOrderItem:      lineNumStr,
+					ConditionType:          "DRG1",
+					ConditionRateAmount:    taxRate,
+					ConditionRateRatioUnit: "%",
+				},
+				{
+					PurchaseOrderItem:   lineNumStr,
+					ConditionType:       "PMP0",
+					ConditionRateAmount: line.UnitCost,
+				},
+			}
+		} else {
+			itemObj.TaxCode = "V0"
+		}
+
+		sapItems = append(sapItems, itemObj)
 	}
 
 	// Validasi & Lock Budget
-	if budgetCode != "" {
+	if budgetCode != "" && s.PGRepo != nil {
 		combo := fmt.Sprintf("%s-%s", costCenter, budgetCode)
 		year := time.Now().Year()
 		ok, err := s.PGRepo.CheckAndLockBudget(ctx, combo, year, "PO", maxPO.PONum, totalPOAmount)
@@ -180,32 +341,84 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		}
 	}
 
-	docCurrency := maxPO.CurrencyCode
-	if docCurrency == "" {
-		docCurrency = "USD"
-	}
-	orderDate := maxPO.OrderDate
-	if orderDate == "" {
-		orderDate = time.Now().Format("2006-01-02")
-	}
-
 	// Bentuk struktur OData v4 SAP Grow
 	sapPO := model.SAPGrowPOPayload{
-		PurchaseOrderType:       "NB",
-		CompanyCode:             "5110",
-		PurchasingOrganization:  "5110",
-		PurchasingGroup:         "001",
-		Supplier:                maxPO.Vendor,
-		DocumentCurrency:        docCurrency,
-		Language:                "EN",
-		PurchaseOrderDate:       orderDate,
-		PaymentTerms:            "0001",
-		IncotermsClassification: "EXW",
-		IncotermsLocation1:      "Jakarta",
-		PurchaseOrderItem:       sapItems,
+		PurchaseOrder:                 cleanPO,
+		PurchaseOrderType:             poType,
+		PurchaseOrderDate:             orderDate,
+		CompanyCode:                   "5110",
+		PurchasingOrganization:        "5110",
+		PurchasingGroup:               "001",
+		Supplier:                      strings.TrimSpace(maxPO.Vendor),
+		SupplierRespSalesPersonName:   salesPerson,
+		DocumentCurrency:              docCurrency,
+		DownPaymentType:               dpType,
+		DownPaymentPercentageOfTotAmt: dpPct,
+		DownPaymentDueDate:            dpDueDate,
+		PurchaseOrderItem:             sapItems,
 	}
 
 	return json.Marshal(sapPO)
+}
+
+func parseTaxRate(taxCode string) float64 {
+	clean := strings.ToUpper(strings.TrimSpace(taxCode))
+	clean = strings.TrimPrefix(clean, "PPN")
+	clean = strings.TrimPrefix(clean, "V")
+	clean = strings.TrimSuffix(clean, "%")
+	if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+		return val
+	}
+	return 11.0
+}
+
+// ValidatePOChange memeriksa apakah PO dapat diubah/direvisi berdasarkan dokumen material SAP.
+// Aturan:
+// - if no matdoc found = PO bisa di change (true)
+// - if matdoc found = hitung 101 - 102 - 122
+// - If Hasil > 0 = PO do not change (false)
+// - if hasil <= 0 = PO monggo di change (true)
+func (s *SyncService) ValidatePOChange(ctx context.Context, poNum string) (bool, string, error) {
+	if s.SAPClient == nil {
+		return true, "", nil
+	}
+
+	ep, err := s.PGRepo.GetSAPEndpointByCode(ctx, "GR_WITH_PO")
+	if err != nil || ep == nil {
+		ep, err = s.PGRepo.GetSAPEndpointByCode(ctx, "GRN")
+	}
+	if err != nil || ep == nil {
+		return true, "", nil
+	}
+
+	items, err := s.SAPClient.GetMaterialDocumentItemsByPO(ep, poNum)
+	if err != nil {
+		return false, "", fmt.Errorf("gagal query material document untuk PO %s: %w", poNum, err)
+	}
+
+	if len(items) == 0 {
+		return true, "No material document found, PO can be changed", nil
+	}
+
+	var sum101, sum102, sum122 float64
+	for _, it := range items {
+		switch strings.TrimSpace(it.GoodsMovementType) {
+		case "101":
+			sum101 += it.QuantityInEntryUnit
+		case "102":
+			sum102 += it.QuantityInEntryUnit
+		case "122":
+			sum122 += it.QuantityInEntryUnit
+		}
+	}
+
+	hasil := sum101 - sum102 - sum122
+	if hasil > 0 {
+		return false, fmt.Sprintf("PO tidak dapat diubah: terdapat dokumen penerimaan aktif (101: %.2f - 102: %.2f - 122: %.2f = %.2f > 0)",
+			sum101, sum102, sum122, hasil), nil
+	}
+
+	return true, fmt.Sprintf("PO dapat diubah: hasil kalkulasi material document net qty adalah %.2f", hasil), nil
 }
 
 // TransformVendor mengekspor transformasi vendor Maximo ke SAP Business Partner untuk testing / controller
@@ -906,7 +1119,29 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 			}
 		}
 
-		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(epToSend, "POST", payloadToSend)
+		// Validasi perubahan PO (PO Change Validation) jika target service atau tipe dokumen adalah perubahan PO
+		if strings.HasPrefix(strings.ToUpper(targetService), "PO_CHANGE") || strings.HasPrefix(strings.ToUpper(doc.DocType), "PO_CHANGE") {
+			canChange, reason, vErr := s.ValidatePOChange(ctx, doc.DocumentNo)
+			if vErr != nil {
+				log.Printf("[WARN] Validasi PO Change gagal untuk %s: %v", doc.DocumentNo, vErr)
+				_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_conn", fmt.Sprintf("Gagal validasi status Material Document di SAP: %v", vErr), nil)
+				continue
+			}
+			if !canChange {
+				log.Printf("[BLOCK] Perubahan PO %s dibatalkan: %s", doc.DocumentNo, reason)
+				_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_data", fmt.Sprintf("PO Change Ditolak: %s", reason), nil)
+				errMsg := fmt.Sprintf("Perubahan PO ditolak oleh middleware: %s", reason)
+				_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "BLOCKED", reason, errMsg)
+				continue
+			}
+		}
+
+		httpMethod := "POST"
+		if strings.Contains(strings.ToUpper(epToSend.ServiceName), "PATCH") || strings.Contains(strings.ToUpper(epToSend.ServiceCode), "CHANGE") {
+			httpMethod = "PATCH"
+		}
+
+		statusCode, sapDocNo, respBody, sapErr := s.SAPClient.ExecuteOData(epToSend, httpMethod, payloadToSend)
 		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(epToSend.BaseURL, "/"), epToSend.EndpointPath)
 
 		if sapErr != nil {

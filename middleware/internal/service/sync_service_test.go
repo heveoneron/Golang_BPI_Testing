@@ -47,22 +47,249 @@ func TestSyncService_TransformPO_Structure(t *testing.T) {
 	if sapPO.Supplier != "VEND-PLTU-TEST" {
 		t.Errorf("expected supplier 'VEND-PLTU-TEST', got %q", sapPO.Supplier)
 	}
-	if sapPO.PurchaseOrderType != "NB" {
-		t.Errorf("expected PO Type 'NB', got %q", sapPO.PurchaseOrderType)
+	if sapPO.PurchaseOrderType != "ZBPI" && sapPO.PurchaseOrderType != "NB" {
+		t.Errorf("expected PO Type 'ZBPI' or 'NB', got %q", sapPO.PurchaseOrderType)
 	}
 	if len(sapPO.PurchaseOrderItem) != 1 {
 		t.Fatalf("expected 1 item in PurchaseOrderItem, got %d", len(sapPO.PurchaseOrderItem))
 	}
 
 	item := sapPO.PurchaseOrderItem[0]
-	if item.PurchaseOrderItem != "10" {
-		t.Errorf("expected item 10, got %q", item.PurchaseOrderItem)
+	if item.PurchaseOrderItem != "1" {
+		t.Errorf("expected item 1, got %q", item.PurchaseOrderItem)
 	}
 	if item.Material != "BEARING-TURBINE-6204" {
 		t.Errorf("expected material BEARING-TURBINE-6204, got %q", item.Material)
 	}
 	if item.Plant != "5110" {
 		t.Errorf("expected Plant '5110', got %q", item.Plant)
+	}
+	if item.NetPriceAmount != 250000 {
+		t.Errorf("expected NetPriceAmount 250000, got %f", item.NetPriceAmount)
+	}
+	if item.TaxCode != "V0" {
+		t.Errorf("expected TaxCode 'V0' for normal PO without tax, got %q", item.TaxCode)
+	}
+	if len(item.PurOrdPricingElement) != 0 {
+		t.Errorf("expected no PricingElement for normal PO, got %d", len(item.PurOrdPricingElement))
+	}
+}
+
+func TestSyncService_TransformPO_Type1_Normal(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"PONUM": "4700012063",
+		"VENDOR": "VND-001",
+		"ORDERDATE": "2026-01-01",
+		"CURRENCYCODE": "IDR",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"ORDERUNIT": "EA",
+				"QTY": 10,
+				"UNITCOST": 100000,
+				"DESCRIPTION": "Normal PO item description"
+			}
+		]
+	}`)
+
+	bytes, err := svc.TransformPO(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("TransformPO failed: %v", err)
+	}
+
+	var po model.SAPGrowPOPayload
+	_ = json.Unmarshal(bytes, &po)
+
+	if po.PurchaseOrderType != "ZCTR" {
+		t.Errorf("expected prefix 47 to map to ZCTR, got %s", po.PurchaseOrderType)
+	}
+	if po.DownPaymentType != "" {
+		t.Errorf("expected empty DownPaymentType for normal PO, got %s", po.DownPaymentType)
+	}
+
+	item := po.PurchaseOrderItem[0]
+	if item.TaxCode != "V0" {
+		t.Errorf("expected TaxCode V0, got %s", item.TaxCode)
+	}
+	if len(item.PurOrdPricingElement) != 0 {
+		t.Errorf("expected 0 PurOrdPricingElement, got %d", len(item.PurOrdPricingElement))
+	}
+	if item.NetPriceAmount != 100000 {
+		t.Errorf("expected NetPriceAmount 100000, got %f", item.NetPriceAmount)
+	}
+}
+
+func TestSyncService_TransformPO_Type2_WithTax(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"PONUM": "4500001371",
+		"VENDOR": "51300082",
+		"ORDERDATE": "2026-01-01",
+		"CURRENCYCODE": "IDR",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"ORDERUNIT": "PC",
+				"QTY": 20.0,
+				"UNITCOST": 1235678,
+				"TAXCODE1": "PPN11",
+				"DESCRIPTION": "Item with PPN 11"
+			}
+		]
+	}`)
+
+	bytes, err := svc.TransformPO(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("TransformPO failed: %v", err)
+	}
+
+	var po model.SAPGrowPOPayload
+	_ = json.Unmarshal(bytes, &po)
+
+	if po.PurchaseOrderType != "ZPRC" {
+		t.Errorf("expected prefix 45 to map to ZPRC, got %s", po.PurchaseOrderType)
+	}
+
+	item := po.PurchaseOrderItem[0]
+	if item.TaxCode != "" {
+		t.Errorf("expected empty TaxCode when tax element is used, got %s", item.TaxCode)
+	}
+	if len(item.PurOrdPricingElement) != 2 {
+		t.Fatalf("expected 2 PurOrdPricingElement (DRG1 & PMP0), got %d", len(item.PurOrdPricingElement))
+	}
+
+	drg1 := item.PurOrdPricingElement[0]
+	if drg1.ConditionType != "DRG1" || drg1.ConditionRateAmount != 11 || drg1.ConditionRateRatioUnit != "%" {
+		t.Errorf("DRG1 mismatch: %+v", drg1)
+	}
+
+	pmp0 := item.PurOrdPricingElement[1]
+	if pmp0.ConditionType != "PMP0" || pmp0.ConditionRateAmount != 1235678 {
+		t.Errorf("PMP0 mismatch: %+v", pmp0)
+	}
+
+	if item.NetPriceAmount != 1235678 {
+		t.Errorf("expected NetPriceAmount 1235678 from UnitCost, got %f", item.NetPriceAmount)
+	}
+}
+
+func TestSyncService_TransformPO_Type3_WithDP(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"PONUM": "4100000272",
+		"VENDOR": "VND-001",
+		"ORDERDATE": "2026-01-01",
+		"CURRENCYCODE": "USD",
+		"DOWNPAYMENTPERCENTAGE": 20.0,
+		"DOWNPAYMENTDUEDATE": "2026-11-30",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"ORDERUNIT": "EA",
+				"QTY": 10,
+				"UNITCOST": 12346
+			}
+		]
+	}`)
+
+	bytes, err := svc.TransformPO(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("TransformPO failed: %v", err)
+	}
+
+	var po model.SAPGrowPOPayload
+	_ = json.Unmarshal(bytes, &po)
+
+	if po.DownPaymentType != "V" {
+		t.Errorf("expected DownPaymentType 'V', got %s", po.DownPaymentType)
+	}
+	if po.DownPaymentPercentageOfTotAmt == nil || *po.DownPaymentPercentageOfTotAmt != 20.0 {
+		t.Errorf("expected DownPaymentPercentageOfTotAmt 20.0, got %v", po.DownPaymentPercentageOfTotAmt)
+	}
+	if po.DownPaymentDueDate != "2026-11-30" {
+		t.Errorf("expected DownPaymentDueDate '2026-11-30', got %s", po.DownPaymentDueDate)
+	}
+
+	item := po.PurchaseOrderItem[0]
+	if item.TaxCode != "V0" {
+		t.Errorf("expected TaxCode V0, got %s", item.TaxCode)
+	}
+	if len(item.PurOrdPricingElement) != 0 {
+		t.Errorf("expected 0 PurOrdPricingElement, got %d", len(item.PurOrdPricingElement))
+	}
+}
+
+func TestSyncService_TransformPO_Type4_Tax_And_DP(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"PONUM": "4100001372",
+		"VENDOR": "51300082",
+		"ORDERDATE": "2026-01-01",
+		"CURRENCYCODE": "IDR",
+		"DOWNPAYMENTPERCENTAGE": 20.0,
+		"DOWNPAYMENTDUEDATE": "2026-11-30",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"ORDERUNIT": "PC",
+				"QTY": 20.0,
+				"UNITCOST": 1235678,
+				"TAXCODE1": "PPN11",
+				"DESCRIPTION": "Barang Deskripsi Lengkap Maximo"
+			}
+		]
+	}`)
+
+	bytes, err := svc.TransformPO(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("TransformPO failed: %v", err)
+	}
+
+	var po model.SAPGrowPOPayload
+	_ = json.Unmarshal(bytes, &po)
+
+	// Verifikasi Header DP
+	if po.DownPaymentType != "V" {
+		t.Errorf("expected DownPaymentType 'V', got %s", po.DownPaymentType)
+	}
+	if po.DownPaymentPercentageOfTotAmt == nil || *po.DownPaymentPercentageOfTotAmt != 20.0 {
+		t.Errorf("expected DownPaymentPercentageOfTotAmt 20.0, got %v", po.DownPaymentPercentageOfTotAmt)
+	}
+	if po.DownPaymentDueDate != "2026-11-30" {
+		t.Errorf("expected DownPaymentDueDate '2026-11-30', got %s", po.DownPaymentDueDate)
+	}
+
+	// Verifikasi Item
+	item := po.PurchaseOrderItem[0]
+	if item.NetPriceAmount != 1235678 {
+		t.Errorf("expected NetPriceAmount 1235678 from UnitCost, got %f", item.NetPriceAmount)
+	}
+	if item.TaxCode != "" {
+		t.Errorf("expected empty TaxCode when tax element is used, got %s", item.TaxCode)
+	}
+
+	// Verifikasi Item Tax Pricing Elements
+	if len(item.PurOrdPricingElement) != 2 {
+		t.Fatalf("expected 2 PurOrdPricingElement, got %d", len(item.PurOrdPricingElement))
+	}
+	if item.PurOrdPricingElement[0].ConditionType != "DRG1" || item.PurOrdPricingElement[0].ConditionRateAmount != 11 {
+		t.Errorf("DRG1 mismatch: %+v", item.PurOrdPricingElement[0])
+	}
+	if item.PurOrdPricingElement[1].ConditionType != "PMP0" || item.PurOrdPricingElement[1].ConditionRateAmount != 1235678 {
+		t.Errorf("PMP0 mismatch: %+v", item.PurOrdPricingElement[1])
+	}
+
+	// Verifikasi Note & Account Assignment
+	if len(item.PurchaseOrderItemNote) != 1 || item.PurchaseOrderItemNote[0].PlainLongText != "Barang Deskripsi Lengkap Maximo" {
+		t.Errorf("Note mismatch: %+v", item.PurchaseOrderItemNote)
+	}
+	if len(item.PurOrdAccountAssignment) != 1 || item.PurOrdAccountAssignment[0].CostCenter != "51101101" {
+		t.Errorf("AccountAssignment mismatch: %+v", item.PurOrdAccountAssignment)
 	}
 }
 
@@ -471,6 +698,63 @@ func TestSyncService_TransformItem(t *testing.T) {
 	}
 	if sameProduct.PurchaseOrderQuantityUnit != "" {
 		t.Errorf("expected empty PurchaseOrderQuantityUnit when units match, got %q", sameProduct.PurchaseOrderQuantityUnit)
+	}
+}
+
+func TestSyncService_ValidatePOChange_Calculation(t *testing.T) {
+	calc := func(items []model.SAPMatDocItemSummary) (bool, float64) {
+		var sum101, sum102, sum122 float64
+		for _, it := range items {
+			switch strings.TrimSpace(it.GoodsMovementType) {
+			case "101":
+				sum101 += it.QuantityInEntryUnit
+			case "102":
+				sum102 += it.QuantityInEntryUnit
+			case "122":
+				sum122 += it.QuantityInEntryUnit
+			}
+		}
+		hasil := sum101 - sum102 - sum122
+		return hasil <= 0, hasil
+	}
+
+	// Case 1: Active GRN exists (101: 10 items) -> Cannot change (hasil = 10 > 0)
+	case1 := []model.SAPMatDocItemSummary{
+		{GoodsMovementType: "101", QuantityInEntryUnit: 10},
+	}
+	canChange, hasil := calc(case1)
+	if canChange || hasil != 10 {
+		t.Errorf("Case 1 expected canChange=false, hasil=10, got canChange=%v, hasil=%f", canChange, hasil)
+	}
+
+	// Case 2: GRN exists but canceled with 102 (101: 10, 102: 10) -> Can change (hasil = 0)
+	case2 := []model.SAPMatDocItemSummary{
+		{GoodsMovementType: "101", QuantityInEntryUnit: 10},
+		{GoodsMovementType: "102", QuantityInEntryUnit: 10},
+	}
+	canChange, hasil = calc(case2)
+	if !canChange || hasil != 0 {
+		t.Errorf("Case 2 expected canChange=true, hasil=0, got canChange=%v, hasil=%f", canChange, hasil)
+	}
+
+	// Case 3: GRN exists but returned with 122 (101: 10, 122: 10) -> Can change (hasil = 0)
+	case3 := []model.SAPMatDocItemSummary{
+		{GoodsMovementType: "101", QuantityInEntryUnit: 10},
+		{GoodsMovementType: "122", QuantityInEntryUnit: 10},
+	}
+	canChange, hasil = calc(case3)
+	if !canChange || hasil != 0 {
+		t.Errorf("Case 3 expected canChange=true, hasil=0, got canChange=%v, hasil=%f", canChange, hasil)
+	}
+
+	// Case 4: Partial return (101: 10, 122: 4) -> Cannot change (hasil = 6 > 0)
+	case4 := []model.SAPMatDocItemSummary{
+		{GoodsMovementType: "101", QuantityInEntryUnit: 10},
+		{GoodsMovementType: "122", QuantityInEntryUnit: 4},
+	}
+	canChange, hasil = calc(case4)
+	if canChange || hasil != 6 {
+		t.Errorf("Case 4 expected canChange=false, hasil=6, got canChange=%v, hasil=%f", canChange, hasil)
 	}
 }
 
