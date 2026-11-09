@@ -455,3 +455,59 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 
 	return items, nil
 }
+
+
+// GetProductValuationClass mengambil nilai ValuationClass dari SAP S/4HANA Grow untuk Item tertentu
+// Endpoint: /sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('<ItemNum>')/to_Valuation?$format=json
+func (s *SAPClient) GetProductValuationClass(ep *model.SAPEndpoint, itemNum string) (string, error) {
+	cleanItem := strings.TrimSpace(itemNum)
+	if cleanItem == "" {
+		return "", fmt.Errorf("item number kosong")
+	}
+
+	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
+		return "S001", nil
+	}
+
+	cleanBase := strings.TrimRight(ep.BaseURL, "/")
+	targetURL := fmt.Sprintf("%s/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('%s')/to_Valuation?$format=json", cleanBase, cleanItem)
+
+	httpCli := s.httpFor(ep.Username)
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	if ep.Username != "" && ep.Password != "" {
+		req.SetBasicAuth(ep.Username, ep.Password)
+	}
+
+	resp, err := httpCli.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request to SAP failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("SAP error %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var parsed struct {
+		D struct {
+			Results []struct {
+				ValuationClass string `json:"ValuationClass"`
+			} `json:"results"`
+		} `json:"d"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &parsed); err == nil && len(parsed.D.Results) > 0 {
+		vc := strings.TrimSpace(parsed.D.Results[0].ValuationClass)
+		if vc != "" {
+			return vc, nil
+		}
+	}
+
+	return "", fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", cleanItem)
+}

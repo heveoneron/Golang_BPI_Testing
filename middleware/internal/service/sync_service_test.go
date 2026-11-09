@@ -758,3 +758,112 @@ func TestSyncService_ValidatePOChange_Calculation(t *testing.T) {
 	}
 }
 
+
+
+func TestSyncService_ConvertMaximoPOToSAP(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"4500005678", "450005678"},
+		{"4500016528", "450016528"},
+		{"4700000012-23", "470012023"},
+		{"4700000123-1", "470123001"},
+		{"4700000012", "470012"},
+		{"4100001372", "4100001372"},
+		{"4100001372-99", "4100001372-99"},
+		{"", ""},
+	}
+
+	for _, tc := range testCases {
+		got := ConvertMaximoPOToSAP(tc.input)
+		if got != tc.expected {
+			t.Errorf("ConvertMaximoPOToSAP(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestSyncService_ItemMaster_AmpersandToN(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"ITEMNUM": "SP&001-TURBINE",
+		"DESCRIPTION": "Turbine spare part & filter",
+		"ITEMTYPE": "ITEM",
+		"STOCKTYPE": "Stock",
+		"ISSUEUNIT": "PCS",
+		"ORDERUNIT": "BOX"
+	}`)
+
+	payloadBytes, err := svc.transformItem(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("transformItem error: %v", err)
+	}
+
+	var prod model.SAPProductPayload
+	if err := json.Unmarshal(payloadBytes, &prod); err != nil {
+		t.Fatalf("failed to unmarshal SAPProductPayload: %v", err)
+	}
+
+	// Verify '&' converted to 'N'
+	if prod.Product != "SPN001-TURBINE" {
+		t.Errorf("expected Product 'SPN001-TURBINE', got %q", prod.Product)
+	}
+	if strings.Contains(prod.Product, "&") {
+		t.Errorf("Product code must not contain '&', got %q", prod.Product)
+	}
+}
+
+func TestSyncService_GRN_DatesAndSiteID(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"BPIGRNUMBER": "2026/GRN-09999",
+		"PACKINGSLIPNUM": "DO-999",
+		"ISSUETYPE": "RECEIPT",
+		"PONUM": "4500005678",
+		"ACTUALDATE": "2026-10-30",
+		"SITEID": "JKT",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"QTY": 5,
+				"PONUM": "4500005678",
+				"SITEID": "BTNG"
+			}
+		]
+	}`)
+
+	payloadBytes, err := svc.transformGRN(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("transformGRN error: %v", err)
+	}
+
+	var grn model.SAPGrowMaterialDocumentPayload
+	if err := json.Unmarshal(payloadBytes, &grn); err != nil {
+		t.Fatalf("failed to unmarshal SAPGrowMaterialDocumentPayload: %v", err)
+	}
+
+	// Verify Dates format
+	if !strings.HasPrefix(grn.DocumentDate, "/Date(") || !strings.HasSuffix(grn.DocumentDate, ")/") {
+		t.Errorf("DocumentDate invalid format: %q", grn.DocumentDate)
+	}
+	if !strings.HasPrefix(grn.PostingDate, "/Date(") || !strings.HasSuffix(grn.PostingDate, ")/") {
+		t.Errorf("PostingDate invalid format: %q", grn.PostingDate)
+	}
+
+	// Verify Line conversion
+	if len(grn.ToMaterialDocumentItem) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(grn.ToMaterialDocumentItem))
+	}
+	item := grn.ToMaterialDocumentItem[0]
+
+	// Line SiteID BTNG -> 2000
+	if item.Plant != "2000" {
+		t.Errorf("expected Plant '2000' from BTNG, got %q", item.Plant)
+	}
+
+	// PO converted from 4500005678 -> 450005678
+	if item.PurchaseOrder != "450005678" {
+		t.Errorf("expected PurchaseOrder '450005678', got %q", item.PurchaseOrder)
+	}
+}

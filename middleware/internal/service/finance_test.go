@@ -2,6 +2,7 @@ package service
 
 import (
 	"archive/zip"
+	"context"
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
@@ -640,5 +641,186 @@ func TestBuildAssetAcquisitionPayload(t *testing.T) {
 func TestTruncateRunesIsUTF8Safe(t *testing.T) {
 	if got := truncateRunes("Pengadaan é-catalog", 13); got != "Pengadaan é-c" {
 		t.Errorf("unexpected %q", got)
+	}
+}
+
+
+// ===================== DJ-MM-ENH-ZME003: GI & Stock Adj Determinasi GL Tests =====================
+
+func TestDetermineJournalEntry_GoodsIssue(t *testing.T) {
+	svc := &FinanceService{}
+	input := model.GIOrAdjustmentInput{
+		Reference:       "GI-2026-1001",
+		TransactionType: "GOODS_ISSUE",
+		ItemNum:         "SP001",
+		ValuationClass:  "S001",
+		Quantity:        5,
+		UnitCost:        200000,
+		TransDate:       "2026-10-28",
+		ItemText:        "Pemakaian spare part turbin",
+	}
+
+	req, err := svc.DetermineJournalEntryFromGIOrAdj(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if req.DocumentType != "WL" {
+		t.Errorf("expected DocumentType 'WL', got %q", req.DocumentType)
+	}
+	if req.HeaderText != "Goods Issue" {
+		t.Errorf("expected HeaderText 'Goods Issue', got %q", req.HeaderText)
+	}
+	if len(req.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(req.Items))
+	}
+
+	// Baris 1: Inventory Posting, Kredit (H), tanpa Cost Center
+	it1 := req.Items[0]
+	if it1.GLAccount != "114001" || it1.DebitCredit != "H" || it1.CostCenter != "" {
+		t.Errorf("Baris 1 salah (harus 114001/H tanpa CC): %+v", it1)
+	}
+	if it1.Amount != 1000000 {
+		t.Errorf("expected amount 1000000, got %f", it1.Amount)
+	}
+
+	// Baris 2: Goods Issue, Debit (S), dengan Cost Center 71098
+	it2 := req.Items[1]
+	if it2.GLAccount != "512033" || it2.DebitCredit != "S" || it2.CostCenter != "71098" {
+		t.Errorf("Baris 2 salah (harus 512033/S CC 71098): %+v", it2)
+	}
+
+	// Cek envelope SOAP XML
+	envXML, err := BuildJournalEntrySOAP(req, time.Now())
+	if err != nil {
+		t.Fatalf("BuildJournalEntrySOAP error: %v", err)
+	}
+	if !strings.Contains(envXML, "<AccountingDocumentType>WL</AccountingDocumentType>") {
+		t.Errorf("SOAP envelope missing WL DocumentType")
+	}
+	if !strings.Contains(envXML, "<CostCenter>71098</CostCenter>") {
+		t.Errorf("SOAP envelope missing CostCenter 71098")
+	}
+}
+
+func TestDetermineJournalEntry_StockAdjustment_Positive(t *testing.T) {
+	svc := &FinanceService{}
+	input := model.GIOrAdjustmentInput{
+		Reference:       "ADJ-2026-POS-01",
+		TransactionType: "STOCK_ADJUSTMENT",
+		ItemNum:         "SP002",
+		ValuationClass:  "S002",
+		Quantity:        10,
+		TotalAmount:     500000,
+		TransDate:       "2026-10-28",
+		ItemText:        "Stock Opname Surplus",
+	}
+
+	req, err := svc.DetermineJournalEntryFromGIOrAdj(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if req.DocumentType != "WA" {
+		t.Errorf("expected DocumentType 'WA', got %q", req.DocumentType)
+	}
+	if req.HeaderText != "Stock Adjustment" {
+		t.Errorf("expected HeaderText 'Stock Adjustment', got %q", req.HeaderText)
+	}
+
+	// Qty Positif: Inventory Posting Debit (S) tanpa CC, Stock Adj Kredit (H) dengan CC 71099
+	it1 := req.Items[0]
+	if it1.GLAccount != "114004" || it1.DebitCredit != "S" || it1.CostCenter != "" {
+		t.Errorf("Baris 1 salah (Inventory harus 114004/S tanpa CC): %+v", it1)
+	}
+
+	it2 := req.Items[1]
+	if it2.GLAccount != "512030" || it2.DebitCredit != "H" || it2.CostCenter != "71099" {
+		t.Errorf("Baris 2 salah (Stock Adj harus 512030/H CC 71099): %+v", it2)
+	}
+}
+
+func TestDetermineJournalEntry_StockAdjustment_Negative(t *testing.T) {
+	svc := &FinanceService{}
+	input := model.GIOrAdjustmentInput{
+		Reference:       "ADJ-2026-NEG-01",
+		TransactionType: "ADJ",
+		ItemNum:         "SP003",
+		ValuationClass:  "S003",
+		Quantity:        -3,
+		UnitCost:        150000,
+		TransDate:       "2026-10-28",
+		ItemText:        "Stock Opname Defisit",
+	}
+
+	req, err := svc.DetermineJournalEntryFromGIOrAdj(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if req.DocumentType != "WA" {
+		t.Errorf("expected DocumentType 'WA', got %q", req.DocumentType)
+	}
+
+	// Qty Negatif: Inventory Posting Kredit (H) tanpa CC, Stock Adj Debit (S) dengan CC 71099
+	it1 := req.Items[0]
+	if it1.GLAccount != "114009" || it1.DebitCredit != "H" || it1.CostCenter != "" {
+		t.Errorf("Baris 1 salah (Inventory harus 114009/H tanpa CC): %+v", it1)
+	}
+
+	it2 := req.Items[1]
+	if it2.GLAccount != "512031" || it2.DebitCredit != "S" || it2.CostCenter != "71099" {
+		t.Errorf("Baris 2 salah (Stock Adj harus 512031/S CC 71099): %+v", it2)
+	}
+	if it1.Amount != 450000 || it2.Amount != 450000 {
+		t.Errorf("Amounts wrong: it1=%f, it2=%f", it1.Amount, it2.Amount)
+	}
+}
+
+func TestDetermineJournalEntry_AllValuationClasses_Invariant(t *testing.T) {
+	svc := &FinanceService{}
+	valClasses := []string{"S001", "S002", "S003", "S004", "S006", "S009", "S011"}
+
+	for _, vc := range valClasses {
+		// Test Goods Issue
+		giReq, err := svc.DetermineJournalEntryFromGIOrAdj(context.Background(), model.GIOrAdjustmentInput{
+			Reference:       "GI-TEST-" + vc,
+			TransactionType: "GI",
+			ItemNum:         "ITEM-" + vc,
+			ValuationClass:  vc,
+			Quantity:        1,
+			UnitCost:        100000,
+		})
+		if err != nil {
+			t.Fatalf("Valuation class %s GI error: %v", vc, err)
+		}
+
+		// Invariant check: Inventory line NEVER has CostCenter
+		if giReq.Items[0].CostCenter != "" {
+			t.Errorf("INVARIANT VIOLATION: Inventory Posting line has CostCenter %q for VC %s", giReq.Items[0].CostCenter, vc)
+		}
+		// Expense line MUST have CostCenter
+		if giReq.Items[1].CostCenter == "" {
+			t.Errorf("INVARIANT VIOLATION: Goods Issue line missing CostCenter for VC %s", vc)
+		}
+
+		// Test Stock Adj
+		adjReq, err := svc.DetermineJournalEntryFromGIOrAdj(context.Background(), model.GIOrAdjustmentInput{
+			Reference:       "ADJ-TEST-" + vc,
+			TransactionType: "ADJ",
+			ItemNum:         "ITEM-" + vc,
+			ValuationClass:  vc,
+			Quantity:        -2,
+			UnitCost:        50000,
+		})
+		if err != nil {
+			t.Fatalf("Valuation class %s ADJ error: %v", vc, err)
+		}
+		if adjReq.Items[0].CostCenter != "" {
+			t.Errorf("INVARIANT VIOLATION: Inventory Posting line has CostCenter %q in ADJ for VC %s", adjReq.Items[0].CostCenter, vc)
+		}
+		if adjReq.Items[1].CostCenter == "" {
+			t.Errorf("INVARIANT VIOLATION: Stock Adj line missing CostCenter for VC %s", vc)
+		}
 	}
 }

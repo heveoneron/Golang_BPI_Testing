@@ -170,3 +170,19 @@ CREATE TABLE IF NOT EXISTS excel_upload_batches (
     errors JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+
+-- DJ-MM-ENH-ZME003: Pemetaan Valuation Class ke Akun GL & Cost Center (Goods Issue & Stock Adjustment)
+CREATE TABLE IF NOT EXISTS valuation_class_gl_mappings (
+    id BIGSERIAL PRIMARY KEY,
+    valuation_class VARCHAR(20) NOT NULL UNIQUE,
+    inventory_posting_gl VARCHAR(30) NOT NULL,
+    goods_issue_gl VARCHAR(30) NOT NULL,
+    stock_adj_gl VARCHAR(30) NOT NULL,
+    cost_center VARCHAR(30) NOT NULL,
+    description VARCHAR(100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_val_class_gl ON valuation_class_gl_mappings(valuation_class);

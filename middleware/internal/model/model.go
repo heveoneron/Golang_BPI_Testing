@@ -268,6 +268,7 @@ type MaximoReceiptHeader struct {
 	Action          string              `json:"ACTION,omitempty"`
 	ReceiptRef      string              `json:"RECEIPTREF,omitempty"`
 	RefBPIGRNNumber string              `json:"REF_BPIGRNUMBER,omitempty"`
+	SiteID          string              `json:"SITEID,omitempty"`
 	Lines           []MaximoReceiptLine `json:"LINES"`
 }
 
@@ -282,6 +283,7 @@ type MaximoReceiptLine struct {
 	TransID       int64   `json:"TRANSID,omitempty"`
 	TransSeq      int     `json:"TRANSSEQ,omitempty"`
 	PONum         string  `json:"PONUM,omitempty"`
+	SiteID        string  `json:"SITEID,omitempty"`
 }
 
 // SAPGrowMaterialDocumentPayload merepresentasikan struktur OData v2 A_MaterialDocumentHeader Deep Insert
@@ -290,6 +292,8 @@ type SAPGrowMaterialDocumentPayload struct {
 	ReferenceDocument          string                    `json:"ReferenceDocument,omitempty"`
 	GoodsMovementCode          string                    `json:"GoodsMovementCode"`
 	VersionForPrintingSlip     string                    `json:"VersionForPrintingSlip"`
+	DocumentDate               string                    `json:"DocumentDate,omitempty"`
+	PostingDate                string                    `json:"PostingDate,omitempty"`
 	ToMaterialDocumentItem     []SAPMaterialDocumentItem `json:"to_MaterialDocumentItem"`
 }
 
@@ -488,4 +492,11 @@ type SAPProductValuation struct {
 	ValuationArea               string `json:"ValuationArea"`
 	ValuationClass              string `json:"ValuationClass"`
 	InventoryValuationProcedure string `json:"InventoryValuationProcedure"`
+}
+
+// SAPProductProcurementPayload merepresentasikan payload A_ProductProcurement untuk konfigurasi Variable PO Unit
+type SAPProductProcurementPayload struct {
+	Product                   string `json:"Product"`
+	PurchaseOrderQuantityUnit string `json:"PurchaseOrderQuantityUnit"`
+	VarblPurOrdUnitStatus     string `json:"VarblPurOrdUnitStatus"` // "1"
 }

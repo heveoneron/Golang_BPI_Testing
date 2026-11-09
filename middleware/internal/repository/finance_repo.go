@@ -77,6 +77,9 @@ func (r *PostgresRepository) MigrateFinance(ctx context.Context) error {
 			return fmt.Errorf("seed endpoint %s: %w", s.code, err)
 		}
 	}
+	if err := r.seedValuationClassGLMappings(ctx); err != nil {
+		return fmt.Errorf("seed valuation class gl mapping: %w", err)
+	}
 	if err := r.seedReimbursementMappings(ctx); err != nil {
 		return fmt.Errorf("seed reimbursement mapping: %w", err)
 	}

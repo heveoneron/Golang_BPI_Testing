@@ -198,3 +198,115 @@ func (r *PostgresRepository) LookupEmployeeVendorCIP(ctx context.Context, vendor
 	}
 	return flag, true, nil
 }
+
+
+// ===================== DJ-MM-ENH-ZME003: Valuation Class GL Mappings =====================
+
+// defaultValuationClassGLMappings berasal dari Enhancement Specification DJ-MM-ENH-ZME003:
+// Pemetaan Valuation Class ke Akun Inventory Posting, Goods Issue, Stock Adj, dan Cost Center.
+var defaultValuationClassGLMappings = []model.ValuationClassGLMapping{
+	{ValuationClass: "S001", InventoryPostingGL: "114001", GoodsIssueGL: "512033", StockAdjGL: "512033", CostCenter: "71098", Description: "Mechanical Spare Parts", IsActive: true},
+	{ValuationClass: "S002", InventoryPostingGL: "114004", GoodsIssueGL: "512030", StockAdjGL: "512030", CostCenter: "71099", Description: "Electrical Spare Parts", IsActive: true},
+	{ValuationClass: "S003", InventoryPostingGL: "114009", GoodsIssueGL: "512031", StockAdjGL: "512031", CostCenter: "71099", Description: "Instrumentation", IsActive: true},
+	{ValuationClass: "S004", InventoryPostingGL: "114012", GoodsIssueGL: "512032", StockAdjGL: "512032", CostCenter: "71099", Description: "Chemical & Oil", IsActive: true},
+	{ValuationClass: "S006", InventoryPostingGL: "114006", GoodsIssueGL: "512034", StockAdjGL: "512034", CostCenter: "71099", Description: "Consumable", IsActive: true},
+	{ValuationClass: "S009", InventoryPostingGL: "114017", GoodsIssueGL: "512028", StockAdjGL: "512028", CostCenter: "71099", Description: "Safety & Tools", IsActive: true},
+	{ValuationClass: "S011", InventoryPostingGL: "114016", GoodsIssueGL: "512023", StockAdjGL: "512023", CostCenter: "71099", Description: "General / Others", IsActive: true},
+}
+
+// seedValuationClassGLMappings mengisi mapping default 7 Valuation Class tanpa menimpa data yang diedit di Panel.
+func (r *PostgresRepository) seedValuationClassGLMappings(ctx context.Context) error {
+	batch := &pgx.Batch{}
+	for _, m := range defaultValuationClassGLMappings {
+		batch.Queue(`
+			INSERT INTO valuation_class_gl_mappings (valuation_class, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, description, is_active)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (valuation_class) DO NOTHING
+		`, m.ValuationClass, m.InventoryPostingGL, m.GoodsIssueGL, m.StockAdjGL, m.CostCenter, m.Description, m.IsActive)
+	}
+	_, err := execBatch(ctx, r, batch, len(defaultValuationClassGLMappings))
+	return err
+}
+
+// GetValuationClassGLMapping mencari mapping berdasarkan valuation class dengan fallback in-memory matrix.
+func (r *PostgresRepository) GetValuationClassGLMapping(ctx context.Context, valClass string) (*model.ValuationClassGLMapping, error) {
+	clean := strings.ToUpper(strings.TrimSpace(valClass))
+	if clean == "" {
+		return nil, fmt.Errorf("valuation class kosong")
+	}
+
+	if r != nil && r.Pool != nil {
+		var m model.ValuationClassGLMapping
+		err := r.Pool.QueryRow(ctx, `
+			SELECT id, valuation_class, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, description, is_active, created_at, updated_at
+			FROM valuation_class_gl_mappings
+			WHERE UPPER(TRIM(valuation_class)) = $1 AND is_active = true
+			LIMIT 1
+		`, clean).Scan(&m.ID, &m.ValuationClass, &m.InventoryPostingGL, &m.GoodsIssueGL, &m.StockAdjGL, &m.CostCenter, &m.Description, &m.IsActive, &m.CreatedAt, &m.UpdatedAt)
+		if err == nil {
+			return &m, nil
+		}
+	}
+
+	// In-memory fallback untuk memastikan sistem tetap jalan walaupun DB belum terhubung / belum di-seed
+	for _, def := range defaultValuationClassGLMappings {
+		if strings.EqualFold(def.ValuationClass, clean) {
+			copyDef := def
+			return &copyDef, nil
+		}
+	}
+
+	return nil, fmt.Errorf("mapping untuk valuation class '%s' tidak ditemukan", clean)
+}
+
+// GetAllValuationClassGLMappings mengambil semua mapping untuk tampilan Web Panel.
+func (r *PostgresRepository) GetAllValuationClassGLMappings(ctx context.Context) ([]model.ValuationClassGLMapping, error) {
+	if r == nil || r.Pool == nil {
+		return defaultValuationClassGLMappings, nil
+	}
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, valuation_class, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, COALESCE(description, ''), is_active, created_at, updated_at
+		FROM valuation_class_gl_mappings
+		ORDER BY valuation_class ASC
+	`)
+	if err != nil {
+		return defaultValuationClassGLMappings, nil
+	}
+	defer rows.Close()
+
+	var list []model.ValuationClassGLMapping
+	for rows.Next() {
+		var m model.ValuationClassGLMapping
+		if err := rows.Scan(&m.ID, &m.ValuationClass, &m.InventoryPostingGL, &m.GoodsIssueGL, &m.StockAdjGL, &m.CostCenter, &m.Description, &m.IsActive, &m.CreatedAt, &m.UpdatedAt); err == nil {
+			list = append(list, m)
+		}
+	}
+	if len(list) == 0 {
+		return defaultValuationClassGLMappings, nil
+	}
+	return list, nil
+}
+
+// UpsertValuationClassGLMapping menyimpan atau memperbarui pemetaan valuation class dari Web Panel.
+func (r *PostgresRepository) UpsertValuationClassGLMapping(ctx context.Context, m model.ValuationClassGLMapping) error {
+	if r == nil || r.Pool == nil {
+		return fmt.Errorf("postgres pool not available")
+	}
+	cleanVC := strings.ToUpper(strings.TrimSpace(m.ValuationClass))
+	if cleanVC == "" {
+		return fmt.Errorf("valuation class tidak boleh kosong")
+	}
+	_, err := r.Pool.Exec(ctx, `
+		INSERT INTO valuation_class_gl_mappings (valuation_class, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, description, is_active, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (valuation_class) DO UPDATE SET
+			inventory_posting_gl = EXCLUDED.inventory_posting_gl,
+			goods_issue_gl = EXCLUDED.goods_issue_gl,
+			stock_adj_gl = EXCLUDED.stock_adj_gl,
+			cost_center = EXCLUDED.cost_center,
+			description = EXCLUDED.description,
+			is_active = EXCLUDED.is_active,
+			updated_at = NOW()
+	`, cleanVC, strings.TrimSpace(m.InventoryPostingGL), strings.TrimSpace(m.GoodsIssueGL), strings.TrimSpace(m.StockAdjGL), strings.TrimSpace(m.CostCenter), m.Description, m.IsActive)
+	return err
+}

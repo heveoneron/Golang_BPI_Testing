@@ -1,4 +1,4 @@
-﻿package routes
+package routes
 
 import (
 	"net/http"
@@ -73,6 +73,9 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		// RICEF 2
 		fin.GET("/journal-entries", fc.ListJournalEntries)
 		fin.POST("/journal-entries", fc.CreateJournalEntry)
+		fin.POST("/goods-issue-adjustment", fc.ProcessGoodsIssueOrAdjustment)
+		fin.GET("/valuation-class-mappings", fc.ListValuationClassGLMappings)
+		fin.POST("/valuation-class-mappings", fc.SaveValuationClassGLMapping)
 		// RICEF 3/4, 5, 9
 		fin.GET("/gl-line-items", fc.ListGLLineItems)
 		fin.GET("/gl-line-items/detail", fc.GetGLLineItemDetail)

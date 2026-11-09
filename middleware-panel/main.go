@@ -29,6 +29,7 @@ func main() {
     	&models.UOMMapping{},
     	&models.BPGroupMapping{},
     	&models.ReconAccountMapping{},
+    	&models.ValuationClassGLMapping{},
     )
 
     // Seed default record BackupSchedule jika belum ada untuk mencegah error template

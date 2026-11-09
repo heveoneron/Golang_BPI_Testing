@@ -12,6 +12,7 @@ import (
 const (
 	DocTypeBudget          = "BUDGET"           // RICEF 1
 	DocTypeJournalGI       = "JOURNAL_GI"       // RICEF 2 (SOAP)
+	DocTypeJournalStockAdj = "JOURNAL_ADJ"      // RICEF 2 variant (SOAP Stock Adjustment)
 	DocTypeExchangeRate    = "EXCHANGE_RATE"    // RICEF 6
 	DocTypeSupplierInvoice = "SUPPLIER_INVOICE" // RICEF 7
 	DocTypeAssetAcq        = "ASSET_ACQ"        // RICEF 8
@@ -103,6 +104,40 @@ type JournalEntryItem struct {
 	CostCenter  string  `json:"cost_center,omitempty" example:"51101101"`
 	BudgetCode  string  `json:"budget_code,omitempty" example:"10081"`
 	ItemText    string  `json:"item_text,omitempty" example:"Pemakaian bearing"`
+}
+
+// ValuationClassGLMapping merepresentasikan matriks pemetaan Valuation Class ke Akun GL & Cost Center
+// sesuai Enhancement Specification DJ-MM-ENH-ZME003
+type ValuationClassGLMapping struct {
+	ID                 int64     `json:"id"`
+	ValuationClass     string    `json:"valuation_class"`
+	InventoryPostingGL string    `json:"inventory_posting_gl"`
+	GoodsIssueGL       string    `json:"goods_issue_gl"`
+	StockAdjGL         string    `json:"stock_adj_gl"`
+	CostCenter         string    `json:"cost_center"`
+	Description        string    `json:"description,omitempty"`
+	IsActive           bool      `json:"is_active"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// GIOrAdjustmentInput merepresentasikan payload input transaksi Goods Issue / Stock Adjustment dari Maximo
+type GIOrAdjustmentInput struct {
+	Reference       string  `json:"reference"`       // Contoh: GI-2026-0001 atau ADJ-2026-0001
+	TransactionType string  `json:"transaction_type"` // "GOODS_ISSUE" / "GI" atau "STOCK_ADJUSTMENT" / "ADJ"
+	ItemNum         string  `json:"item_num"`
+	ValuationClass  string  `json:"valuation_class,omitempty"` // Opsional, jika kosong di-fetch via OData SAP
+	Quantity        float64 `json:"quantity"`
+	UnitCost        float64 `json:"unit_cost,omitempty"`       // Biaya per unit
+	TotalAmount     float64 `json:"total_amount,omitempty"`    // Total nominal (jika 0, dihitung dari Quantity * UnitCost)
+	Currency        string  `json:"currency,omitempty"`        // Default IDR / USD
+	TransDate       string  `json:"trans_date"`                // YYYY-MM-DD
+	DocumentDate    string  `json:"document_date,omitempty"`   // YYYY-MM-DD
+	PostingDate     string  `json:"posting_date,omitempty"`    // YYYY-MM-DD
+	CompanyCode     string  `json:"company_code,omitempty"`    // Default 1000
+	Reference1      string  `json:"reference1,omitempty"`
+	Reference2      string  `json:"reference2,omitempty"`
+	ItemText        string  `json:"item_text,omitempty"`
 }
 
 // ===================== RICEF 3/4, 5, 9: data dari SAP =====================

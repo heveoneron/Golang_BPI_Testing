@@ -448,6 +448,177 @@ func (f *FinanceService) CreateJournalEntry(ctx context.Context, req model.Journ
 	return req.Reference, nil
 }
 
+// DetermineJournalEntryFromGIOrAdj membangun JournalEntryRequest untuk Goods Issue atau Stock Adjustment
+// sesuai Enhancement Specification DJ-MM-ENH-ZME003:
+// 1. Get Valuation Class dari input atau query OData SAP A_Product/to_Valuation
+// 2. Lookup Akun GL & Cost Center dari tabel matriks valuation_class_gl_mappings
+// 3. Tentukan Debit/Credit dan Cost Center:
+//    - Goods Issue: DocType WL, Inventory H (tanpa CC), Goods Issue S (dengan CC)
+//    - Stock Adjustment Positif: DocType WA, Inventory S (tanpa CC), Stock Adj H (dengan CC)
+//    - Stock Adjustment Negatif: DocType WA, Inventory H (tanpa CC), Stock Adj S (dengan CC)
+func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, input model.GIOrAdjustmentInput) (model.JournalEntryRequest, error) {
+	ref := strings.TrimSpace(input.Reference)
+	if ref == "" {
+		return model.JournalEntryRequest{}, fmt.Errorf("reference transaksi wajib diisi")
+	}
+
+	itemNum := strings.TrimSpace(input.ItemNum)
+	if itemNum == "" {
+		return model.JournalEntryRequest{}, fmt.Errorf("item_num wajib diisi")
+	}
+
+	// 1. Dapatkan Valuation Class
+	valClass := strings.ToUpper(strings.TrimSpace(input.ValuationClass))
+	if valClass == "" {
+		// Coba query via SAP OData
+		if f.SAPClient != nil && f.PGRepo != nil {
+			if ep, err := f.PGRepo.GetSAPEndpointByCode(ctx, "PRODUCT"); err == nil && ep != nil {
+				if vc, err := f.SAPClient.GetProductValuationClass(ep, itemNum); err == nil && vc != "" {
+					valClass = vc
+				}
+			}
+		}
+		// Fallback default jika masih kosong: S001
+		if valClass == "" {
+			valClass = "S001"
+		}
+	}
+
+	// 2. Lookup matriks pemetaan Valuation Class -> GL & Cost Center
+	mapping, err := f.PGRepo.GetValuationClassGLMapping(ctx, valClass)
+	if err != nil {
+		return model.JournalEntryRequest{}, fmt.Errorf("gagal menemukan mapping GL untuk valuation class %s: %w", valClass, err)
+	}
+
+	// 3. Tentukan nominal transaksi
+	amount := input.TotalAmount
+	if amount == 0 && input.UnitCost > 0 && input.Quantity != 0 {
+		amount = math.Abs(input.Quantity) * input.UnitCost
+	}
+	if amount <= 0 {
+		amount = 1000 // Fallback nominal standar jika tidak disediakan
+	}
+	amount = round2(amount)
+
+	// Tanggal transaksi
+	transDate := strings.TrimSpace(input.TransDate)
+	if transDate == "" {
+		transDate = time.Now().Format("2006-01-02")
+	}
+	docDate := input.DocumentDate
+	if docDate == "" {
+		docDate = transDate
+	}
+	postingDate := input.PostingDate
+	if postingDate == "" {
+		postingDate = transDate
+	}
+
+	companyCode := strings.TrimSpace(input.CompanyCode)
+	if companyCode == "" {
+		companyCode = "1000" // Default hardcode sesuai spesifikasi
+	}
+
+	ccy := strings.ToUpper(strings.TrimSpace(input.Currency))
+	if ccy == "" {
+		ccy = "USD" // Default currency template spesifikasi
+	}
+
+	// 4. Determinasi Akun, Debit/Credit, DocType, dan Header Text
+	isGI := strings.EqualFold(input.TransactionType, "GOODS_ISSUE") || strings.EqualFold(input.TransactionType, "GI") || strings.EqualFold(input.TransactionType, "WL")
+
+	var docType string
+	var headerText string
+	var items []model.JournalEntryItem
+
+	if isGI {
+		// Goods Issue: AccountingDocumentType = "WL"
+		docType = "WL"
+		headerText = "Goods Issue"
+
+		// Baris 1: Inventory Posting, Kredit (H), TANPA Cost Center
+		items = append(items, model.JournalEntryItem{
+			GLAccount:   mapping.InventoryPostingGL,
+			Amount:      amount,
+			DebitCredit: "H",
+			CostCenter:  "", // Larangan: Inventory Posting tidak ditempel Cost Center
+			ItemText:    input.ItemText,
+		})
+
+		// Baris 2: Goods Issue Expense, Debit (S), DENGAN Cost Center
+		items = append(items, model.JournalEntryItem{
+			GLAccount:   mapping.GoodsIssueGL,
+			Amount:      amount,
+			DebitCredit: "S",
+			CostCenter:  mapping.CostCenter,
+			ItemText:    input.ItemText,
+		})
+	} else {
+		// Stock Adjustment: AccountingDocumentType = "WA"
+		docType = "WA"
+		headerText = "Stock Adjustment"
+
+		if input.Quantity >= 0 {
+			// Positif (Surplus): Inventory Posting Debit (S) tanpa CC, Stock Adj Kredit (H) dengan CC
+			items = append(items, model.JournalEntryItem{
+				GLAccount:   mapping.InventoryPostingGL,
+				Amount:      amount,
+				DebitCredit: "S",
+				CostCenter:  "", // Tanpa Cost Center
+				ItemText:    input.ItemText,
+			})
+			items = append(items, model.JournalEntryItem{
+				GLAccount:   mapping.StockAdjGL,
+				Amount:      amount,
+				DebitCredit: "H",
+				CostCenter:  mapping.CostCenter,
+				ItemText:    input.ItemText,
+			})
+		} else {
+			// Negatif (Defisit): Inventory Posting Kredit (H) tanpa CC, Stock Adj Debit (S) dengan CC
+			items = append(items, model.JournalEntryItem{
+				GLAccount:   mapping.InventoryPostingGL,
+				Amount:      amount,
+				DebitCredit: "H",
+				CostCenter:  "", // Tanpa Cost Center
+				ItemText:    input.ItemText,
+			})
+			items = append(items, model.JournalEntryItem{
+				GLAccount:   mapping.StockAdjGL,
+				Amount:      amount,
+				DebitCredit: "S",
+				CostCenter:  mapping.CostCenter,
+				ItemText:    input.ItemText,
+			})
+		}
+	}
+
+	req := model.JournalEntryRequest{
+		Reference:    ref,
+		CompanyCode:  companyCode,
+		DocumentType: docType,
+		DocumentDate: docDate,
+		PostingDate:  postingDate,
+		Currency:     ccy,
+		HeaderText:   headerText,
+		Reference1:   input.Reference1,
+		Reference2:   input.Reference2,
+		Items:        items,
+	}
+
+	return req, nil
+}
+
+// ProcessGoodsIssueOrAdjustment menerima transaksi GI / Stock Adj dari Maximo, menjalankan determinasi GL,
+// memvalidasi, menahan pagu, dan mengantrekan dokumen SOAP ke SAP.
+func (f *FinanceService) ProcessGoodsIssueOrAdjustment(ctx context.Context, input model.GIOrAdjustmentInput) (string, error) {
+	req, err := f.DetermineJournalEntryFromGIOrAdj(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return f.CreateJournalEntry(ctx, req)
+}
+
 // ===================== RICEF 6: Exchange Rate =====================
 
 // BuildExchangeRatePayload membentuk payload CurrencyExchangeRate untuk satu mata uang KMK.

@@ -174,6 +174,7 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	// 1. Tentukan PurchaseOrderType berdasarkan awalan PONUM
 	// "If Prefix PO 45 = ZPRC, Else If Prefix PO 47 = ZCTR, Else fallback ZBPI atau NB"
 	cleanPO := strings.TrimSpace(maxPO.PONum)
+	sapPONum := ConvertMaximoPOToSAP(cleanPO)
 	poType := "ZBPI"
 	if strings.HasPrefix(cleanPO, "45") {
 		poType = "ZPRC"
@@ -181,12 +182,11 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		poType = "ZCTR"
 	}
 
-	// 2. Tentukan PO Kontrak (cth: 4700000012-63 atau 4100000567-25)
-	// Jika PO kontrak nomor PO tersebut ditaruh di SupplierRespSalesPersonName
-	salesPerson := ""
-	if strings.Contains(cleanPO, "-") {
-		salesPerson = cleanPO
-	}
+	// 2. Nomor PO asli Maximo selalu ditaruh di field SupplierRespSalesPersonName
+
+	salesPerson := cleanPO
+
+
 
 	docCurrency := strings.TrimSpace(maxPO.CurrencyCode)
 	if docCurrency == "" {
@@ -291,7 +291,7 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			InvoiceIsGoodsReceiptBased: true,
 			PurOrdAccountAssignment: []model.SAPGrowPurOrdAccountAssignment{
 				{
-					PurchaseOrder:           cleanPO,
+					PurchaseOrder:           sapPONum,
 					PurchaseOrderItem:       lineNumStr,
 					AccountAssignmentNumber: "1",
 					CostCenter:              lineCostCenter,
@@ -299,7 +299,7 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			},
 			PurchaseOrderItemNote: []model.SAPGrowPurchaseOrderItemNote{
 				{
-					PurchaseOrder:     cleanPO,
+					PurchaseOrder:     sapPONum,
 					PurchaseOrderItem: lineNumStr,
 					TextObjectType:    "F01",
 					Language:          "EN",
@@ -351,7 +351,7 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 
 	// Bentuk struktur OData v4 SAP Grow
 	sapPO := model.SAPGrowPOPayload{
-		PurchaseOrder:                 cleanPO,
+		PurchaseOrder:                 sapPONum,
 		PurchaseOrderType:             poType,
 		PurchaseOrderDate:             orderDate,
 		CompanyCode:                   "5110",
@@ -378,6 +378,108 @@ func parseTaxRate(taxCode string) float64 {
 		return val
 	}
 	return 11.0
+}
+
+// ConvertMaximoPOToSAP mengonversi nomor PO Maximo ke format PurchaseOrder SAP Grow sesuai aturan:
+// - Prefix 45: Hapus 1 digit angka 0 setelah "45" (cth: 4500005678 -> 450005678)
+// - Prefix 47: Hapus 4 digit angka 0 setelah "47", ubah "-" jadi "0", jika digit setelah "-" hanya 1 digit, tambahkan 0 di depannya (cth: 4700000012-23 -> 470012023, 4700000123-1 -> 470123001)
+// - Fallback prefix lain: gunakan nomor asli yang di-trim
+func ConvertMaximoPOToSAP(maximoPONum string) string {
+	cleanPO := strings.TrimSpace(maximoPONum)
+	if cleanPO == "" {
+		return ""
+	}
+
+	// 1. Prefix 45: Hapus 1 digit '0' setelah "45"
+	if strings.HasPrefix(cleanPO, "45") {
+		rest := cleanPO[2:]
+		if strings.HasPrefix(rest, "0") {
+			return "45" + rest[1:]
+		}
+		return cleanPO
+	}
+
+	// 2. Prefix 47: Hapus 4 digit '0' setelah "47", '-' ubah jadi '0', padding digit setelah '-'
+	if strings.HasPrefix(cleanPO, "47") {
+		parts := strings.SplitN(cleanPO, "-", 2)
+		mainPart := parts[0]
+		subPart := ""
+		if len(parts) > 1 {
+			subPart = strings.TrimSpace(parts[1])
+		}
+
+		// Hapus maksimal 4 angka '0' setelah "47"
+		rest := mainPart[2:]
+		zerosRemoved := 0
+		for zerosRemoved < 4 && strings.HasPrefix(rest, "0") {
+			rest = rest[1:]
+			zerosRemoved++
+		}
+		convertedMain := "47" + rest
+
+		if subPart != "" {
+			if len(subPart) == 1 {
+				subPart = "0" + subPart
+			}
+			return convertedMain + "0" + subPart
+		}
+		return convertedMain
+	}
+
+	return cleanPO
+}
+
+func convertSiteIDToPlant(siteID string, defaultPlant string) string {
+	clean := strings.ToUpper(strings.TrimSpace(siteID))
+	switch clean {
+	case "JKT", "1000":
+		return "1000"
+	case "BTNG", "2000":
+		return "2000"
+	default:
+		if clean != "" {
+			return clean
+		}
+		if defaultPlant != "" {
+			return defaultPlant
+		}
+		return "5110"
+	}
+}
+
+func formatODataV2Date(dateStr string, preventBackdate bool) (string, string) {
+	now := time.Now()
+	docDate := now
+	postingDate := now
+
+	if trimmed := strings.TrimSpace(dateStr); trimmed != "" {
+		formats := []string{
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+			time.RFC3339,
+			"2006/01/02",
+		}
+		for _, f := range formats {
+			if t, err := time.Parse(f, trimmed); err == nil {
+				docDate = t
+				postingDate = t
+				break
+			}
+		}
+	}
+
+	// Larangan backdate: jika tanggal masa lalu, postingDate diset ke hari ini
+	if preventBackdate {
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		if postingDate.Before(todayStart) {
+			postingDate = now
+		}
+	}
+
+	docDateMs := docDate.UnixNano() / int64(time.Millisecond)
+	postingDateMs := postingDate.UnixNano() / int64(time.Millisecond)
+
+	return fmt.Sprintf("/Date(%d)/", docDateMs), fmt.Sprintf("/Date(%d)/", postingDateMs)
 }
 
 // ValidatePOChange memeriksa apakah PO dapat diubah/direvisi berdasarkan dokumen material SAP.
@@ -706,6 +808,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 	}
 
 	itemNum = strings.ToUpper(strings.TrimSpace(itemNum))
+	itemNum = strings.ReplaceAll(itemNum, "&", "N")
 	if itemNum == "" {
 		return nil, fmt.Errorf("field ITEMNUM / Product wajib terisi")
 	}
@@ -861,6 +964,7 @@ func formatQuantity(qty float64) string {
 }
 
 // Transformasi khusus Penerimaan Barang Maximo (RECEIPT / RETURN / VOIDRETURN) -> SAP Grow OData Material Document
+// Transformasi khusus Penerimaan Barang Maximo (RECEIPT / RETURN / VOIDRETURN) -> SAP Grow OData Material Document
 func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]byte, error) {
 	var maxReceipt model.MaximoReceiptHeader
 	if err := json.Unmarshal(raw, &maxReceipt); err != nil {
@@ -937,6 +1041,9 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		return json.Marshal(cancelPayload)
 	}
 
+	headerSiteID := strings.TrimSpace(maxReceipt.SiteID)
+	docDateStr, postingDateStr := formatODataV2Date(maxReceipt.ActualDate, true)
+
 	// 2. Kasus RETURN (Return to Vendor - Movement 122)
 	if issueType == "RETURN" {
 		lookupDocNo := strings.TrimSpace(maxReceipt.RefBPIGRNNumber)
@@ -976,6 +1083,12 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 			if poNum == "" {
 				poNum = maxReceipt.PONum
 			}
+			lineSite := line.SiteID
+			if lineSite == "" {
+				lineSite = headerSiteID
+			}
+			plant := convertSiteIDToPlant(lineSite, "5110")
+			sapPONum := ConvertMaximoPOToSAP(poNum)
 
 			// Kuantitas return di Maximo negatif (-1.00), harus positif di SAP
 			qtyAbs := math.Abs(line.Qty)
@@ -983,9 +1096,9 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 
 			items = append(items, model.SAPMaterialDocumentItem{
 				Material:                    line.ItemNum,
-				Plant:                       "5110",
+				Plant:                       plant,
 				GoodsMovementType:           "122",
-				PurchaseOrder:               poNum,
+				PurchaseOrder:               sapPONum,
 				PurchaseOrderItem:           fmt.Sprintf("%d", line.POLineNum),
 				GoodsMovementReasonCode:     "1",
 				GoodsMovementRefDocType:     "B",
@@ -1000,6 +1113,8 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 			ReferenceDocument:          maxReceipt.PackingSlipNum,
 			GoodsMovementCode:          "01",
 			VersionForPrintingSlip:     "3",
+			DocumentDate:               docDateStr,
+			PostingDate:                postingDateStr,
 			ToMaterialDocumentItem:     items,
 		}
 		return json.Marshal(sapPayload)
@@ -1012,15 +1127,21 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		if poNum == "" {
 			poNum = maxReceipt.PONum
 		}
+		lineSite := line.SiteID
+		if lineSite == "" {
+			lineSite = headerSiteID
+		}
+		plant := convertSiteIDToPlant(lineSite, "5110")
+		sapPONum := ConvertMaximoPOToSAP(poNum)
 
 		qtyAbs := math.Abs(line.Qty)
 		qtyStr := formatQuantity(qtyAbs)
 
 		items = append(items, model.SAPMaterialDocumentItem{
 			Material:                line.ItemNum,
-			Plant:                   "5110",
+			Plant:                   plant,
 			GoodsMovementType:       "101",
-			PurchaseOrder:           poNum,
+			PurchaseOrder:           sapPONum,
 			PurchaseOrderItem:       fmt.Sprintf("%d", line.POLineNum),
 			GoodsMovementRefDocType: "B",
 			QuantityInEntryUnit:     qtyStr,
@@ -1032,12 +1153,13 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		ReferenceDocument:          maxReceipt.PackingSlipNum,
 		GoodsMovementCode:          "01",
 		VersionForPrintingSlip:     "3",
+		DocumentDate:               docDateStr,
+		PostingDate:                postingDateStr,
 		ToMaterialDocumentItem:     items,
 	}
 	return json.Marshal(sapPayload)
 }
 
-// 3. PUSH CORE DOCUMENTS KE SAP GROW (Tier 2 Dispatcher)
 func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 	docs, err := s.PGRepo.FetchAndLockPendingDocuments(ctx, 20)
 	if err != nil || len(docs) == 0 {
@@ -1182,6 +1304,37 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 			_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "SUCCESS", "", successMsg)
 			pushedCount++
 			log.Printf("[INFO] Push to SAP Success: %s -> %s [Target API: %s]", doc.DocumentNo, sapDocNo, targetURL)
+
+			// Second Post: Khusus Item Master (A_Product), trigger A_ProductProcurement jika ada PurchaseOrderQuantityUnit
+			if strings.EqualFold(targetService, "PRODUCT") || strings.EqualFold(doc.DocType, "ITEM") || strings.EqualFold(doc.DocType, "PRODUCT") {
+				var prodMap map[string]interface{}
+				if err := json.Unmarshal(doc.SAPPayload, &prodMap); err == nil {
+					poUnit, _ := prodMap["PurchaseOrderQuantityUnit"].(string)
+					prodID, _ := prodMap["Product"].(string)
+					if prodID == "" {
+						prodID = sapDocNo
+					}
+					if poUnit != "" && prodID != "" {
+						procEP := *ep
+						procEP.EndpointPath = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductProcurement"
+						procEP.CSRFPath = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
+						procPayload := model.SAPProductProcurementPayload{
+							Product:                   prodID,
+							PurchaseOrderQuantityUnit: poUnit,
+							VarblPurOrdUnitStatus:     "1",
+						}
+						if procBytes, procJsonErr := json.Marshal(procPayload); procJsonErr == nil {
+							_, _, procRespBody, procErr := s.SAPClient.ExecuteOData(&procEP, "POST", procBytes)
+							if procErr != nil {
+								log.Printf("[WARN] Sub-request A_ProductProcurement gagal untuk Product %s: %v (Response: %s)", prodID, procErr, procRespBody)
+							} else {
+								log.Printf("[INFO] Variable PO unit successfully configured for Product %s: Unit %s", prodID, poUnit)
+								_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", "PRODUCT_PROCUREMENT", doc.DocumentNo, "SUCCESS", "", fmt.Sprintf("Variable PO Unit '%s' activated via A_ProductProcurement", poUnit))
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	return pushedCount

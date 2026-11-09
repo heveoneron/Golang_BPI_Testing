@@ -273,6 +273,39 @@ func (c *FinanceController) CreateJournalEntry(ctx *gin.Context) {
 	ctx.JSON(http.StatusAccepted, gin.H{"status": "queued", "doc_type": model.DocTypeJournalGI, "document_no": ref})
 }
 
+// ProcessGoodsIssueOrAdjustment godoc
+// @Summary      [DJ-MM-ENH-ZME003] Determinasi & Buat Journal Entry GI / Stock Adjustment
+// @Description  Determinasi akun GL & Cost Center berdasarkan Valuation Class, validasi pagu, antre kirim SOAP
+// @Tags         Finance - Journal
+// @Accept       json
+// @Produce      json
+// @Param        payload  body  model.GIOrAdjustmentInput  true  "Transaksi GI / Stock Adj"
+// @Success      202  {object}  map[string]interface{}
+// @Failure      400  {object}  ErrorResponse
+// @Failure      422  {object}  ValidationErrorResponse
+// @Router       /finance/goods-issue-adjustment [post]
+func (c *FinanceController) ProcessGoodsIssueOrAdjustment(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	var input model.GIOrAdjustmentInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	ref, err := c.Svc.ProcessGoodsIssueOrAdjustment(ctx.Request.Context(), input)
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusAccepted, gin.H{
+		"status":      "queued",
+		"doc_type":    model.DocTypeJournalGI,
+		"document_no": ref,
+		"message":     "Journal entry berhasil dideterminasi dan diantrekan",
+	})
+}
+
 // ListJournalEntries godoc
 // @Summary      [RICEF 2] Daftar Journal Entry GI
 // @Tags         Finance - Journal
@@ -609,6 +642,48 @@ func (c *FinanceController) ListReimbursementMappings(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
+}
+
+// ListValuationClassGLMappings godoc
+// @Summary      [DJ-MM-ENH-ZME003] Daftar mapping Valuation Class -> Akun GL & Cost Center
+// @Tags         Finance - Journal
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /finance/valuation-class-mappings [get]
+func (c *FinanceController) ListValuationClassGLMappings(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	items, err := c.Svc.PGRepo.GetAllValuationClassGLMappings(ctx.Request.Context())
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
+}
+
+// SaveValuationClassGLMapping godoc
+// @Summary      [DJ-MM-ENH-ZME003] Simpan mapping Valuation Class -> Akun GL & Cost Center
+// @Tags         Finance - Journal
+// @Accept       json
+// @Produce      json
+// @Param        payload  body  model.ValuationClassGLMapping  true  "Mapping Valuation Class"
+// @Success      200  {object}  map[string]interface{}
+// @Router       /finance/valuation-class-mappings [post]
+func (c *FinanceController) SaveValuationClassGLMapping(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	var m model.ValuationClassGLMapping
+	if err := ctx.ShouldBindJSON(&m); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if err := c.Svc.PGRepo.UpsertValuationClassGLMapping(ctx.Request.Context(), m); err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Valuation class mapping berhasil disimpan"})
 }
 
 // SaveReimbursementMapping godoc

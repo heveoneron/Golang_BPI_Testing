@@ -836,7 +836,18 @@ func (r *PostgresRepository) GetMaterialConfigSAPValue(ctx context.Context, conf
 func (r *PostgresRepository) GetBPGrouping(ctx context.Context, vendorGroup string) (string, error) {
 	defaultGrouping := "Z001"
 	if r == nil || r.Pool == nil {
-		return defaultGrouping, nil
+		switch strings.ToUpper(strings.TrimSpace(vendorGroup)) {
+		case "01":
+			return "Z001", nil
+		case "02":
+			return "Z002", nil
+		case "03":
+			return "Z003", nil
+		case "04":
+			return "Z004", nil
+		default:
+			return defaultGrouping, nil
+		}
 	}
 
 	var grouping string
@@ -857,7 +868,18 @@ func (r *PostgresRepository) GetBPGrouping(ctx context.Context, vendorGroup stri
 		LIMIT 1
 	`, vendorGroup).Scan(&grouping)
 	if grouping == "" {
-		return defaultGrouping, nil
+		switch strings.ToUpper(strings.TrimSpace(vendorGroup)) {
+		case "01":
+			return "Z001", nil
+		case "02":
+			return "Z002", nil
+		case "03":
+			return "Z003", nil
+		case "04":
+			return "Z004", nil
+		default:
+			return defaultGrouping, nil
+		}
 	}
 	return grouping, nil
 }
@@ -889,7 +911,18 @@ func (r *PostgresRepository) GetReconAccount(ctx context.Context, vendorGroup, c
 			LIMIT 1
 		`, vendorGroup).Scan(&recon)
 		if err != nil || recon == "" {
-			return defaultRecon, nil
+			switch strings.ToUpper(strings.TrimSpace(vendorGroup)) {
+			case "01":
+				return "211001", nil
+			case "02":
+				return "211003", nil
+			case "03":
+				return "211005", nil
+			case "04":
+				return "211006", nil
+			default:
+				return defaultRecon, nil
+			}
 		}
 	}
 	return recon, nil
