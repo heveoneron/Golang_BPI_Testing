@@ -98,6 +98,7 @@ func main() {
 	finSvc := service.NewFinanceService(pgRepo, sapClient)
 	if sqlDB != nil {
 		finSvc.MaximoWriter = sqlRepo // tulis invoice/jurnal SAP ke dbo.mxinvoice
+		finSvc.InventoryReader = sqlRepo
 	}
 
 	// 4b. Migrasi tabel & endpoint RICEF 1-9 (idempotent)
@@ -111,10 +112,11 @@ func main() {
 
 	// 5. Jalankan Background Worker (Pull Maximo, Push SAP, Finance Pull SAP)
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go startPullWorker(ctx, syncSvc, pgRepo, &wg)
 	go startPushWorker(ctx, syncSvc, &wg)
 	go startFinancePullWorker(ctx, finSvc, pgRepo, &wg)
+	go startInventoryJournalWorker(ctx, finSvc, &wg)
 
 	// 6. Jalankan HTTP API Server
 	webCtrl := controller.NewWebController(pgRepo, syncSvc)
@@ -213,6 +215,36 @@ func startPullWorker(ctx context.Context, svc *service.SyncService, pgRepo *repo
 			pulled, transformed := svc.PullDataFromSQLServer(ctx, pullLimit)
 			if pulled > 0 {
 				log.Printf("[WORKER-PULL] Berhasil menarik %d record dari SQL Server (Transformed: %d).", pulled, transformed)
+			}
+		}
+	}
+}
+
+// Background Worker 4: RICEF 2 — baca GI & Stock Adj dari Maximo lalu antre Journal Entry SOAP ke SAP.
+func startInventoryJournalWorker(ctx context.Context, svc *service.FinanceService, wg *sync.WaitGroup) {
+	defer wg.Done()
+	if !strings.EqualFold(os.Getenv("FIN_INV_PULL_ENABLED"), "true") || svc.InventoryReader == nil {
+		log.Println("[WORKER] Inventory Journal Worker NONAKTIF (FIN_INV_PULL_ENABLED!=true atau SQL Server tidak tersedia).")
+		return
+	}
+	intervalMin, lookback := 15, 7
+	if v, err := strconv.Atoi(os.Getenv("FIN_INV_PULL_INTERVAL_MINUTES")); err == nil && v > 0 {
+		intervalMin = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("FIN_INV_LOOKBACK_DAYS")); err == nil && v > 0 {
+		lookback = v
+	}
+	log.Printf("[WORKER] Inventory Journal Worker aktif (Interval: %d Menit, Lookback: %d hari)...", intervalMin, lookback)
+	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			res := svc.SyncInventoryJournals(ctx, svc.InventoryReader, time.Now().AddDate(0, 0, -lookback), 500)
+			if res.Queued+res.Failed > 0 || len(res.Errors) > 0 {
+				log.Printf("[WORKER-INVENTORY] fetched=%d queued=%d skipped=%d failed=%d errors=%v", res.Fetched, res.Queued, res.Skipped, res.Failed, res.Errors)
 			}
 		}
 	}

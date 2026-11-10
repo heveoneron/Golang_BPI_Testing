@@ -94,10 +94,12 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		fin.POST("/goods-issue-adjustment", fc.ProcessGoodsIssueOrAdjustment)
 		fin.GET("/valuation-class-mappings", fc.ListValuationClassGLMappings)
 		fin.POST("/valuation-class-mappings", fc.SaveValuationClassGLMapping)
+		fin.POST("/inventory/sync", fc.SyncInventoryJournals)
 		// RICEF 3/4, 5, 9
 		fin.GET("/gl-line-items", fc.ListGLLineItems)
 		fin.GET("/gl-line-items/detail", fc.GetGLLineItemDetail)
 		fin.GET("/payment-proposals", fc.ListPaymentProposals)
+		fin.GET("/payment-proposals/bank-file", fc.DownloadBankFile)
 		fin.GET("/fixed-assets", fc.ListFixedAssets)
 		fin.GET("/fixed-assets/detail", fc.GetFixedAssetDetail)
 		fin.POST("/sync/:target", fc.TriggerSync)

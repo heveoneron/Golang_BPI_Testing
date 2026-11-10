@@ -392,6 +392,14 @@ func TestBuildGLFilter(t *testing.T) {
 func TestDocTypesFor(t *testing.T) {
 	t.Setenv("FIN_JE_DOC_TYPES", "sa, ab")
 	if got := DocTypesFor("journal"); strings.Join(got, ",") != "SA,AB" {
+		t.Fatalf("env override journal: %v", got)
+	}
+	t.Setenv("FIN_JE_DOC_TYPES", "")
+	t.Setenv("FIN_INVOICE_DOC_TYPES", "")
+	if got := DocTypesFor("invoice"); strings.Join(got, ",") != "RE,KR" {
+		t.Fatalf("default invoice doc types: %v", got)
+	}
+	if got := DocTypesFor("journal"); strings.Join(got, ",") != "SA" {
 		t.Errorf("unexpected %v", got)
 	}
 	if got := DocTypesFor(""); got == nil || len(got) != 0 {

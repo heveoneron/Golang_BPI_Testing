@@ -40,6 +40,8 @@ type FinanceService struct {
 	SAPClient *client.SAPClient
 	// MaximoWriter menulis ke dbo.mxinvoice (nil bila SQL Server Maximo tidak dikonfigurasi).
 	MaximoWriter MaximoInvoiceWriter
+	// InventoryReader membaca staging Maximo [axinvissue]/[axinvtrans] untuk RICEF 2.
+	InventoryReader InventoryStagingReader
 }
 
 func NewFinanceService(pgRepo *repository.PostgresRepository, sapClient *client.SAPClient) *FinanceService {
@@ -469,18 +471,25 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 
 	// 1. Dapatkan Valuation Class
 	valClass := strings.ToUpper(strings.TrimSpace(input.ValuationClass))
-	if valClass == "" {
-		// Coba query via SAP OData
-		if f.SAPClient != nil && f.PGRepo != nil {
-			if ep, err := f.PGRepo.GetSAPEndpointByCode(ctx, "PRODUCT"); err == nil && ep != nil {
-				if vc, err := f.SAPClient.GetProductValuationClass(ep, itemNum); err == nil && vc != "" {
-					valClass = vc
-				}
-			}
+	unitCost := input.UnitCost
+	needPrice := input.TotalAmount == 0 && unitCost <= 0
+	if valClass == "" || needPrice {
+		if f.SAPClient == nil || f.PGRepo == nil {
+			return model.JournalEntryRequest{}, fmt.Errorf("valuation class/harga item %s tidak tersedia dan SAP client tidak dikonfigurasi", itemNum)
 		}
-		// Fallback default jika masih kosong: S001
+		ep, err := f.PGRepo.GetSAPEndpointByCode(ctx, envOr("FIN_PRODUCT_ENDPOINT_CODE", "PRODUCT"))
+		if err != nil || ep == nil {
+			return model.JournalEntryRequest{}, fmt.Errorf("endpoint SAP PRODUCT tidak ditemukan untuk lookup valuation item %s", itemNum)
+		}
+		vc, price, err := f.SAPClient.GetProductValuation(ep, itemNum)
+		if err != nil {
+			return model.JournalEntryRequest{}, fmt.Errorf("lookup valuation item %s gagal: %w", itemNum, err)
+		}
 		if valClass == "" {
-			valClass = "S001"
+			valClass = strings.ToUpper(vc)
+		}
+		if needPrice {
+			unitCost = price
 		}
 	}
 
@@ -491,14 +500,14 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 	}
 
 	// 3. Tentukan nominal transaksi
-	amount := input.TotalAmount
-	if amount == 0 && input.UnitCost > 0 && input.Quantity != 0 {
-		amount = math.Abs(input.Quantity) * input.UnitCost
-	}
-	if amount <= 0 {
-		amount = 1000 // Fallback nominal standar jika tidak disediakan
+	amount := math.Abs(input.TotalAmount)
+	if amount == 0 && unitCost > 0 {
+		amount = math.Abs(input.Quantity) * unitCost
 	}
 	amount = round2(amount)
+	if amount <= 0 {
+		return model.JournalEntryRequest{}, fmt.Errorf("nominal transaksi %s nol: quantity atau harga valuasi item %s kosong", ref, itemNum)
+	}
 
 	// Tanggal transaksi
 	transDate := strings.TrimSpace(input.TransDate)
@@ -516,12 +525,12 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 
 	companyCode := strings.TrimSpace(input.CompanyCode)
 	if companyCode == "" {
-		companyCode = "1000" // Default hardcode sesuai spesifikasi
+		companyCode = envOr("FIN_COMPANY_CODE", "5110")
 	}
 
 	ccy := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if ccy == "" {
-		ccy = "USD" // Default currency template spesifikasi
+		ccy = envOr("FIN_GI_CURRENCY", "USD")
 	}
 
 	// 4. Determinasi Akun, Debit/Credit, DocType, dan Header Text

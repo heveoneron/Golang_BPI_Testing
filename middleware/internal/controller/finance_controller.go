@@ -2,10 +2,12 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang-bpi-testing/internal/model"
 	"golang-bpi-testing/internal/repository"
@@ -404,6 +406,87 @@ func (c *FinanceController) ListPaymentProposals(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
+}
+
+// DownloadBankFile godoc
+// @Summary      [RICEF 5] Generate file pembayaran bank (BTMU 30 kolom / BRI CMS 16 kolom)
+// @Tags         Finance - SAP Pull
+// @Produce      text/csv
+// @Param        bank        query  string  true   "BTMU atau BRI"
+// @Param        run_id      query  string  false  "Filter Payment Run ID"
+// @Param        q           query  string  false  "Cari payment run / supplier / dokumen"
+// @Param        value_date  query  string  false  "Tanggal efektif YYYY-MM-DD (default: tanggal payment run)"
+// @Success      200  {string}  string
+// @Router       /finance/payment-proposals/bank-file [get]
+func (c *FinanceController) DownloadBankFile(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	bank := strings.ToUpper(strings.TrimSpace(ctx.Query("bank")))
+	var valueDate time.Time
+	if v := strings.TrimSpace(ctx.Query("value_date")); v != "" {
+		t, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "value_date harus YYYY-MM-DD"})
+			return
+		}
+		valueDate = t
+	}
+	items, err := c.Svc.PGRepo.ListPaymentProposals(ctx.Request.Context(), ctx.Query("q"), queryInt(ctx, "limit", 5000))
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	if run := strings.TrimSpace(ctx.Query("run_id")); run != "" {
+		filtered := items[:0]
+		for _, p := range items {
+			if strings.EqualFold(p.PaymentRunID, run) {
+				filtered = append(filtered, p)
+			}
+		}
+		items = filtered
+	}
+	if len(items) == 0 {
+		ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "tidak ada payment proposal untuk filter ini"})
+		return
+	}
+	var data []byte
+	switch bank {
+	case "BTMU":
+		data, err = service.BuildBTMUFile(items, valueDate)
+	case "BRI":
+		data, err = service.BuildBRIFile(items, valueDate)
+	default:
+		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "bank harus BTMU atau BRI"})
+		return
+	}
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	name := fmt.Sprintf("%s-Generate_Text_File-%s.csv", bank, time.Now().Format("2006-01-02"))
+	ctx.Header("Content-Disposition", `attachment; filename="`+name+`"`)
+	ctx.Data(http.StatusOK, "text/csv; charset=utf-8", data)
+}
+
+// SyncInventoryJournals godoc
+// @Summary      [RICEF 2] Tarik GI (axinvissue) & Stock Adj (axinvtrans) dari Maximo lalu antre Journal Entry SOAP
+// @Tags         Finance - Journal
+// @Produce      json
+// @Param        days  query  int  false  "Lookback hari (default 7)"
+// @Success      200  {object}  service.InventorySyncResult
+// @Router       /finance/inventory/sync [post]
+func (c *FinanceController) SyncInventoryJournals(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	if c.Svc.InventoryReader == nil {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "koneksi SQL Server Maximo tidak tersedia"})
+		return
+	}
+	days := queryInt(ctx, "days", 7)
+	res := c.Svc.SyncInventoryJournals(ctx.Request.Context(), c.Svc.InventoryReader, time.Now().AddDate(0, 0, -days), queryInt(ctx, "limit", 500))
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": res})
 }
 
 // ListFixedAssets godoc

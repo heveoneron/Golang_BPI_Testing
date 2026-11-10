@@ -161,6 +161,9 @@
                         <input class="form-control form-control-sm" name="q" placeholder="Cari payment run / supplier / dokumen" style="max-width:320px">
                         <button class="btn btn-outline-primary btn-sm">Tampilkan</button>
                         <button type="button" class="btn btn-primary btn-sm" data-sync="payment"><i class="bi bi-cloud-download"></i> Tarik dari SAP</button>
+                        <input type="date" class="form-control form-control-sm" id="bankValueDate" title="Value date (kosong = tanggal payment run)" style="max-width:160px">
+                        <button type="button" class="btn btn-outline-success btn-sm" onclick="finBankFile('BTMU')"><i class="bi bi-filetype-csv"></i> File BTMU</button>
+                        <button type="button" class="btn btn-outline-success btn-sm" onclick="finBankFile('BRI')"><i class="bi bi-filetype-csv"></i> File BRI</button>
                     </form>
                     <div class="table-wrap"><table class="table table-custom mb-0" id="tblPayment"></table></div>
                 </div>
@@ -470,6 +473,25 @@
             } catch (e) { toast(e.message, false); }
         }
         document.getElementById('formPayment').addEventListener('submit', loadPayment);
+        async function finBankFile(bank) {
+            const q = new FormData(document.getElementById('formPayment')).get('q') || '';
+            const vd = document.getElementById('bankValueDate').value;
+            const url = '/api/finance/payment-proposals/bank-file?bank=' + bank + '&q=' + encodeURIComponent(q) + (vd ? '&value_date=' + vd : '');
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) {
+                let msg = 'Gagal membuat file ' + bank;
+                try { msg = (await res.json()).message || msg; } catch (e) {}
+                alert(msg);
+                return;
+            }
+            const cd = res.headers.get('Content-Disposition') || '';
+            const m = cd.match(/filename="([^"]+)"/);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(await res.blob());
+            a.download = m ? m[1] : bank + '.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
 
         // ---------- RICEF 6 ----------
         async function loadKurs() {

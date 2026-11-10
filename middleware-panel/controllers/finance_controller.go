@@ -125,5 +125,8 @@ func (c *FinanceController) Proxy(ctx *gin.Context) {
 	if ct == "" {
 		ct = "application/json"
 	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		ctx.Header("Content-Disposition", cd)
+	}
 	ctx.Data(resp.StatusCode, ct, respBody)
 }

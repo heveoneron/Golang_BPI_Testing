@@ -306,9 +306,9 @@ func DocTypesFor(category string) []string {
 	}
 	switch strings.ToLower(category) {
 	case "journal":
-		return split(envOr("FIN_JE_DOC_TYPES", "SA,AB"))
+		return split(envOr("FIN_JE_DOC_TYPES", "SA"))
 	case "invoice":
-		return split(envOr("FIN_INVOICE_DOC_TYPES", "KR,KG"))
+		return split(envOr("FIN_INVOICE_DOC_TYPES", "RE,KR"))
 	}
 	return []string{}
 }

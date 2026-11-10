@@ -460,54 +460,77 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 // GetProductValuationClass mengambil nilai ValuationClass dari SAP S/4HANA Grow untuk Item tertentu
 // Endpoint: /sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('<ItemNum>')/to_Valuation?$format=json
 func (s *SAPClient) GetProductValuationClass(ep *model.SAPEndpoint, itemNum string) (string, error) {
+	vc, _, err := s.GetProductValuation(ep, itemNum)
+	return vc, err
+}
+
+// GetProductValuation mengembalikan ValuationClass dan harga per unit dasar
+// (StandardPrice bila prosedur "S", selain itu MovingAveragePrice, dibagi PriceUnitQty).
+func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (string, float64, error) {
 	cleanItem := strings.TrimSpace(itemNum)
 	if cleanItem == "" {
-		return "", fmt.Errorf("item number kosong")
+		return "", 0, fmt.Errorf("item number kosong")
 	}
 
 	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
-		return "S001", nil
+		return "S001", 100, nil
 	}
+	username, password := s.credentials(ep)
 
 	cleanBase := strings.TrimRight(ep.BaseURL, "/")
-	targetURL := fmt.Sprintf("%s/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('%s')/to_Valuation?$format=json", cleanBase, cleanItem)
+	targetURL := fmt.Sprintf("%s/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('%s')/to_Valuation?$format=json",
+		cleanBase, url.PathEscape(strings.ReplaceAll(cleanItem, "'", "''")))
 
-	httpCli := s.httpFor(ep.Username)
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed creating request: %w", err)
+		return "", 0, fmt.Errorf("failed creating request: %w", err)
 	}
-
 	req.Header.Set("Accept", "application/json")
-	if ep.Username != "" && ep.Password != "" {
-		req.SetBasicAuth(ep.Username, ep.Password)
+	if username != "" && password != "" {
+		req.SetBasicAuth(username, password)
 	}
 
-	resp, err := httpCli.Do(req)
+	resp, err := s.httpFor(username).Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request to SAP failed: %w", err)
+		return "", 0, fmt.Errorf("request to SAP failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("SAP error %d: %s", resp.StatusCode, string(bodyBytes))
+		return "", 0, fmt.Errorf("SAP error %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+	return ParseProductValuation(bodyBytes, cleanItem)
+}
 
+// ParseProductValuation membaca respons OData v2 A_ProductValuation.
+func ParseProductValuation(body []byte, itemNum string) (string, float64, error) {
 	var parsed struct {
 		D struct {
 			Results []struct {
-				ValuationClass string `json:"ValuationClass"`
+				ValuationClass               string `json:"ValuationClass"`
+				InventoryValuationProcedure  string `json:"InventoryValuationProcedure"`
+				StandardPrice                string `json:"StandardPrice"`
+				MovingAveragePrice           string `json:"MovingAveragePrice"`
+				PriceUnitQty                 string `json:"PriceUnitQty"`
 			} `json:"results"`
 		} `json:"d"`
 	}
-
-	if err := json.Unmarshal(bodyBytes, &parsed); err == nil && len(parsed.D.Results) > 0 {
-		vc := strings.TrimSpace(parsed.D.Results[0].ValuationClass)
-		if vc != "" {
-			return vc, nil
-		}
+	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.D.Results) == 0 {
+		return "", 0, fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", itemNum)
 	}
-
-	return "", fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", cleanItem)
+	v := parsed.D.Results[0]
+	vc := strings.TrimSpace(v.ValuationClass)
+	if vc == "" {
+		return "", 0, fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", itemNum)
+	}
+	priceStr := v.MovingAveragePrice
+	if strings.EqualFold(strings.TrimSpace(v.InventoryValuationProcedure), "S") {
+		priceStr = v.StandardPrice
+	}
+	price, _ := strconv.ParseFloat(strings.TrimSpace(priceStr), 64)
+	if unit, err := strconv.ParseFloat(strings.TrimSpace(v.PriceUnitQty), 64); err == nil && unit > 0 {
+		price = price / unit
+	}
+	return vc, price, nil
 }
