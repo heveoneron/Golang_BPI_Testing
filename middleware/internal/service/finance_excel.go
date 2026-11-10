@@ -292,8 +292,10 @@ func readTable(fileName string, data []byte) ([][]string, error) {
 		return readXLSX(data)
 	case ".csv":
 		return readCSV(data)
+	case ".xls":
+		return readLegacyXLS(data)
 	}
-	return nil, fmt.Errorf("format file harus .xlsx atau .csv")
+	return nil, fmt.Errorf("format file harus .xlsx, .xls (ekspor Talenta) atau .csv")
 }
 
 // headerIndex mencari baris header pertama yang tidak kosong dan memetakan nama kolom ternormalisasi.
@@ -324,6 +326,9 @@ func ParseSupplierInvoiceFile(fileName string, data []byte) ([]model.SupplierInv
 	table, err := readTable(fileName, data)
 	if err != nil {
 		return nil, nil, newValidation(err.Error())
+	}
+	if normalized, ok := NormalizeTalentaTable(table, time.Now()); ok {
+		table = normalized
 	}
 	headerRow, colIdx := headerIndex(table)
 	if headerRow < 0 {

@@ -51,7 +51,7 @@ func (c *FinanceController) ShowPage(ctx *gin.Context) {
 // identityFields mengembalikan field identitas yang wajib diisi dari sesi login untuk path tertentu.
 func identityFields(path string) []string {
 	switch {
-	case strings.HasSuffix(path, "/approve") || strings.HasSuffix(path, "/reject"):
+	case strings.HasSuffix(path, "/approve") || strings.HasSuffix(path, "/reject") || strings.HasSuffix(path, "/print"):
 		return []string{"by"}
 	case path == "/assets/acquisitions":
 		return []string{"parked_by"}

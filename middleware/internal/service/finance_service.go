@@ -802,6 +802,9 @@ func (f *FinanceService) ApproveAssetAcquisition(ctx context.Context, id uuid.UU
 			if strings.EqualFold(a.ParkedBy, by) {
 				return newValidation("approver harus berbeda dari pembuat parking (maker-checker)")
 			}
+			if a.PrintedAt == nil {
+				return newValidation("Print Form harus dicetak sebelum Approve")
+			}
 			return nil
 		},
 		func(ctx context.Context, tx pgx.Tx, a *model.AssetAcquisition) error {
@@ -819,6 +822,14 @@ func (f *FinanceService) ApproveAssetAcquisition(ctx context.Context, id uuid.UU
 		})
 }
 
+// PrintAssetAcquisition mencatat pencetakan Print Form; setelah itu tombol Approve/Reject tersedia.
+func (f *FinanceService) PrintAssetAcquisition(ctx context.Context, id uuid.UUID, by string) (*model.AssetAcquisition, error) {
+	if by = strings.TrimSpace(by); by == "" {
+		return nil, newValidation("by wajib diisi")
+	}
+	return f.PGRepo.MarkAssetAcquisitionPrinted(ctx, id, by)
+}
+
 // RejectAssetAcquisition menolak parking berstatus PARKED.
 func (f *FinanceService) RejectAssetAcquisition(ctx context.Context, id uuid.UUID, by, reason string) (*model.AssetAcquisition, error) {
 	by, reason = strings.TrimSpace(by), strings.TrimSpace(reason)
@@ -829,6 +840,9 @@ func (f *FinanceService) RejectAssetAcquisition(ctx context.Context, id uuid.UUI
 		func(a *model.AssetAcquisition) error {
 			if a.Status != "PARKED" {
 				return newValidation(fmt.Sprintf("status %s tidak dapat ditolak (hanya PARKED)", a.Status))
+			}
+			if a.PrintedAt == nil {
+				return newValidation("Print Form harus dicetak sebelum Reject")
 			}
 			return nil
 		},

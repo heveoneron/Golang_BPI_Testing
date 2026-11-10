@@ -183,6 +183,7 @@ type FixedAsset struct {
 	MasterFixedAsset   string          `json:"master_fixed_asset"`
 	FixedAsset         string          `json:"fixed_asset"`
 	Description        string          `json:"description"`
+	AdditionalDesc     string          `json:"additional_description"`
 	AssetClass         string          `json:"asset_class"`
 	CapitalizationDate *string         `json:"capitalization_date"`
 	Raw                json.RawMessage `json:"raw,omitempty" swaggertype:"object"`
@@ -435,6 +436,7 @@ type AssetAcquisition struct {
 	ErrorMessage      string     `json:"error_message,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+	PrintedAt         *time.Time `json:"printed_at,omitempty"` // terakhir Print Form dicetak; syarat Approve/Reject
 }
 
 // SAPAssetAcquisitionPayload adalah parameter action FixedAssetAcquisition/SAP__self.Post (OData V4).

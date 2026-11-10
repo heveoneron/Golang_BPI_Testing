@@ -186,3 +186,15 @@ CREATE TABLE IF NOT EXISTS valuation_class_gl_mappings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_val_class_gl ON valuation_class_gl_mappings(valuation_class);
+
+-- RICEF 9: AssetAdditionalDescription
+ALTER TABLE sap_fixed_assets ADD COLUMN IF NOT EXISTS additional_description VARCHAR(100);
+
+-- RICEF 8: Approve/Reject hanya setelah Print Form (RICEF 11) dicetak
+CREATE TABLE IF NOT EXISTS asset_acquisition_prints (
+    id BIGSERIAL PRIMARY KEY,
+    acquisition_id UUID NOT NULL REFERENCES asset_acquisitions(id) ON DELETE CASCADE,
+    printed_by VARCHAR(100) NOT NULL,
+    printed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_asset_acq_prints ON asset_acquisition_prints(acquisition_id);

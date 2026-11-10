@@ -48,7 +48,7 @@ func setupIntegration(t *testing.T) (context.Context, *repository.PostgresReposi
 	}
 	_, err = pool.Exec(ctx, `
 		TRUNCATE documents, budget_masters, budget_transaction_locks, budget_adjustments, sap_gl_line_items,
-		         sap_payment_proposals, sap_fixed_assets, asset_acquisitions, excel_upload_batches, exchange_rates, integration_logs,
+		         sap_payment_proposals, sap_fixed_assets, asset_acquisition_prints, asset_acquisitions, excel_upload_batches, exchange_rates, integration_logs,
 		         employee_vendor_mappings;
 		UPDATE sap_endpoints SET base_url = 'MOCK';
 		UPDATE sap_endpoints SET is_active = true WHERE service_code = 'BUDGET';`)
@@ -271,6 +271,12 @@ func TestIntegration_AssetParkApprovePost(t *testing.T) {
 	}
 	if _, err := fin.ParkAssetAcquisition(ctx, req); err == nil {
 		t.Error("duplicate reference must be rejected")
+	}
+	if _, err := fin.ApproveAssetAcquisition(ctx, a.ID, "checker"); err == nil {
+		t.Fatal("approve must require Print Form first")
+	}
+	if p, err := fin.PrintAssetAcquisition(ctx, a.ID, "checker"); err != nil || p.PrintedAt == nil {
+		t.Fatalf("print failed: %+v %v", p, err)
 	}
 	if _, err := fin.ApproveAssetAcquisition(ctx, a.ID, "MAKER"); err == nil {
 		t.Fatal("maker must not approve own parking")

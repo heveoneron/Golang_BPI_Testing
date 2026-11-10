@@ -649,12 +649,12 @@ func (r *PostgresRepository) UpsertFixedAssets(ctx context.Context, items []mode
 			capDate = nullIfEmpty(*a.CapitalizationDate)
 		}
 		batch.Queue(`
-			INSERT INTO sap_fixed_assets (company_code, master_fixed_asset, fixed_asset, description, asset_class, capitalization_date, raw, synced_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+			INSERT INTO sap_fixed_assets (company_code, master_fixed_asset, fixed_asset, description, additional_description, asset_class, capitalization_date, raw, synced_at)
+			VALUES ($1,$2,$3,$4,$8,$5,$6,$7,NOW())
 			ON CONFLICT (company_code, master_fixed_asset, fixed_asset) DO UPDATE SET
-				description = EXCLUDED.description, asset_class = EXCLUDED.asset_class,
+				description = EXCLUDED.description, additional_description = EXCLUDED.additional_description, asset_class = EXCLUDED.asset_class,
 				capitalization_date = EXCLUDED.capitalization_date, raw = EXCLUDED.raw, synced_at = NOW()
-		`, a.CompanyCode, a.MasterFixedAsset, a.FixedAsset, a.Description, a.AssetClass, capDate, a.Raw)
+		`, a.CompanyCode, a.MasterFixedAsset, a.FixedAsset, a.Description, a.AssetClass, capDate, a.Raw, a.AdditionalDesc)
 	}
 	return execBatch(ctx, r, batch, len(items))
 }
@@ -667,11 +667,11 @@ func (r *PostgresRepository) ListFixedAssets(ctx context.Context, companyCode, s
 		limit = 500
 	}
 	rows, err := r.Pool.Query(ctx, `
-		SELECT company_code, master_fixed_asset, fixed_asset, COALESCE(description, ''), COALESCE(asset_class, ''),
+		SELECT company_code, master_fixed_asset, fixed_asset, COALESCE(description, ''), COALESCE(additional_description, ''), COALESCE(asset_class, ''),
 		       TO_CHAR(capitalization_date, 'YYYY-MM-DD'), synced_at
 		FROM sap_fixed_assets
 		WHERE ($1 = '' OR company_code = $1)
-		  AND ($2 = '' OR master_fixed_asset ILIKE '%' || $2 || '%' OR description ILIKE '%' || $2 || '%')
+		  AND ($2 = '' OR master_fixed_asset ILIKE '%' || $2 || '%' OR description ILIKE '%' || $2 || '%' OR additional_description ILIKE '%' || $2 || '%')
 		ORDER BY company_code, master_fixed_asset, fixed_asset
 		LIMIT $3
 	`, companyCode, search, limit)
@@ -682,7 +682,7 @@ func (r *PostgresRepository) ListFixedAssets(ctx context.Context, companyCode, s
 	var out []model.FixedAsset
 	for rows.Next() {
 		var a model.FixedAsset
-		if err := rows.Scan(&a.CompanyCode, &a.MasterFixedAsset, &a.FixedAsset, &a.Description, &a.AssetClass, &a.CapitalizationDate, &a.SyncedAt); err != nil {
+		if err := rows.Scan(&a.CompanyCode, &a.MasterFixedAsset, &a.FixedAsset, &a.Description, &a.AdditionalDesc, &a.AssetClass, &a.CapitalizationDate, &a.SyncedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -708,14 +708,15 @@ const assetAcqColumns = `
 	TO_CHAR(document_date, 'YYYY-MM-DD'), TO_CHAR(posting_date, 'YYYY-MM-DD'), TO_CHAR(asset_value_date, 'YYYY-MM-DD'),
 	amount::float8, currency, offsetting_account, COALESCE(item_text, ''), status, parked_by,
 	COALESCE(approved_by, ''), approved_at, COALESCE(rejected_by, ''), COALESCE(reject_reason, ''),
-	COALESCE(sap_document_no, ''), COALESCE(error_message, ''), created_at, updated_at`
+	COALESCE(sap_document_no, ''), COALESCE(error_message, ''), created_at, updated_at,
+	(SELECT MAX(p.printed_at) FROM asset_acquisition_prints p WHERE p.acquisition_id = asset_acquisitions.id)`
 
 func scanAssetAcq(row pgx.Row) (*model.AssetAcquisition, error) {
 	var a model.AssetAcquisition
 	err := row.Scan(&a.ID, &a.Reference, &a.CompanyCode, &a.MasterFixedAsset, &a.FixedAsset,
 		&a.DocumentDate, &a.PostingDate, &a.AssetValueDate, &a.Amount, &a.Currency, &a.OffsettingAccount, &a.ItemText,
 		&a.Status, &a.ParkedBy, &a.ApprovedBy, &a.ApprovedAt, &a.RejectedBy, &a.RejectReason, &a.SAPDocumentNo,
-		&a.ErrorMessage, &a.CreatedAt, &a.UpdatedAt)
+		&a.ErrorMessage, &a.CreatedAt, &a.UpdatedAt, &a.PrintedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -723,6 +724,23 @@ func scanAssetAcq(row pgx.Row) (*model.AssetAcquisition, error) {
 		return nil, err
 	}
 	return &a, nil
+}
+
+// MarkAssetAcquisitionPrinted mencatat bahwa Print Form (RICEF 11) sudah dicetak.
+func (r *PostgresRepository) MarkAssetAcquisitionPrinted(ctx context.Context, id uuid.UUID, by string) (*model.AssetAcquisition, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	tag, err := r.Pool.Exec(ctx, `
+		INSERT INTO asset_acquisition_prints (acquisition_id, printed_by)
+		SELECT id, $2 FROM asset_acquisitions WHERE id = $1`, id, by)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return r.GetAssetAcquisition(ctx, id)
 }
 
 func (r *PostgresRepository) CreateAssetAcquisition(ctx context.Context, req model.AssetAcquisitionRequest) (*model.AssetAcquisition, error) {

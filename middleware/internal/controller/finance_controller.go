@@ -1073,7 +1073,20 @@ func (c *FinanceController) ParkAssetAcquisition(ctx *gin.Context) {
 // @Failure      422  {object}  ValidationErrorResponse
 // @Router       /finance/assets/acquisitions/{id}/approve [post]
 func (c *FinanceController) ApproveAssetAcquisition(ctx *gin.Context) {
-	c.assetTransition(ctx, true)
+	c.assetTransition(ctx, "approve")
+}
+
+// PrintAssetAcquisition godoc
+// @Summary      [RICEF 8/11] Catat Print Form parking aset (syarat Approve/Reject)
+// @Tags         Finance - Asset
+// @Accept       json
+// @Produce      json
+// @Param        id       path  string                 true  "ID parking"
+// @Param        payload  body  model.ApprovalRequest  true  "Pencetak (by)"
+// @Success      200  {object}  model.AssetAcquisition
+// @Router       /finance/assets/acquisitions/{id}/print [post]
+func (c *FinanceController) PrintAssetAcquisition(ctx *gin.Context) {
+	c.assetTransition(ctx, "print")
 }
 
 // RejectAssetAcquisition godoc
@@ -1087,10 +1100,10 @@ func (c *FinanceController) ApproveAssetAcquisition(ctx *gin.Context) {
 // @Failure      422  {object}  ValidationErrorResponse
 // @Router       /finance/assets/acquisitions/{id}/reject [post]
 func (c *FinanceController) RejectAssetAcquisition(ctx *gin.Context) {
-	c.assetTransition(ctx, false)
+	c.assetTransition(ctx, "reject")
 }
 
-func (c *FinanceController) assetTransition(ctx *gin.Context, approve bool) {
+func (c *FinanceController) assetTransition(ctx *gin.Context, mode string) {
 	if !c.ready(ctx) {
 		return
 	}
@@ -1105,7 +1118,9 @@ func (c *FinanceController) assetTransition(ctx *gin.Context, approve bool) {
 		return
 	}
 	var a *model.AssetAcquisition
-	if approve {
+	if mode == "print" {
+		a, err = c.Svc.PrintAssetAcquisition(ctx.Request.Context(), id, req.By)
+	} else if mode == "approve" {
 		a, err = c.Svc.ApproveAssetAcquisition(ctx.Request.Context(), id, req.By)
 	} else {
 		a, err = c.Svc.RejectAssetAcquisition(ctx.Request.Context(), id, req.By, req.Reason)

@@ -252,6 +252,7 @@ func ParseFixedAssets(body []byte) ([]model.FixedAsset, error) {
 			MasterFixedAsset:   str(m, "MasterFixedAsset"),
 			FixedAsset:         str(m, "FixedAsset"),
 			Description:        str(m, "FixedAssetDescription", "MasterFixedAssetDescription", "AssetDescription"),
+			AdditionalDesc:     str(m, "AssetAdditionalDescription", "FixedAssetAdditionalDescription"),
 			AssetClass:         str(m, "AssetClass"),
 			CapitalizationDate: parseODataDate(firstPresent(m, "AssetCapitalizationDate", "CapitalizationDate")),
 			Raw:                rawRecord(m),

@@ -123,6 +123,7 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		fin.GET("/assets/acquisitions", fc.ListAssetAcquisitions)
 		fin.POST("/assets/acquisitions", fc.ParkAssetAcquisition)
 		fin.GET("/assets/acquisitions/:id", fc.GetAssetAcquisition)
+		fin.POST("/assets/acquisitions/:id/print", fc.PrintAssetAcquisition)
 		fin.POST("/assets/acquisitions/:id/approve", fc.ApproveAssetAcquisition)
 		fin.POST("/assets/acquisitions/:id/reject", fc.RejectAssetAcquisition)
 	}

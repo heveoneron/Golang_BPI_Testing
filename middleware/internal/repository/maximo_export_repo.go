@@ -91,6 +91,7 @@ func (r *PostgresRepository) ListJournalsForExport(ctx context.Context, docTypes
 			FROM sap_gl_line_items g
 			WHERE COALESCE(cardinality($1::text[]), 0) = 0 OR g.accounting_document_type = ANY($1)
 			GROUP BY g.company_code, g.fiscal_year, g.accounting_document
+			HAVING bool_or(COALESCE(g.cost_center, '') <> '')
 		)
 		SELECT d.k, g.gl_line_item_key, COALESCE(g.company_code, ''), COALESCE(g.fiscal_year, ''), COALESCE(g.accounting_document, ''),
 		       COALESCE(g.ledger_gl_line_item, ''), COALESCE(g.accounting_document_type, ''),

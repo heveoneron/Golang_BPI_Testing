@@ -186,9 +186,9 @@
             <div class="tab-pane fade" id="tab-invoice">
                 <div class="main-card">
                     <div class="section-title">Upload Excel Talenta / Mekari</div>
-                    <div class="section-hint">File .xlsx (sheet pertama) atau .csv. Kolom wajib: InvoiceRef, DocumentDate, PostingDate, InvoicingParty, GrossAmount, Amount, dan <strong>PolicyName</strong> (GL &amp; budget code ditentukan dari mapping di bawah) atau GLAccount. Opsional: CIP (CIP / Non CIP; kosong = dari mapping vendor karyawan), CompanyCode, Currency, HeaderText, DocType, PaymentTerms, CostCenter, TaxCode (default V0), ItemText, AssignmentRef. Satu baris salah = seluruh file ditolak.</div>
+                    <div class="section-hint">File .xlsx (sheet pertama) atau .csv. Kolom wajib: InvoiceRef, DocumentDate, PostingDate, InvoicingParty, GrossAmount, Amount, dan <strong>PolicyName</strong> (GL &amp; budget code ditentukan dari mapping di bawah) atau GLAccount. Opsional: CIP (CIP / Non CIP; kosong = dari mapping vendor karyawan), CompanyCode, Currency, HeaderText, DocType, PaymentTerms, CostCenter, TaxCode (default V0), ItemText, AssignmentRef. Satu baris salah = seluruh file ditolak. File ekspor mentah Talenta (<em>Reimbursement</em> dengan Transaction ID &amp; Reimbursement Policy Name, atau <em>Business Trip</em> dengan Trip ID) otomatis dinormalisasi ke template; InvoicingParty = prefix vendor + Employee ID, hanya transaksi Approved.</div>
                     <form id="formUpload" class="d-flex gap-2 mb-2">
-                        <input class="form-control form-control-sm" type="file" name="file" accept=".xlsx,.csv" required style="max-width:360px">
+                        <input class="form-control form-control-sm" type="file" name="file" accept=".xlsx,.xls,.csv" required style="max-width:360px">
                         <button class="btn btn-primary btn-sm">Upload</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="btnTemplate"><i class="bi bi-download"></i> Template CSV</button>
                     </form>
@@ -582,19 +582,21 @@
         async function loadAsset() {
             try {
                 const d = await api('GET', '/assets/acquisitions');
+                store.acq = d.data || [];
                 table('tblAcq', [
                     ['Reference', r => esc(r.reference)], ['Aset', r => esc(r.company_code + '/' + r.master_fixed_asset + '-' + r.fixed_asset)],
                     ['Posting', r => esc(r.posting_date)], ['Jumlah', r => num(r.amount)], ['Status', r => badge(r.status)],
                     ['Parked / Approved', r => esc(r.parked_by + (r.approved_by ? ' / ' + r.approved_by : ''))],
                     ['No. SAP / Pesan', r => esc(r.sap_document_no || '') + (r.error_message || r.reject_reason ? `<div class="small text-danger">${esc(r.error_message || r.reject_reason)}</div>` : '')],
-                    ['', r => (r.status === 'PARKED' || r.status === 'FAILED')
-                        ? `<button class="btn btn-success btn-sm py-0" data-approve="${esc(r.id)}">Approve</button>` + (r.status === 'PARKED' ? ` <button class="btn btn-outline-danger btn-sm py-0" data-reject="${esc(r.id)}">Tolak</button>` : '')
-                        : '']
+                    ['', r => `<button class="btn btn-outline-secondary btn-sm py-0" data-print="${esc(r.id)}">Print Form</button>` +
+                        ((r.status === 'PARKED' || r.status === 'FAILED') && r.printed_at
+                            ? ` <button class="btn btn-success btn-sm py-0" data-approve="${esc(r.id)}">Approve</button>` + (r.status === 'PARKED' ? ` <button class="btn btn-outline-danger btn-sm py-0" data-reject="${esc(r.id)}">Tolak</button>` : '')
+                            : '')]
                 ], d.data);
                 const a = await api('GET', '/fixed-assets');
                 table('tblAssets', [
                     ['Company', r => esc(r.company_code)], ['Master', r => esc(r.master_fixed_asset)], ['Sub', r => esc(r.fixed_asset)],
-                    ['Deskripsi', r => esc(r.description)], ['Kelas', r => esc(r.asset_class)], ['Kapitalisasi', r => esc(r.capitalization_date || '')],
+                    ['Deskripsi', r => esc(r.description)], ['Deskripsi 2', r => esc(r.additional_description || '')], ['Kelas', r => esc(r.asset_class)], ['Kapitalisasi', r => esc(r.capitalization_date || '')],
                     ['Sinkron', r => dt(r.synced_at)]
                 ], a.data, 'Belum ada data. Klik "Tarik dari SAP".');
                 document.getElementById('assetList').innerHTML = (a.data || []).map(r => `<option value="${esc(r.master_fixed_asset)}">${esc(r.description)}</option>`).join('');
@@ -602,9 +604,27 @@
         }
         bindPost('formAsset', '/assets/acquisitions', ['amount'], r => { toast('Parking ' + r.reference + ' disimpan', true); loadAsset(); });
         document.getElementById('tblAcq').addEventListener('click', async ev => {
-            const ap = ev.target.getAttribute('data-approve'), rj = ev.target.getAttribute('data-reject');
+            const ap = ev.target.getAttribute('data-approve'), rj = ev.target.getAttribute('data-reject'), pr = ev.target.getAttribute('data-print');
             try {
-                if (ap) {
+                if (pr) {
+                    const r = (store.acq || []).find(x => x.id === pr); if (!r) return;
+                    const w = window.open('', '_blank'); if (!w) { toast('Pop-up diblokir browser', false); return; }
+                    const row = (k, v) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
+                    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Parking General Journal Form Asset ${esc(r.reference)}</title>
+                        <style>body{font-family:Arial,sans-serif;margin:32px;color:#111}h2{margin:0 0 4px}table{border-collapse:collapse;width:100%;margin:16px 0}
+                        th,td{border:1px solid #999;padding:6px 8px;text-align:left;font-size:13px}th{width:35%;background:#f3f3f3}
+                        .sig{display:flex;gap:24px;margin-top:48px}.sig div{flex:1;border-top:1px solid #333;padding-top:6px;text-align:center;font-size:13px}</style></head><body>
+                        <h2>Parking General Journal Form Asset</h2><div>PT Bhimasena Power Indonesia</div>
+                        <table>${row('Document No.', r.reference)}${row('Company Code', r.company_code)}${row('Asset', r.master_fixed_asset + '-' + r.fixed_asset)}
+                        ${row('Document Date', r.document_date)}${row('Posting Date', r.posting_date)}${row('Asset Value Date', r.asset_value_date)}
+                        ${row('Amount', num(r.amount) + ' ' + r.currency)}${row('Offsetting Account', r.offsetting_account)}${row('Item Text', r.item_text)}
+                        ${row('Status', r.status)}${row('Parked By', r.parked_by)}</table>
+                        <div class="sig"><div>Prepared by<br>${esc(r.parked_by)}</div><div>Checked by</div><div>Approved by</div></div>
+                        <script>window.onload=function(){window.print()}<\/script></body></html>`);
+                    w.document.close();
+                    await api('POST', `/assets/acquisitions/${encodeURIComponent(pr)}/print`, {});
+                    loadAsset();
+                } else if (ap) {
                     if (!confirm('Approve dan posting ke SAP?')) return;
                     await api('POST', `/assets/acquisitions/${encodeURIComponent(ap)}/approve`, {}); toast('Disetujui, diantre posting ke SAP', true); loadAsset();
                 } else if (rj) {
