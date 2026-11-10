@@ -432,12 +432,22 @@ func (c *FinanceController) DownloadBankFile(ctx *gin.Context) {
 		}
 		valueDate = t
 	}
-	items, err := c.Svc.PGRepo.ListPaymentProposals(ctx.Request.Context(), ctx.Query("q"), queryInt(ctx, "limit", 5000))
+	const maxBankRows = 2000
+	run := strings.TrimSpace(ctx.Query("run_id"))
+	search := ctx.Query("q")
+	if run != "" {
+		search = run
+	}
+	items, err := c.Svc.PGRepo.ListPaymentProposals(ctx.Request.Context(), search, maxBankRows)
 	if err != nil {
 		respondFinanceError(ctx, err)
 		return
 	}
-	if run := strings.TrimSpace(ctx.Query("run_id")); run != "" {
+	if len(items) >= maxBankRows {
+		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "hasil lebih dari 2000 baris; persempit dengan run_id atau q agar file tidak terpotong"})
+		return
+	}
+	if run != "" {
 		filtered := items[:0]
 		for _, p := range items {
 			if strings.EqualFold(p.PaymentRunID, run) {

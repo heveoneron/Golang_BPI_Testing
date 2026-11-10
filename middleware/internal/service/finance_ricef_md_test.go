@@ -85,9 +85,9 @@ func TestDetermineJournalEntry_NoFakeAmountOrCompany(t *testing.T) {
 }
 
 func TestParseProductValuation(t *testing.T) {
-	body := `{"d":{"results":[{"ValuationClass":"S002","InventoryValuationProcedure":"V","StandardPrice":"0","MovingAveragePrice":"250.00","PriceUnitQty":"10"}]}}`
-	vc, price, err := client.ParseProductValuation([]byte(body), "SP001")
-	if err != nil || vc != "S002" || price != 25 {
-		t.Fatalf("vc=%s price=%v err=%v", vc, price, err)
+	body := `{"d":{"results":[{"ValuationClass":"S002","InventoryValuationProcedure":"V","StandardPrice":"0","MovingAveragePrice":"250.00","PriceUnitQty":"10","Currency":"idr"}]}}`
+	v, err := client.ParseProductValuation([]byte(body), "SP001")
+	if err != nil || v.Class != "S002" || v.UnitPrice != 25 || v.Currency != "IDR" {
+		t.Fatalf("valuation=%+v err=%v", v, err)
 	}
 }

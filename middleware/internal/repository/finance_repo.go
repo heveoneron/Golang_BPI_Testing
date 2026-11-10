@@ -126,6 +126,27 @@ func (r *PostgresRepository) QueueDocument(ctx context.Context, doc model.Docume
 	return nil
 }
 
+// ExistingDocumentNos mengembalikan nomor dokumen (forward) yang sudah ada di antrean untuk doc_type tertentu.
+func (r *PostgresRepository) ExistingDocumentNos(ctx context.Context, docType string, docNos []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if r.Pool == nil || len(docNos) == 0 {
+		return out, nil
+	}
+	rows, err := r.Pool.Query(ctx, `SELECT document_no FROM documents WHERE doc_type = $1 AND flow_type = 'forward' AND document_no = ANY($2)`, docType, docNos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var no string
+		if err := rows.Scan(&no); err != nil {
+			return nil, err
+		}
+		out[no] = true
+	}
+	return out, rows.Err()
+}
+
 // GetDocumentStatus mengembalikan status dokumen (found=false bila belum ada).
 func (r *PostgresRepository) GetDocumentStatus(ctx context.Context, docType, docNo string) (string, bool, error) {
 	if r.Pool == nil {

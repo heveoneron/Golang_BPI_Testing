@@ -94,13 +94,24 @@ func (f *FinanceService) SyncInventoryJournals(ctx context.Context, reader Inven
 	if err != nil {
 		res.Errors = append(res.Errors, err.Error())
 	}
+	inputs := make([]model.GIOrAdjustmentInput, 0, len(rows))
+	refs := make([]string, 0, len(rows))
 	for _, row := range rows {
 		in, ok := GIInputFromStaging(row)
 		if !ok {
 			res.Skipped++
 			continue
 		}
-		if _, found, err := f.PGRepo.GetDocumentStatus(ctx, model.DocTypeJournalGI, in.Reference); err == nil && found {
+		inputs = append(inputs, in)
+		refs = append(refs, in.Reference)
+	}
+	existing, err := f.PGRepo.ExistingDocumentNos(ctx, model.DocTypeJournalGI, refs)
+	if err != nil {
+		res.Errors = append(res.Errors, "cek dokumen existing: "+err.Error())
+		return res
+	}
+	for _, in := range inputs {
+		if existing[in.Reference] {
 			res.Skipped++
 			continue
 		}

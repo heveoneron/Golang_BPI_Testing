@@ -456,24 +456,30 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 	return items, nil
 }
 
-
 // GetProductValuationClass mengambil nilai ValuationClass dari SAP S/4HANA Grow untuk Item tertentu
 // Endpoint: /sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('<ItemNum>')/to_Valuation?$format=json
 func (s *SAPClient) GetProductValuationClass(ep *model.SAPEndpoint, itemNum string) (string, error) {
-	vc, _, err := s.GetProductValuation(ep, itemNum)
-	return vc, err
+	v, err := s.GetProductValuation(ep, itemNum)
+	return v.Class, err
+}
+
+// ProductValuation adalah hasil A_Product/to_Valuation; UnitPrice dalam mata uang Currency (mata uang company code).
+type ProductValuation struct {
+	Class     string
+	UnitPrice float64
+	Currency  string
 }
 
 // GetProductValuation mengembalikan ValuationClass dan harga per unit dasar
 // (StandardPrice bila prosedur "S", selain itu MovingAveragePrice, dibagi PriceUnitQty).
-func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (string, float64, error) {
+func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (ProductValuation, error) {
 	cleanItem := strings.TrimSpace(itemNum)
 	if cleanItem == "" {
-		return "", 0, fmt.Errorf("item number kosong")
+		return ProductValuation{}, fmt.Errorf("item number kosong")
 	}
 
 	if ep.BaseURL == "" || strings.EqualFold(ep.BaseURL, "MOCK") {
-		return "S001", 100, nil
+		return ProductValuation{Class: "S001", UnitPrice: 100}, nil
 	}
 	username, password := s.credentials(ep)
 
@@ -483,7 +489,7 @@ func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (
 
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed creating request: %w", err)
+		return ProductValuation{}, fmt.Errorf("failed creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if username != "" && password != "" {
@@ -492,45 +498,48 @@ func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (
 
 	resp, err := s.httpFor(username).Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("request to SAP failed: %w", err)
+		return ProductValuation{}, fmt.Errorf("request to SAP failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return "", 0, fmt.Errorf("SAP error %d: %s", resp.StatusCode, string(bodyBytes))
+		return ProductValuation{}, fmt.Errorf("SAP error %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 	return ParseProductValuation(bodyBytes, cleanItem)
 }
 
 // ParseProductValuation membaca respons OData v2 A_ProductValuation.
-func ParseProductValuation(body []byte, itemNum string) (string, float64, error) {
+// Bila ada beberapa valuation area, area pertama yang dipakai.
+func ParseProductValuation(body []byte, itemNum string) (ProductValuation, error) {
 	var parsed struct {
 		D struct {
 			Results []struct {
-				ValuationClass               string `json:"ValuationClass"`
-				InventoryValuationProcedure  string `json:"InventoryValuationProcedure"`
-				StandardPrice                string `json:"StandardPrice"`
-				MovingAveragePrice           string `json:"MovingAveragePrice"`
-				PriceUnitQty                 string `json:"PriceUnitQty"`
+				ValuationClass              string `json:"ValuationClass"`
+				InventoryValuationProcedure string `json:"InventoryValuationProcedure"`
+				StandardPrice               string `json:"StandardPrice"`
+				MovingAveragePrice          string `json:"MovingAveragePrice"`
+				PriceUnitQty                string `json:"PriceUnitQty"`
+				Currency                    string `json:"Currency"`
 			} `json:"results"`
 		} `json:"d"`
 	}
+	notFound := fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", itemNum)
 	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.D.Results) == 0 {
-		return "", 0, fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", itemNum)
+		return ProductValuation{}, notFound
 	}
 	v := parsed.D.Results[0]
-	vc := strings.TrimSpace(v.ValuationClass)
-	if vc == "" {
-		return "", 0, fmt.Errorf("ValuationClass tidak ditemukan untuk item '%s'", itemNum)
+	out := ProductValuation{Class: strings.TrimSpace(v.ValuationClass), Currency: strings.ToUpper(strings.TrimSpace(v.Currency))}
+	if out.Class == "" {
+		return ProductValuation{}, notFound
 	}
 	priceStr := v.MovingAveragePrice
 	if strings.EqualFold(strings.TrimSpace(v.InventoryValuationProcedure), "S") {
 		priceStr = v.StandardPrice
 	}
-	price, _ := strconv.ParseFloat(strings.TrimSpace(priceStr), 64)
+	out.UnitPrice, _ = strconv.ParseFloat(strings.TrimSpace(priceStr), 64)
 	if unit, err := strconv.ParseFloat(strings.TrimSpace(v.PriceUnitQty), 64); err == nil && unit > 0 {
-		price = price / unit
+		out.UnitPrice = out.UnitPrice / unit
 	}
-	return vc, price, nil
+	return out, nil
 }

@@ -472,6 +472,7 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 	// 1. Dapatkan Valuation Class
 	valClass := strings.ToUpper(strings.TrimSpace(input.ValuationClass))
 	unitCost := input.UnitCost
+	priceCurrency := ""
 	needPrice := input.TotalAmount == 0 && unitCost <= 0
 	if valClass == "" || needPrice {
 		if f.SAPClient == nil || f.PGRepo == nil {
@@ -481,15 +482,16 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 		if err != nil || ep == nil {
 			return model.JournalEntryRequest{}, fmt.Errorf("endpoint SAP PRODUCT tidak ditemukan untuk lookup valuation item %s", itemNum)
 		}
-		vc, price, err := f.SAPClient.GetProductValuation(ep, itemNum)
+		val, err := f.SAPClient.GetProductValuation(ep, itemNum)
 		if err != nil {
 			return model.JournalEntryRequest{}, fmt.Errorf("lookup valuation item %s gagal: %w", itemNum, err)
 		}
 		if valClass == "" {
-			valClass = strings.ToUpper(vc)
+			valClass = strings.ToUpper(val.Class)
 		}
 		if needPrice {
-			unitCost = price
+			unitCost = val.UnitPrice
+			priceCurrency = val.Currency
 		}
 	}
 
@@ -530,7 +532,8 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 
 	ccy := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if ccy == "" {
-		ccy = envOr("FIN_GI_CURRENCY", "USD")
+		// Nominal dari harga valuasi SAP harus memakai mata uang harga itu sendiri.
+		ccy = firstNonEmpty(priceCurrency, envOr("FIN_GI_CURRENCY", "USD"))
 	}
 
 	// 4. Determinasi Akun, Debit/Credit, DocType, dan Header Text

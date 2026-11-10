@@ -395,13 +395,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Y_BPI_CU_SAP_COM_0303',
 			'PowerofOne@123456789'
 		)
-		ON CONFLICT (service_code) DO UPDATE 
-		SET username = EXCLUDED.username, 
-		    password = EXCLUDED.password, 
-		    base_url = EXCLUDED.base_url, 
-		    endpoint_path = EXCLUDED.endpoint_path, 
-		    odata_version = EXCLUDED.odata_version, 
-		    updated_at = NOW();
+		ON CONFLICT (service_code) DO NOTHING;
 	`
 	_, err := r.Pool.Exec(ctx, createTableSQL)
 	return err
