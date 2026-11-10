@@ -1,11 +1,19 @@
 # ==============================================================================
-# BPI MIDDLEWARE & WEB PANEL - DOCKER COMPOSE CONFIGURATION
+# BPI MIDDLEWARE & WEB PANEL - PRODUCTION DOCKER COMPOSE CONFIGURATION
 # ==============================================================================
-# Seluruh konfigurasi awal (Database, SAP Grow, Maximo SQL Server, Web Panel)
-# sudah terpusat di file ini. Anda dapat langsung menjalankan:
+# Menjalankan seluruh stack layanan:
+#   1. PostgreSQL 16 (Staging database & persistent storage)
+#   2. Golang BPI Middleware Engine (Port 8085: REST API, Dual-Thread Poller/Pusher, SAP Sync)
+#   3. Golang BPI Web Management Panel (Port 8091: UI Dashboard, Config & Mappings Manager)
+#
+# Cara Menjalankan:
 #   docker compose up -d --build
-# atau:
-#   docker compose -f docker.yml up -d --build
+#
+# Mematikan:
+#   docker compose down
+#
+# Melihat status log:
+#   docker compose logs -f
 # ==============================================================================
 
 services:
@@ -18,17 +26,18 @@ services:
     container_name: bpi-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres123
-      POSTGRES_DB: bpi_middleware_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-bpi_middleware_db}
       TZ: Asia/Jakarta
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./middleware/database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./middleware/internal/repository/migrations/finance.sql:/docker-entrypoint-initdb.d/02_finance.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d bpi_middleware_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-bpi_middleware_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -51,28 +60,27 @@ services:
         condition: service_healthy
     environment:
       # Port Aplikasi Engine
-      APP_PORT: 8085
+      APP_PORT: ${MIDDLEWARE_PORT:-8085}
 
-      # Koneksi Database PostgreSQL Lokal / Docker Network
-      PG_CONN_STRING: postgres://postgres:postgres123@postgres:5432/bpi_middleware_db?sslmode=disable
+      # Koneksi Database PostgreSQL Internal Docker Network
+      PG_CONN_STRING: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-bpi_middleware_db}?sslmode=disable
 
-      # Koneksi SQL Server Maximo (Ubah host ke IP database Maximo jika di server berbeda)
-      # Gunakan 'host.docker.internal' jika SQL Server berjalan langsung di OS Host Server
-      SQL_CONN_STRING: sqlserver://sa:password@host.docker.internal:1433?database=MAX_BPI_TEST&encrypt=disable
+      # Koneksi SQL Server Maximo (Dapat diganti via .env jika menggunakan server database eksternal)
+      SQL_CONN_STRING: ${SQL_CONN_STRING:-sqlserver://sa:password@host.docker.internal:1433?database=MAX_BPI_TEST&encrypt=disable}
 
       # Kredensial Resmi SAP Grow S/4HANA Cloud OData
-      SAP_BASE_URL: https://my445160-api.s4hana.cloud.sap
-      SAP_USER: CU_SAP_COM_0053
-      SAP_PASS: PowerofOne@123456789
+      SAP_BASE_URL: ${SAP_BASE_URL:-https://my445160-api.s4hana.cloud.sap}
+      SAP_USER: ${SAP_USER:-CU_SAP_COM_0053}
+      SAP_PASS: ${SAP_PASS:-PowerofOne@123456789}
 
       # Konfigurasi Auto-Pull Background Poller (Maximo -> Staging)
-      AUTO_PULL_ENABLED: "false"
-      PULL_INTERVAL_MINUTES: "3"
-      PULL_BATCH_LIMIT: "1"
+      AUTO_PULL_ENABLED: ${AUTO_PULL_ENABLED:-false}
+      PULL_INTERVAL_MINUTES: ${PULL_INTERVAL_MINUTES:-3}
+      PULL_BATCH_LIMIT: ${PULL_BATCH_LIMIT:-1}
 
       TZ: Asia/Jakarta
     ports:
-      - "8085:8085"
+      - "${MIDDLEWARE_PORT:-8085}:${MIDDLEWARE_PORT:-8085}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -95,29 +103,29 @@ services:
         condition: service_started
     environment:
       # Port Aplikasi Web Panel
-      APP_PORT: 8091
-      SESSION_SECRET: kunci_rahasia_bpi_panel_2026
+      APP_PORT: ${PANEL_PORT:-8091}
+      SESSION_SECRET: ${SESSION_SECRET:-kunci_rahasia_bpi_panel_2026}
 
-      # Kredensial Awal Administrator Panel
-      PANEL_ADMIN_USER: admin
-      PANEL_ADMIN_PASS: admin
+      # Kredensial Administrator Panel
+      PANEL_ADMIN_USER: ${PANEL_ADMIN_USER:-admin}
+      PANEL_ADMIN_PASS: ${PANEL_ADMIN_PASS:-admin}
 
       # Koneksi Database PostgreSQL
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres123
-      DB_NAME: bpi_middleware_db
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      DB_NAME: ${POSTGRES_DB:-bpi_middleware_db}
 
       # URL Akses ke Middleware Engine (Internal Docker DNS)
-      MIDDLEWARE_API_URL: http://middleware:8085/api/v1
-      API_URL: http://middleware:8085/api/v1
-      BACKUP_API_URL: http://middleware:8085/api/backup
+      MIDDLEWARE_API_URL: http://middleware:${MIDDLEWARE_PORT:-8085}/api/v1
+      API_URL: http://middleware:${MIDDLEWARE_PORT:-8085}/api/v1
+      BACKUP_API_URL: http://middleware:${MIDDLEWARE_PORT:-8085}/api/backup
 
-      AUTO_PULL_ENABLED: "true"
+      AUTO_PULL_ENABLED: ${AUTO_PULL_ENABLED:-true}
       TZ: Asia/Jakarta
     ports:
-      - "8091:8091"
+      - "${PANEL_PORT:-8091}:${PANEL_PORT:-8091}"
     networks:
       - bpi-network
 

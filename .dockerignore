@@ -4,3 +4,5 @@
 .github
 *.log
 cookies.txt
+.env
+tmp

@@ -105,6 +105,22 @@ Dokumen ini adalah ringkasan status, arsitektur, progres implementasi terakhir, 
   - `POST /api/v1/finance/goods-issue-adjustment`: Ingestion transaksi GI / Stock Adj Maximo, determinasi G/L otomatis, validasi pagu, dan antre SOAP.
   - `GET /api/v1/finance/valuation-class-mappings` & `POST ...`: Pengelolaan matriks mapping.
 
+### E. Standardisasi Docker & Linux Deployment (Production Ready)
+- **Multi-Stage Dockerfiles**:
+  - `middleware/Dockerfile` & `middleware-panel/Dockerfile` menggunakan `golang:alpine` builder (kompatibel Go 1.24/1.25+ sesuai requirement dependensi `go-playground/validator/v10` & `golang.org/x/net`) dengan `CGO_ENABLED=0 GOOS=linux`.
+  - Menggunakan `-mod=vendor` agar proses compile di server Linux tidak membutuhkan koneksi internet untuk download package (100% offline & fast build).
+  - Runtime container minimal `alpine:3.20` dengan `ca-certificates` (wajib untuk TLS/HTTPS ke SAP S/4HANA Cloud), `tzdata` (Asia/Jakarta), dan `curl`.
+  - Binary, templates (`templates/`), dan static assets (`static/`) disalin rapi ke runner container.
+- **Docker Compose Stack** (`docker-compose.yml` & `docker.yml`):
+  - Service `postgres:16-alpine` dengan healthcheck otomatis (`pg_isready`), volume persistent `bpi_postgres_data`.
+  - Mounting otomatis inisialisasi schema: `./middleware/database/schema.sql` (`01_schema.sql`) dan `./middleware/internal/repository/migrations/finance.sql` (`02_finance.sql`) ke `/docker-entrypoint-initdb.d/`.
+  - Penambahan file `.env.example` untuk memudahkan konfigurasi dinamis server (DB, SAP credentials, Maximo SQL Server host, port).
+  - Penambahan `host.docker.internal:host-gateway` pada `extra_hosts` agar container dapat mengakses Maximo SQL Server yang berjalan di host.
+- **Swagger Dynamic Host & CORS Fix**:
+  - `middleware/internal/routes/router.go` ditambahkan middleware CORS (`Access-Control-Allow-Origin: *`, preflight OPTIONS support).
+  - `docs.SwaggerInfo.Host = ""` dan Swagger spec diset dinamis (empty string) agar Swagger UI di browser laptop memanggil IP server (`192.168.214.210:8085`) bukan hardcoded `localhost:8085`.
+  - Link Swagger di web panel (`sidebar.html` & `exchange_rates.html`) disesuaikan agar otomatis mengarah ke IP server yang sedang diakses.
+
 ---
 
 ## 4. Status Verifikasi & Testing

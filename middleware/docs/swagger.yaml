@@ -251,7 +251,7 @@ definitions:
       username:
         type: string
     type: object
-host: localhost:8085
+host: ""
 info:
   contact:
     name: BPI Middleware Development Team

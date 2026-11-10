@@ -37,7 +37,7 @@
     <div class="sidebar-section" data-section="developer">Developer Tools</div>
     <ul class="nav flex-column mb-1" data-section-nav="developer">
         <li class="nav-item" data-menu-item="swagger">
-            <a href="http://localhost:8085/swagger/index.html" target="_blank" class="nav-link">
+            <a href="http://localhost:8085/swagger/index.html" onclick="this.href='http://'+window.location.hostname+':8085/swagger/index.html'" target="_blank" class="nav-link">
                 <i class="bi bi-code-slash"></i> Swagger OpenAPI
             </a>
         </li>
