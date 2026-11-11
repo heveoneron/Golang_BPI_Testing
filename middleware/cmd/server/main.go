@@ -274,11 +274,9 @@ func startFinancePullWorker(ctx context.Context, svc *service.FinanceService, pg
 				continue
 			}
 			svc.SyncAll(ctx)
-			// SAP -> Maximo: hanya bila diaktifkan eksplisit karena menulis ke database Maximo.
+			// SAP -> Maximo (dari GL line item yang baru ditarik SyncAll): hanya bila diaktifkan eksplisit
+			// karena menulis ke database Maximo.
 			if strings.EqualFold(os.Getenv("FIN_MAXIMO_EXPORT_ENABLED"), "true") {
-				if r := svc.SyncSupplierInvoices(ctx, service.InvoicePullOptions{}); r.Error != "" {
-					log.Printf("[WORKER-FINANCE] Tarik supplier invoice gagal: %s", r.Error)
-				}
 				if res, err := svc.ExportToMaximo(ctx, service.MaximoExportOptions{Limit: 100}); err != nil {
 					log.Printf("[WORKER-FINANCE] Tulis ke Maximo gagal: %v", err)
 				} else if res.Exported+res.Failed > 0 {

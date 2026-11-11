@@ -126,6 +126,47 @@ func (r *PostgresRepository) QueueDocument(ctx context.Context, doc model.Docume
 	return nil
 }
 
+// SAPBaseURLUsage adalah jumlah endpoint SAP per base URL.
+type SAPBaseURLUsage struct {
+	BaseURL string `json:"base_url"`
+	Count   int    `json:"endpoints"`
+}
+
+// ListSAPBaseURLs merangkum base URL yang dipakai seluruh endpoint di sap_endpoints.
+func (r *PostgresRepository) ListSAPBaseURLs(ctx context.Context) ([]SAPBaseURLUsage, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	rows, err := r.Pool.Query(ctx, `SELECT base_url, COUNT(*) FROM sap_endpoints GROUP BY base_url ORDER BY COUNT(*) DESC, base_url`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SAPBaseURLUsage
+	for rows.Next() {
+		var u SAPBaseURLUsage
+		if err := rows.Scan(&u.BaseURL, &u.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// SetSAPBaseURL memindahkan semua endpoint ke base URL baru; endpoint MOCK ikut dipindah hanya bila includeMock.
+func (r *PostgresRepository) SetSAPBaseURL(ctx context.Context, baseURL string, includeMock bool) (int64, error) {
+	if r.Pool == nil {
+		return 0, fmt.Errorf("postgres pool not available")
+	}
+	tag, err := r.Pool.Exec(ctx, `
+		UPDATE sap_endpoints SET base_url = $1, updated_at = NOW()
+		WHERE base_url <> $1 AND ($2 OR UPPER(base_url) <> 'MOCK')`, baseURL, includeMock)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ExistingDocumentNos mengembalikan nomor dokumen (forward) yang sudah ada di antrean untuk doc_type tertentu.
 func (r *PostgresRepository) ExistingDocumentNos(ctx context.Context, docType string, docNos []string) (map[string]bool, error) {
 	out := map[string]bool{}

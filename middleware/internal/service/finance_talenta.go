@@ -124,8 +124,8 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 	company := DefaultCompanyCode()
 	terms := envOr("FIN_INVOICE_PAYMENT_TERMS", "NT15")
 	tax := envOr("FIN_INVOICE_DEFAULT_TAX_CODE", "V0")
-	vendorPrefix := envOr("FIN_TALENTA_VENDOR_PREFIX", "VND-")
-	defaultCC := envOr("FIN_TALENTA_DEFAULT_COST_CENTER", "")
+	// Employee ID tidak dikirim ke SAP; semua klaim memakai satu vendor penampung yang dikonfigurasi.
+	vendor := envOr("FIN_TALENTA_INVOICING_PARTY", "")
 	posting := today.Format("2006-01-02")
 
 	out := [][]string{templateReimbursementHeader}
@@ -138,12 +138,8 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 		if status != "" && !strings.EqualFold(status, "approved") {
 			continue
 		}
-		employee := get(r, "employeeidrequestedby", "employeeid", "requestedby")
-		vendor := ""
-		if employee != "" {
-			vendor = vendorPrefix + employee
-		}
-		cc := firstNonEmpty(get(r, "costcenter"), defaultCC)
+		// Kosong = Cost Center diisi Budget Code dari mapping reimbursement saat resolusi GL.
+		cc := get(r, "costcenter")
 		line := func(ref, docDate, gross, header, policy, amount, text string) []string {
 			return []string{ref, company, docDate, posting, vendor, "IDR", gross, truncate(header, 50), terms, policy, "", cc, amount, tax, truncate(text, 50), ref}
 		}

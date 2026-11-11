@@ -19,10 +19,8 @@ type MaximoInvoiceWriter interface {
 	WriteMxInvoiceMessage(ctx context.Context, rows []model.MxInvoiceRow) ([]int64, error)
 }
 
-const syncIDSupplierInvoice = "MAXIMO_SUPPLIER_INVOICE"
-
-// Ekspansi navigasi yang dibutuhkan untuk membentuk baris mxinvoice.
-const supplierInvoiceExpand = "to_SuplrInvcItemPurOrdRef,to_SupplierInvoiceItemGLAcct,to_SupplierInvoiceWhldgTax"
+// Batas panjang kolom INVOICENUM di dokumen mapping (UPPER 8).
+const mxInvoiceNumMaxLen = 8
 
 func toDate(s *string) *time.Time {
 	if s == nil || *s == "" {
@@ -35,268 +33,198 @@ func toDate(s *string) *time.Time {
 	return &t
 }
 
-// navResults mengambil daftar record navigasi OData V2 ({"results":[...]}) atau array langsung.
-func navResults(m map[string]interface{}, key string) []map[string]interface{} {
-	var arr []interface{}
-	switch v := m[key].(type) {
-	case map[string]interface{}:
-		arr, _ = v["results"].([]interface{})
-	case []interface{}:
-		arr = v
-	}
-	out := make([]map[string]interface{}, 0, len(arr))
-	for _, it := range arr {
-		if mm, ok := it.(map[string]interface{}); ok {
-			out = append(out, mm)
-		}
-	}
-	return out
-}
-
-func itemNo(m map[string]interface{}) int {
-	n, _ := strconv.Atoi(strings.TrimLeft(str(m, "SupplierInvoiceItem"), "0"))
-	return n
-}
-
 func round2f(v float64) float64 { return math.Round(v*100) / 100 }
-
-// ParseSAPSupplierInvoices memetakan response A_SupplierInvoice (dengan $expand) ke record simpan.
-func ParseSAPSupplierInvoices(body []byte) ([]repository.SAPSupplierInvoiceRecord, error) {
-	recs, err := odataRecords(body)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]repository.SAPSupplierInvoiceRecord, 0, len(recs))
-	for _, m := range recs {
-		inv, fy := str(m, "SupplierInvoice"), str(m, "FiscalYear")
-		if inv == "" || fy == "" {
-			continue
-		}
-		out = append(out, repository.SAPSupplierInvoiceRecord{
-			SupplierInvoice: inv, FiscalYear: fy, CompanyCode: str(m, "CompanyCode"),
-			PostingDate: parseODataDate(m["PostingDate"]), Raw: rawRecord(m),
-		})
-	}
-	return out, nil
-}
-
-// InvoiceLookups menyediakan data Maximo yang tidak ada di SAP (dari dokumen PO / GRN yang pernah dikirim).
-type InvoiceLookups struct {
-	POLine func(po string, line int) (*repository.POLineInfo, error)
-	GRN    func(matDoc string) (string, error)
-}
 
 func maximoSiteID() string   { return envOr("FIN_MAXIMO_SITEID", "BTNG") }
 func maximoLineType() string { return envOr("FIN_MAXIMO_LINETYPE", "SERVICE") }
 
-func glDebitAcct(gl, budgetCode string) string {
-	gl, budgetCode = strings.TrimSpace(gl), strings.TrimSpace(budgetCode)
-	if gl != "" && budgetCode != "" {
-		return gl + "-" + budgetCode
-	}
-	return gl
+// glExtra adalah field GLAccountLineItem yang tidak punya kolom sendiri di sap_gl_line_items dan dibaca dari raw.
+type glExtra struct {
+	LineNo         string
+	AmountGlobal   float64
+	GlobalCurrency string
+	Quantity       float64
+	PurchasingDoc  string
+	PurchasingItem string
+	Assignment     string
+	WHTCode        string
 }
 
-// BuildMxInvoiceFromSupplierInvoice membentuk baris mxinvoice dari satu supplier invoice SAP.
-// Satu baris per item (referensi PO lalu item GL), mengikuti sheet Invoice dokumen mapping.
-func BuildMxInvoiceFromSupplierInvoice(raw []byte, lk InvoiceLookups) (model.MaximoExportMessage, error) {
+func glExtras(it model.GLLineItem) glExtra {
 	var m map[string]interface{}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return model.MaximoExportMessage{}, fmt.Errorf("raw supplier invoice tidak valid: %w", err)
+	_ = json.Unmarshal(it.Raw, &m)
+	line := str(m, "AccountingDocumentItem")
+	if line == "" {
+		line = it.LedgerGLLineItem
 	}
-	inv, fy := str(m, "SupplierInvoice"), str(m, "FiscalYear")
-	msg := model.MaximoExportMessage{SourceType: "INVOICE", SourceKey: inv + "/" + fy}
-
-	postDate := toDate(parseODataDate(m["PostingDate"]))
-	docDate := toDate(parseODataDate(m["DocumentDate"]))
-	dueDate := toDate(parseODataDate(m["DueCalculationBaseDate"]))
-	if dueDate == nil {
-		dueDate = postDate
+	if t := strings.TrimLeft(line, "0"); t != "" {
+		line = t
 	}
-	whtCode := ""
-	for _, w := range navResults(m, "to_SupplierInvoiceWhldgTax") {
-		if c := str(w, "WithholdingTaxCode"); c != "" {
-			whtCode = c
-			break
-		}
+	amount := parseODataNumber(m["AmountInGlobalCurrency"])
+	if _, ok := m["AmountInGlobalCurrency"]; !ok {
+		amount = it.AmountInCompanyCodeCurrency
 	}
-	headerText := str(m, "DocumentHeaderText")
-	site := maximoSiteID()
-
-	base := model.MxInvoiceRow{
-		CurrencyCode: str(m, "DocumentCurrency"), InvoiceType: "INVOICE", DueDate: dueDate, GLPostDate: postDate,
-		InvoiceDate: docDate, InvoiceNum: inv, Paid: 0, PaidDate: postDate, SiteID: site, Status: "POSTED",
-		Vendor: str(m, "InvoicingParty"), BudgetNum: fy, LineType: maximoLineType(), POSiteID: site,
-		TaxCode1: "", TaxCode2: whtCode, TransSeq: 1,
+	return glExtra{
+		LineNo:         line,
+		AmountGlobal:   amount,
+		GlobalCurrency: str(m, "GlobalCurrency"),
+		Quantity:       math.Abs(parseODataNumber(m["Quantity"])),
+		PurchasingDoc:  str(m, "PurchasingDocument"),
+		PurchasingItem: strings.TrimLeft(str(m, "PurchasingDocumentItem"), "0"),
+		Assignment:     str(m, "AssignmentReference"),
+		WHTCode:        str(m, "WithholdingTaxCode", "WithholdingTaxType"),
 	}
-
-	poItems := navResults(m, "to_SuplrInvcItemPurOrdRef")
-	glItems := navResults(m, "to_SupplierInvoiceItemGLAcct")
-	sort.SliceStable(poItems, func(i, j int) bool { return itemNo(poItems[i]) < itemNo(poItems[j]) })
-	sort.SliceStable(glItems, func(i, j int) bool { return itemNo(glItems[i]) < itemNo(glItems[j]) })
-
-	line := 0
-	for _, it := range poItems {
-		line++
-		row := base
-		row.InvoiceLineNum, row.CostLineNum = line, line
-		row.LineCost = round2f(parseODataNumber(it["SupplierInvoiceItemAmount"]))
-		row.InvoiceQty = parseODataNumber(it["QuantityInPurchaseOrderUnit"])
-		if row.InvoiceQty <= 0 {
-			row.InvoiceQty = 1
-		}
-		row.UnitCost = round2f(row.LineCost / row.InvoiceQty)
-		row.ItemDesc = str(it, "SupplierInvoiceItemText")
-		row.PONum = str(it, "PurchaseOrder")
-		if n, err := strconv.Atoi(strings.TrimLeft(str(it, "PurchaseOrderItem"), "0")); err == nil {
-			row.POLineNum = &n
-		}
-		matDoc := str(it, "ReferenceDocument")
-		row.BPIGRNNumber = matDoc
-		if lk.GRN != nil && matDoc != "" {
-			if grn, err := lk.GRN(matDoc); err == nil && grn != "" {
-				row.BPIGRNNumber = grn
-			}
-		}
-		if lk.POLine != nil && row.POLineNum != nil {
-			info, err := lk.POLine(row.PONum, *row.POLineNum)
-			if err != nil {
-				return msg, err
-			}
-			if info != nil {
-				row.ItemNum, row.BudgetCode = info.ItemNum, info.BudgetCode
-				row.GLDebitAcct = glDebitAcct(info.MainAccount, info.BudgetCode)
-			} else {
-				msg.Warnings = append(msg.Warnings, fmt.Sprintf("baris %d: PO %s line %d tidak ditemukan di data PO middleware; itemnum/budgetcode kosong", line, row.PONum, *row.POLineNum))
-			}
-		}
-		msg.Rows = append(msg.Rows, row)
-	}
-	for _, it := range glItems {
-		line++
-		row := base
-		row.InvoiceLineNum, row.CostLineNum = line, line
-		amount := round2f(parseODataNumber(it["SupplierInvoiceItemAmount"]))
-		if strings.EqualFold(str(it, "DebitCreditCode"), "H") {
-			amount = -amount
-		}
-		row.LineCost, row.InvoiceQty, row.UnitCost = amount, 1, amount
-		row.ItemDesc = str(it, "SupplierInvoiceItemText")
-		row.BudgetCode = str(it, "CostCenter") // di SAP, budget code Maximo disimpan sebagai cost center
-		row.GLDebitAcct = glDebitAcct(str(it, "GLAccount"), row.BudgetCode)
-		row.BPIGRNNumber = str(it, "AssignmentReference")
-		msg.Rows = append(msg.Rows, row)
-	}
-	if len(msg.Rows) == 0 {
-		return msg, fmt.Errorf("supplier invoice %s tidak memiliki item", msg.SourceKey)
-	}
-	desc := headerText
-	if desc == "" {
-		desc = msg.Rows[0].ItemDesc
-	}
-	for i := range msg.Rows {
-		msg.Rows[i].InvoiceDesc = desc
-	}
-	return msg, nil
 }
 
-// BuildMxInvoiceFromJournal membentuk SATU baris mxinvoice dari satu jurnal (sheet GJ):
-// LINECOST = total debit, qty 1, GL & item text diambil dari baris debit pertama.
-func BuildMxInvoiceFromJournal(items []model.GLLineItem) (model.MaximoExportMessage, error) {
+func glHasGlobalAmount(it model.GLLineItem) bool {
+	var m map[string]interface{}
+	_ = json.Unmarshal(it.Raw, &m)
+	_, ok := m["AmountInGlobalCurrency"]
+	return ok
+}
+
+// BuildMxInvoiceFromGL membentuk SATU baris mxinvoice dari satu dokumen akuntansi SAP (GLAccountLineItem),
+// mengikuti dokumen BPI_MAPPING_API_MAXIMO_to_SAP (FinanceModule):
+//   - INVOICE (sheet Invoice, RE/KR): vendor, nilai, teks, assignment & GL diambil dari baris supplier (AP);
+//     ITEMNUM, quantity & PO dari baris tanpa supplier.
+//   - JOURNAL (sheet GJ, SA): LINECOST = jumlah nilai baris yang punya cost center, quantity 1.
+//
+// Nilai memakai Amount in Global Currency; SITEID = Profit Center; BUDGETNUM = Cost Center + tahun posting;
+// COSTLINENUM = nomor dokumen SAP; TRANSSEQ = 0.
+func BuildMxInvoiceFromGL(sourceType string, items []model.GLLineItem) (model.MaximoExportMessage, error) {
 	if len(items) == 0 {
-		return model.MaximoExportMessage{}, fmt.Errorf("jurnal tanpa line item")
+		return model.MaximoExportMessage{}, fmt.Errorf("dokumen tanpa line item")
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].LedgerGLLineItem < items[j].LedgerGLLineItem })
 	first := items[0]
-	msg := model.MaximoExportMessage{SourceType: "JOURNAL",
+	msg := model.MaximoExportMessage{SourceType: sourceType,
 		SourceKey: first.CompanyCode + "/" + first.FiscalYear + "/" + first.AccountingDocument}
-
-	var total float64
-	var pick *model.GLLineItem
-	vendor := ""
+	extras := make([]glExtra, len(items))
 	for i := range items {
-		it := &items[i]
-		if strings.EqualFold(it.DebitCreditCode, "S") {
-			total += math.Abs(it.AmountInTransactionCurrency)
-			if pick == nil {
-				pick = it
-			}
-		}
-		if vendor == "" && it.Supplier != "" {
-			vendor = it.Supplier
+		extras[i] = glExtras(items[i])
+		if !glHasGlobalAmount(items[i]) {
+			msg.Warnings = append(msg.Warnings, fmt.Sprintf("baris %s tanpa AmountInGlobalCurrency; memakai nilai mata uang company code", extras[i].LineNo))
 		}
 	}
-	if pick == nil {
-		pick = &items[0]
-		for _, it := range items {
-			total += math.Abs(it.AmountInTransactionCurrency)
-		}
-		total /= 2
-		msg.Warnings = append(msg.Warnings, "jurnal tanpa baris debit (S); total dihitung dari setengah jumlah absolut")
-	}
-	total = round2f(total)
+
 	postDate := toDate(first.PostingDate)
 	docDate := toDate(first.DocumentDate)
 	if docDate == nil {
 		docDate = postDate
 	}
-	site := maximoSiteID()
-	msg.Rows = []model.MxInvoiceRow{{
-		CurrencyCode: pick.TransactionCurrency, InvoiceDesc: pick.DocumentItemText, InvoiceType: "JOURNAL",
-		DueDate: postDate, GLPostDate: postDate, InvoiceDate: docDate, InvoiceNum: first.AccountingDocument,
-		Paid: 0, PaidDate: postDate, SiteID: site, Status: "POSTED", Vendor: vendor, BudgetCode: pick.CostCenter,
-		BudgetNum: first.FiscalYear, ItemDesc: pick.DocumentItemText, InvoiceLineNum: 1, InvoiceQty: 1,
-		LineCost: total, LineType: maximoLineType(), POSiteID: site, UnitCost: total, CostLineNum: 1,
-		GLDebitAcct: glDebitAcct(pick.GLAccount, pick.CostCenter), TransSeq: 1,
-	}}
-	return msg, nil
-}
-
-// InvoicePullOptions adalah parameter tarik supplier invoice dari SAP.
-type InvoicePullOptions struct {
-	CompanyCode string
-	FromDate    string
-	ToDate      string
-}
-
-// BuildSupplierInvoiceFilter menyusun $filter tarikan A_SupplierInvoice.
-func BuildSupplierInvoiceFilter(o InvoicePullOptions, status string) string {
-	parts := []string{
-		fmt.Sprintf("CompanyCode eq '%s'", odataLiteral(o.CompanyCode)),
-		fmt.Sprintf("PostingDate ge datetime'%sT00:00:00'", o.FromDate),
-		fmt.Sprintf("PostingDate le datetime'%sT23:59:59'", o.ToDate),
+	year := first.FiscalYear
+	if first.PostingDate != nil && len(*first.PostingDate) >= 4 {
+		year = (*first.PostingDate)[:4]
 	}
-	if status != "" {
-		parts = append(parts, fmt.Sprintf("SupplierInvoiceStatus eq '%s'", odataLiteral(status)))
-	}
-	return strings.Join(parts, " and ")
-}
-
-// SyncSupplierInvoices menarik supplier invoice SAP (beserta item) untuk ditulis ke Maximo.
-func (f *FinanceService) SyncSupplierInvoices(ctx context.Context, o InvoicePullOptions) model.SyncResult {
-	if o.CompanyCode == "" {
-		o.CompanyCode = DefaultCompanyCode()
-	}
-	if o.ToDate == "" {
-		o.ToDate = time.Now().Format("2006-01-02")
-	}
-	if o.FromDate == "" {
-		o.FromDate = f.PGRepo.SyncWindowStart(ctx, syncIDSupplierInvoice, 24*time.Hour, 30*24*time.Hour).Format("2006-01-02")
-	}
-	filter := BuildSupplierInvoiceFilter(o, envOr("FIN_INVOICE_PULL_STATUS", ""))
-	res := f.pullPagesQ(ctx, model.DocTypeSupplierInvoice, filter, "&$expand="+odataQueryEscape(supplierInvoiceExpand), func(body []byte) (int, int, error) {
-		items, err := ParseSAPSupplierInvoices(body)
-		if err != nil {
-			return 0, 0, err
+	site, costCenter, currency := "", "", ""
+	for i, it := range items {
+		if site == "" {
+			site = it.ProfitCenter
 		}
-		n, err := f.PGRepo.UpsertSAPSupplierInvoices(ctx, items)
-		return len(items), n, err
-	})
-	res.Target = "invoice"
-	if res.Error == "" {
-		_ = f.PGRepo.UpdateLastSync(ctx, syncIDSupplierInvoice, time.Now())
+		if costCenter == "" {
+			costCenter = it.CostCenter
+		}
+		if currency == "" {
+			currency = extras[i].GlobalCurrency
+		}
 	}
-	return res
+	if site == "" {
+		site = maximoSiteID()
+		msg.Warnings = append(msg.Warnings, "dokumen tanpa Profit Center; SITEID memakai FIN_MAXIMO_SITEID")
+	}
+	if currency == "" {
+		currency = envOr("FIN_MAXIMO_GLOBAL_CURRENCY", "USD")
+	}
+	budgetNum := ""
+	if costCenter != "" {
+		budgetNum = costCenter + year
+	}
+
+	row := model.MxInvoiceRow{
+		CurrencyCode: currency, GLPostDate: postDate, InvoiceDate: docDate, InvoiceNum: first.AccountingDocument,
+		Paid: 0, PaidDate: postDate, SiteID: site, Status: "POSTED", BudgetCode: costCenter, BudgetNum: budgetNum,
+		LineType: maximoLineType(), POSiteID: site, CostLineNum: first.AccountingDocument, TransSeq: 0,
+	}
+
+	switch sourceType {
+	case repository.MaximoSourceInvoice:
+		ap := -1
+		for i, it := range items {
+			if it.Supplier != "" {
+				ap = i
+				break
+			}
+		}
+		if ap < 0 {
+			return msg, fmt.Errorf("invoice %s tanpa baris supplier", msg.SourceKey)
+		}
+		apItem, apX := items[ap], extras[ap]
+		row.InvoiceType = "INVOICE"
+		row.Vendor = apItem.Supplier
+		row.InvoiceLineNum, _ = strconv.Atoi(apX.LineNo)
+		row.LineCost = round2f(math.Abs(apX.AmountGlobal))
+		row.InvoiceDesc, row.ItemDesc = apItem.DocumentItemText, apItem.DocumentItemText
+		row.BPIGRNNumber = apX.Assignment
+		row.GLDebitAcct = apItem.GLAccount
+		row.InvoiceQty = 0
+		for i, it := range items {
+			x := extras[i]
+			if row.TaxCode2 == "" {
+				row.TaxCode2 = x.WHTCode
+			}
+			if it.Supplier != "" {
+				continue
+			}
+			if row.ItemNum == "" {
+				row.ItemNum = x.LineNo
+			}
+			if row.PONum == "" && x.PurchasingDoc != "" {
+				row.PONum = x.PurchasingDoc
+				if n, err := strconv.Atoi(x.PurchasingItem); err == nil {
+					row.POLineNum = &n
+				}
+			}
+			if row.InvoiceQty == 0 && x.Quantity > 0 {
+				row.InvoiceQty = x.Quantity
+			}
+		}
+		if row.InvoiceQty <= 0 {
+			row.InvoiceQty = 1
+		}
+	case repository.MaximoSourceJournal:
+		row.InvoiceType = "JOURNAL"
+		row.InvoiceLineNum, row.InvoiceQty = 1, 1
+		var total float64
+		found := false
+		for i, it := range items {
+			if it.CostCenter == "" {
+				continue
+			}
+			total += extras[i].AmountGlobal
+			if !found {
+				found = true
+				row.ItemNum = extras[i].LineNo
+				row.GLDebitAcct = it.GLAccount
+				row.BudgetCode = it.CostCenter
+				row.BudgetNum = it.CostCenter + year
+			}
+			if row.InvoiceDesc == "" && it.DocumentItemText != "" {
+				row.InvoiceDesc, row.ItemDesc = it.DocumentItemText, it.DocumentItemText
+			}
+		}
+		if !found {
+			return msg, fmt.Errorf("jurnal %s tanpa baris cost center", msg.SourceKey)
+		}
+		row.LineCost = round2f(total)
+	default:
+		return msg, fmt.Errorf("source type %q tidak dikenal", sourceType)
+	}
+	row.UnitCost = round2f(row.LineCost / row.InvoiceQty)
+	if len(row.InvoiceNum) > mxInvoiceNumMaxLen {
+		msg.Warnings = append(msg.Warnings, fmt.Sprintf("INVOICENUM %s lebih dari %d karakter (batas di dokumen mapping)", row.InvoiceNum, mxInvoiceNumMaxLen))
+	}
+	msg.Rows = []model.MxInvoiceRow{row}
+	return msg, nil
 }
 
 // MaximoExportOptions mengatur proses tulis ke Maximo.
@@ -327,9 +255,9 @@ func wantType(types []string, t string) bool {
 	return false
 }
 
-// ExportToMaximo membentuk baris mxinvoice dari invoice & jurnal SAP yang belum ditulis, lalu (kecuali
-// DryRun) menulisnya ke Maximo dan mencatat hasilnya. Dokumen yang gagal dicatat FAILED dan dicoba lagi
-// pada proses berikutnya.
+// ExportToMaximo membentuk baris mxinvoice dari dokumen GL SAP (invoice RE/KR, termasuk reimbursement
+// RICEF 7 yang sudah terposting, dan jurnal SA) yang belum ditulis, lalu (kecuali DryRun) menulisnya ke
+// Maximo dan mencatat hasilnya. Dokumen yang gagal dicatat FAILED dan dicoba lagi pada proses berikutnya.
 func (f *FinanceService) ExportToMaximo(ctx context.Context, o MaximoExportOptions) (*MaximoExportResult, error) {
 	if !o.DryRun && f.MaximoWriter == nil {
 		return nil, newValidation("SQL Server Maximo tidak dikonfigurasi; jalankan dengan dry_run untuk pratinjau")
@@ -337,31 +265,19 @@ func (f *FinanceService) ExportToMaximo(ctx context.Context, o MaximoExportOptio
 	res := &MaximoExportResult{DryRun: o.DryRun}
 	var msgs []model.MaximoExportMessage
 
-	if wantType(o.Types, "INVOICE") {
-		invs, err := f.PGRepo.ListSupplierInvoicesForExport(ctx, o.Limit)
-		if err != nil {
-			return nil, err
+	for _, src := range []struct{ sourceType, category string }{
+		{repository.MaximoSourceInvoice, "invoice"},
+		{repository.MaximoSourceJournal, "journal"},
+	} {
+		if !wantType(o.Types, src.sourceType) {
+			continue
 		}
-		lk := InvoiceLookups{
-			POLine: func(po string, line int) (*repository.POLineInfo, error) { return f.PGRepo.LookupPOLine(ctx, po, line) },
-			GRN:    func(md string) (string, error) { return f.PGRepo.LookupGRNByMaterialDocument(ctx, md) },
-		}
-		for _, inv := range invs {
-			msg, err := BuildMxInvoiceFromSupplierInvoice(inv.Raw, lk)
-			if err != nil {
-				res.Errors = append(res.Errors, err.Error())
-				continue
-			}
-			msgs = append(msgs, msg)
-		}
-	}
-	if wantType(o.Types, "JOURNAL") {
-		order, journals, err := f.PGRepo.ListJournalsForExport(ctx, DocTypesFor("journal"), o.Limit)
+		order, docs, err := f.PGRepo.ListGLDocumentsForExport(ctx, src.sourceType, DocTypesFor(src.category), o.Limit)
 		if err != nil {
 			return nil, err
 		}
 		for _, k := range order {
-			msg, err := BuildMxInvoiceFromJournal(journals[k])
+			msg, err := BuildMxInvoiceFromGL(src.sourceType, docs[k])
 			if err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", k, err))
 				continue

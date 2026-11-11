@@ -375,7 +375,7 @@ type MxInvoiceRow struct {
 	TaxCode1       string     `json:"taxcode1"`
 	TaxCode2       string     `json:"taxcode2"`
 	UnitCost       float64    `json:"unitcost"`
-	CostLineNum    int        `json:"costlinenum"`
+	CostLineNum    string     `json:"costlinenum"` // nomor dokumen SAP (ALN di dokumen mapping)
 	GLDebitAcct    string     `json:"gldebitacct"`
 	TransID        int64      `json:"transid"`
 	TransSeq       int        `json:"transseq"`

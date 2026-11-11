@@ -236,8 +236,24 @@ func (r *PostgresRepository) GetValuationClassGLMapping(ctx context.Context, val
 	}
 
 	if r != nil && r.Pool != nil {
-		var m model.ValuationClassGLMapping
+		// Sumber utama: master data Material Config (ITEM_GROUP, sap_value = valuation class) yang diedit di Panel.
+		var mc model.ValuationClassGLMapping
 		err := r.Pool.QueryRow(ctx, `
+			SELECT sap_value, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, COALESCE(description, '')
+			FROM material_config_mappings
+			WHERE config_type = 'ITEM_GROUP' AND UPPER(TRIM(sap_value)) = $1 AND is_active = true
+			  AND COALESCE(inventory_posting_gl, '') <> '' AND COALESCE(goods_issue_gl, '') <> ''
+			  AND COALESCE(stock_adj_gl, '') <> '' AND COALESCE(cost_center, '') <> ''
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`, clean).Scan(&mc.ValuationClass, &mc.InventoryPostingGL, &mc.GoodsIssueGL, &mc.StockAdjGL, &mc.CostCenter, &mc.Description)
+		if err == nil {
+			mc.IsActive = true
+			return &mc, nil
+		}
+
+		var m model.ValuationClassGLMapping
+		err = r.Pool.QueryRow(ctx, `
 			SELECT id, valuation_class, inventory_posting_gl, goods_issue_gl, stock_adj_gl, cost_center, description, is_active, created_at, updated_at
 			FROM valuation_class_gl_mappings
 			WHERE UPPER(TRIM(valuation_class)) = $1 AND is_active = true

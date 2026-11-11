@@ -146,13 +146,7 @@ ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS account_holder VAR
 -- Seed Outbound Master Data Vendor
 INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
 VALUES ('VND-0009', 'CIP', 'mrauff341@gmail.com', 'bank key1', '1010101', 'Mandiri', 'Vendor Sample Mandiri', true)
-ON CONFLICT (vendor_code) DO UPDATE SET 
-    cip_flag = EXCLUDED.cip_flag,
-    email = EXCLUDED.email,
-    bank_key = EXCLUDED.bank_key,
-    bank_account = EXCLUDED.bank_account,
-    account_holder = EXCLUDED.account_holder,
-    updated_at = NOW();
+ON CONFLICT (vendor_code) DO NOTHING;
 
 INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
 VALUES ('VND-0061', 'NON_CIP', 'soltius@gmail.com', 'MGAJKT001', '1202228837', 'PT.BANK MUAMALAT INDONESIA TBK', 'PT Chevron Indonesia', true)

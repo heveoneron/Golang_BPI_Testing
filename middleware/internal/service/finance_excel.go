@@ -491,6 +491,10 @@ func ResolveReimbursementGL(rows []model.SupplierInvoiceRow, glLookup GLLookup, 
 			continue
 		}
 		r.GLAccount, r.BudgetCode = gl, bc
+		if r.CostCenter == "" {
+			// Kolom "Budget Code / Cost Center" di mapping reimbursement dipakai sebagai Cost Center SAP.
+			r.CostCenter = bc
+		}
 	}
 	return errs, nil
 }

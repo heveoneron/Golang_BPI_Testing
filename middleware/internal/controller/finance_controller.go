@@ -408,6 +408,56 @@ func (c *FinanceController) ListPaymentProposals(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
 }
 
+// GetSAPEnvironment godoc
+// @Summary      Tenant SAP aktif: base URL per endpoint, host yang diizinkan, company code default
+// @Tags         Finance - Config
+// @Produce      json
+// @Success      200  {object}  service.SAPEnvironment
+// @Router       /finance/sap-environment [get]
+func (c *FinanceController) GetSAPEnvironment(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	env, err := c.Svc.GetSAPEnvironment(ctx.Request.Context())
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, env)
+}
+
+// SetSAPBaseURLRequest memindahkan semua endpoint SAP ke base URL baru.
+type SetSAPBaseURLRequest struct {
+	BaseURL     string `json:"base_url" example:"https://my445160-api.s4hana.cloud.sap"`
+	IncludeMock bool   `json:"include_mock"`
+}
+
+// SetSAPEnvironment godoc
+// @Summary      Pindahkan semua endpoint SAP ke tenant lain (host harus ada di FIN_SAP_ALLOWED_HOSTS, atau MOCK)
+// @Tags         Finance - Config
+// @Accept       json
+// @Produce      json
+// @Param        payload  body  SetSAPBaseURLRequest  true  "Base URL baru"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      422  {object}  ValidationErrorResponse
+// @Router       /finance/sap-environment [put]
+func (c *FinanceController) SetSAPEnvironment(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	var req SetSAPBaseURLRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	n, err := c.Svc.SetSAPBaseURL(ctx.Request.Context(), req.BaseURL, req.IncludeMock)
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "updated_endpoints": n})
+}
+
 // DownloadBankFile godoc
 // @Summary      [RICEF 5] Generate file pembayaran bank (BTMU 30 kolom / BRI CMS 16 kolom)
 // @Tags         Finance - SAP Pull
@@ -580,8 +630,10 @@ func (c *FinanceController) TriggerSync(ctx *gin.Context) {
 				return
 			}
 		}
-		results = append(results, c.Svc.SyncSupplierInvoices(reqCtx, service.InvoicePullOptions{
+		// RICEF 4: invoice diambil dari GLAccountLineItem tipe RE/KR (sumber ekspor mxinvoice).
+		results = append(results, c.Svc.SyncGLLineItems(reqCtx, service.GLSyncOptions{
 			CompanyCode: ctx.Query("company_code"), FromDate: from, ToDate: to,
+			DocTypes: service.DocTypesFor("invoice"),
 		}))
 	case "asset":
 		results = append(results, c.Svc.SyncFixedAssets(reqCtx, ctx.Query("company_code")))
@@ -1108,6 +1160,44 @@ func (c *FinanceController) ParkAssetAcquisition(ctx *gin.Context) {
 // @Router       /finance/assets/acquisitions/{id}/approve [post]
 func (c *FinanceController) ApproveAssetAcquisition(ctx *gin.Context) {
 	c.assetTransition(ctx, "approve")
+}
+
+// EditAssetAcquisitionRequest adalah data parking aset yang diubah; edited_by diisi Panel dengan user sesi.
+type EditAssetAcquisitionRequest struct {
+	model.AssetAcquisitionRequest
+	By string `json:"by" example:"finance02"`
+}
+
+// EditAssetAcquisition godoc
+// @Summary      [RICEF 8] Edit parking aset (PARKED/FAILED); Print Form wajib dicetak ulang sebelum Approve
+// @Tags         Finance - Asset
+// @Accept       json
+// @Produce      json
+// @Param        id       path  string                       true  "ID parking"
+// @Param        payload  body  EditAssetAcquisitionRequest  true  "Data parking baru dan pengubah (by)"
+// @Success      200  {object}  model.AssetAcquisition
+// @Failure      422  {object}  ValidationErrorResponse
+// @Router       /finance/assets/acquisitions/{id} [put]
+func (c *FinanceController) EditAssetAcquisition(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	id, err := uuid.Parse(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "id tidak valid"})
+		return
+	}
+	var req EditAssetAcquisitionRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	a, err := c.Svc.EditAssetAcquisition(ctx.Request.Context(), id, req.AssetAcquisitionRequest, req.By)
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, a)
 }
 
 // PrintAssetAcquisition godoc

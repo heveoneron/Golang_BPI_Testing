@@ -8,109 +8,84 @@ import (
 	"golang-bpi-testing/internal/repository"
 )
 
-// sapInvoiceJSON meniru response A_SupplierInvoice (OData V2) dengan $expand item PO, item GL, dan WHT.
-const sapInvoiceJSON = `{"d":{"results":[{
-	"__metadata":{"uri":"x"},
-	"SupplierInvoice":"5105600101","FiscalYear":"2026","CompanyCode":"5110",
-	"DocumentDate":"/Date(1793232000000)/","PostingDate":"/Date(1793836800000)/","DueCalculationBaseDate":"/Date(1793836800000)/",
-	"InvoicingParty":"VND-3035","DocumentCurrency":"IDR","InvoiceGrossAmount":"160374000.00",
-	"DocumentHeaderText":"Rollent Indonesia: Impact Roller",
-	"to_SuplrInvcItemPurOrdRef":{"results":[
-		{"SupplierInvoiceItem":"000002","PurchaseOrder":"4500011147","PurchaseOrderItem":"2","SupplierInvoiceItemAmount":"107670000.00","QuantityInPurchaseOrderUnit":"111","SupplierInvoiceItemText":"IDLER, IMPACT; DIA: 159","ReferenceDocument":"5000000097"},
-		{"SupplierInvoiceItem":"000001","PurchaseOrder":"4500011147","PurchaseOrderItem":"1","SupplierInvoiceItemAmount":"52704000.00","QuantityInPurchaseOrderUnit":"72","SupplierInvoiceItemText":"IDLER, IMPACT; DIA: 133","ReferenceDocument":"5000000096"}
-	]},
-	"to_SupplierInvoiceItemGLAcct":{"results":[
-		{"SupplierInvoiceItem":"3","GLAccount":"516044","CostCenter":"60001","SupplierInvoiceItemAmount":"25000.00","DebitCreditCode":"S","SupplierInvoiceItemText":"Biaya kirim","AssignmentReference":"DO-1"}
-	]},
-	"to_SupplierInvoiceWhldgTax":{"results":[{"WithholdingTaxType":"P2","WithholdingTaxCode":"23"}]}
-}]}}`
-
-func TestParseAndBuildMxInvoiceFromSupplierInvoice(t *testing.T) {
-	recs, err := ParseSAPSupplierInvoices([]byte(sapInvoiceJSON))
-	if err != nil || len(recs) != 1 {
-		t.Fatalf("parse: %v %d", err, len(recs))
-	}
-	if recs[0].SupplierInvoice != "5105600101" || *recs[0].PostingDate != "2026-11-05" {
-		t.Errorf("unexpected record %+v", recs[0])
-	}
-	lk := InvoiceLookups{
-		POLine: func(po string, line int) (*repository.POLineInfo, error) {
-			if po == "4500011147" && line == 1 {
-				return &repository.POLineInfo{ItemNum: "68-00045", BudgetCode: "43071", MainAccount: "114001"}, nil
-			}
-			return nil, nil
-		},
-		GRN: func(md string) (string, error) {
-			if md == "5000000096" {
-				return "038/RI/VI/24", nil
-			}
-			return "", nil
-		},
-	}
-	msg, err := BuildMxInvoiceFromSupplierInvoice(recs[0].Raw, lk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if msg.SourceType != "INVOICE" || msg.SourceKey != "5105600101/2026" || len(msg.Rows) != 3 {
-		t.Fatalf("unexpected message %+v", msg)
-	}
-	r1, r2, r3 := msg.Rows[0], msg.Rows[1], msg.Rows[2]
-	// Baris PO diurutkan per nomor item SAP.
-	if r1.InvoiceLineNum != 1 || *r1.POLineNum != 1 || r1.ItemNum != "68-00045" || r1.BudgetCode != "43071" || r1.GLDebitAcct != "114001-43071" {
-		t.Errorf("row1 mapping wrong: %+v", r1)
-	}
-	if r1.InvoiceQty != 72 || r1.UnitCost != 732000 || r1.LineCost != 52704000 || r1.BPIGRNNumber != "038/RI/VI/24" {
-		t.Errorf("row1 amounts/GRN wrong: %+v", r1)
-	}
-	if r1.InvoiceNum != "5105600101" || r1.Vendor != "VND-3035" || r1.Status != "POSTED" || r1.InvoiceType != "INVOICE" ||
-		r1.BudgetNum != "2026" || r1.SiteID != "BTNG" || r1.POSiteID != "BTNG" || r1.TaxCode1 != "" || r1.TaxCode2 != "23" ||
-		r1.LineType != "SERVICE" || r1.CostLineNum != 1 || r1.TransSeq != 1 || r1.Paid != 0 {
-		t.Errorf("row1 header fields wrong: %+v", r1)
-	}
-	if r1.InvoiceDesc != "Rollent Indonesia: Impact Roller" || r1.ItemDesc != "IDLER, IMPACT; DIA: 133" {
-		t.Errorf("row1 descriptions wrong: %+v", r1)
-	}
-	if r1.GLPostDate.Format("2006-01-02") != "2026-11-05" || r1.InvoiceDate.Format("2006-01-02") != "2026-10-29" || r1.PaidDate.Format("2006-01-02") != "2026-11-05" {
-		t.Errorf("row1 dates wrong: post %v inv %v paid %v", r1.GLPostDate, r1.InvoiceDate, r1.PaidDate)
-	}
-	if r2.ItemNum != "" || r2.BPIGRNNumber != "5000000097" {
-		t.Errorf("row2 without lookup must keep SAP matdoc: %+v", r2)
-	}
-	if len(msg.Warnings) != 1 || !strings.Contains(msg.Warnings[0], "line 2") {
-		t.Errorf("expected warning for unknown PO line 2: %v", msg.Warnings)
-	}
-	if r3.InvoiceLineNum != 3 || r3.POLineNum != nil || r3.PONum != "" || r3.InvoiceQty != 1 || r3.UnitCost != 25000 ||
-		r3.BudgetCode != "60001" || r3.GLDebitAcct != "516044-60001" || r3.BPIGRNNumber != "DO-1" {
-		t.Errorf("GL row mapping wrong: %+v", r3)
-	}
+func glItem(doc, line, docType, gl, cc, pc, supplier, dc string, amount float64, raw string, text string) model.GLLineItem {
+	d := "2026-11-05"
+	dd := "2026-11-03"
+	return model.GLLineItem{Key: doc + line, CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: doc, LedgerGLLineItem: line,
+		AccountingDocumentType: docType, PostingDate: &d, DocumentDate: &dd, GLAccount: gl, CostCenter: cc, ProfitCenter: pc,
+		Supplier: supplier, DebitCreditCode: dc, AmountInCompanyCodeCurrency: amount, CompanyCodeCurrency: "IDR",
+		DocumentItemText: text, Raw: []byte(raw)}
 }
 
-func TestBuildMxInvoiceFromJournal(t *testing.T) {
-	d := "2026-11-05"
+func TestBuildMxInvoiceFromGL_InvoiceSheet(t *testing.T) {
 	items := []model.GLLineItem{
-		{CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "100000123", LedgerGLLineItem: "000002", DebitCreditCode: "H", GLAccount: "141000", AmountInTransactionCurrency: -1500, TransactionCurrency: "IDR", PostingDate: &d},
-		{CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "100000123", LedgerGLLineItem: "000001", DebitCreditCode: "S", GLAccount: "513043", CostCenter: "10081", AmountInTransactionCurrency: 1000, TransactionCurrency: "IDR", DocumentItemText: "Bearing", PostingDate: &d},
-		{CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "100000123", LedgerGLLineItem: "000003", DebitCreditCode: "S", GLAccount: "513044", AmountInTransactionCurrency: 500, TransactionCurrency: "IDR", PostingDate: &d},
+		// Baris AP (supplier terisi) = sumber vendor, nilai, teks, assignment & GL.
+		glItem("5100000123", "000002", "RE", "211001", "", "P1000", "VND-3035", "H", -16037400,
+			`{"AccountingDocumentItem":"002","AmountInGlobalCurrency":"-1000.50","GlobalCurrency":"USD","AssignmentReference":"038/RI/VI/24","WithholdingTaxCode":"23"}`, "Impact Roller"),
+		// Baris beban/GR-IR (supplier kosong) = sumber ITEMNUM, quantity & PO.
+		glItem("5100000123", "000001", "RE", "114001", "43071", "P1000", "", "S", 16037400,
+			`{"AccountingDocumentItem":"001","AmountInGlobalCurrency":"1000.50","GlobalCurrency":"USD","Quantity":"5","PurchasingDocument":"4500011147","PurchasingDocumentItem":"00010"}`, "Idler"),
 	}
-	msg, err := BuildMxInvoiceFromJournal(items)
+	msg, err := BuildMxInvoiceFromGL(repository.MaximoSourceInvoice, items)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.SourceKey != "5110/2026/100000123" || len(msg.Rows) != 1 {
+	if msg.SourceKey != "1000/2026/5100000123" || len(msg.Rows) != 1 {
 		t.Fatalf("unexpected %+v", msg)
 	}
 	r := msg.Rows[0]
-	if r.InvoiceType != "JOURNAL" || r.LineCost != 1500 || r.UnitCost != 1500 || r.InvoiceQty != 1 || r.InvoiceLineNum != 1 ||
-		r.GLDebitAcct != "513043-10081" || r.BudgetCode != "10081" || r.ItemDesc != "Bearing" || r.InvoiceNum != "100000123" || r.DueDate == nil {
-		t.Errorf("unexpected journal row %+v", r)
+	if r.InvoiceType != "INVOICE" || r.Vendor != "VND-3035" || r.InvoiceLineNum != 2 || r.ItemNum != "1" ||
+		r.LineCost != 1000.5 || r.InvoiceQty != 5 || r.UnitCost != 200.1 || r.CurrencyCode != "USD" {
+		t.Errorf("amount/line mapping wrong: %+v", r)
+	}
+	if r.PONum != "4500011147" || r.POLineNum == nil || *r.POLineNum != 10 || r.TaxCode2 != "23" || r.TaxCode1 != "" {
+		t.Errorf("PO/tax mapping wrong: %+v", r)
+	}
+	if r.SiteID != "P1000" || r.BudgetCode != "43071" || r.BudgetNum != "430712026" || r.CostLineNum != "5100000123" || r.TransSeq != 0 {
+		t.Errorf("site/budget/costline mapping wrong: %+v", r)
+	}
+	if r.BPIGRNNumber != "038/RI/VI/24" || r.GLDebitAcct != "211001" || r.InvoiceDesc != "Impact Roller" || r.Status != "POSTED" ||
+		r.Paid != 0 || r.DueDate != nil || r.PaidDate.Format("2006-01-02") != "2026-11-05" || r.InvoiceDate.Format("2006-01-02") != "2026-11-03" {
+		t.Errorf("header mapping wrong: %+v", r)
+	}
+	if len(msg.Warnings) != 1 || !strings.Contains(msg.Warnings[0], "INVOICENUM") {
+		t.Errorf("expected INVOICENUM length warning only: %v", msg.Warnings)
 	}
 }
 
-func TestBuildSupplierInvoiceFilter(t *testing.T) {
-	got := BuildSupplierInvoiceFilter(InvoicePullOptions{CompanyCode: "5110", FromDate: "2026-11-01", ToDate: "2026-11-05"}, "5")
-	want := "CompanyCode eq '5110' and PostingDate ge datetime'2026-11-01T00:00:00' and PostingDate le datetime'2026-11-05T23:59:59' and SupplierInvoiceStatus eq '5'"
-	if got != want {
-		t.Errorf("got %s", got)
+func TestBuildMxInvoiceFromGL_JournalSheet(t *testing.T) {
+	items := []model.GLLineItem{
+		glItem("10000012", "000002", "SA", "141000", "", "", "", "H", -1500, `{"AmountInGlobalCurrency":"-150"}`, ""),
+		glItem("10000012", "000001", "SA", "513043", "10081", "P2000", "", "S", 1000, `{"AmountInGlobalCurrency":"100","GlobalCurrency":"USD"}`, "Bearing"),
+		glItem("10000012", "000003", "SA", "513044", "10081", "", "", "S", 500, `{"AmountInGlobalCurrency":"50"}`, ""),
+	}
+	msg, err := BuildMxInvoiceFromGL(repository.MaximoSourceJournal, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := msg.Rows[0]
+	if r.InvoiceType != "JOURNAL" || r.LineCost != 150 || r.UnitCost != 150 || r.InvoiceQty != 1 || r.InvoiceLineNum != 1 ||
+		r.ItemNum != "1" || r.GLDebitAcct != "513043" || r.BudgetCode != "10081" || r.BudgetNum != "100812026" ||
+		r.SiteID != "P2000" || r.Vendor != "" || r.InvoiceDesc != "Bearing" || r.CostLineNum != "10000012" || r.TransSeq != 0 || r.CurrencyCode != "USD" {
+		t.Errorf("unexpected journal row %+v", r)
+	}
+	if len(msg.Warnings) != 0 {
+		t.Errorf("no warnings expected: %v", msg.Warnings)
+	}
+}
+
+func TestBuildMxInvoiceFromGL_Errors(t *testing.T) {
+	noAP := []model.GLLineItem{glItem("1", "1", "KR", "516044", "60001", "P1", "", "S", 1, `{}`, "")}
+	if _, err := BuildMxInvoiceFromGL(repository.MaximoSourceInvoice, noAP); err == nil {
+		t.Error("invoice without supplier line must fail")
+	}
+	noCC := []model.GLLineItem{glItem("2", "1", "SA", "516044", "", "P1", "", "S", 1, `{}`, "")}
+	if _, err := BuildMxInvoiceFromGL(repository.MaximoSourceJournal, noCC); err == nil {
+		t.Error("journal without cost center line must fail")
+	}
+	msg, err := BuildMxInvoiceFromGL(repository.MaximoSourceInvoice, []model.GLLineItem{glItem("3", "1", "KR", "211001", "", "", "V1", "H", -10, `{}`, "")})
+	if err != nil || msg.Rows[0].SiteID != "BTNG" || msg.Rows[0].LineCost != 10 || len(msg.Warnings) != 2 {
+		t.Errorf("fallbacks wrong: %+v %v", msg, err)
 	}
 }
 

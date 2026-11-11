@@ -262,7 +262,7 @@ func TestIntegration_AssetParkApprovePost(t *testing.T) {
 	if _, err := fin.ParkAssetAcquisition(ctx, req); err == nil {
 		t.Fatal("parking must fail when asset is not synced yet")
 	}
-	if _, err := repo.UpsertFixedAssets(ctx, []model.FixedAsset{{CompanyCode: "5110", MasterFixedAsset: "50000000", FixedAsset: "0", Description: "Pompa", Raw: []byte(`{}`)}}); err != nil {
+	if _, err := repo.UpsertFixedAssets(ctx, []model.FixedAsset{{CompanyCode: "1000", MasterFixedAsset: "50000000", FixedAsset: "0", Description: "Pompa", Raw: []byte(`{}`)}}); err != nil {
 		t.Fatal(err)
 	}
 	a, err := fin.ParkAssetAcquisition(ctx, req)
@@ -414,25 +414,17 @@ func (w *fakeMaximoWriter) WriteMxInvoiceMessage(_ context.Context, rows []model
 
 func TestIntegration_ExportToMaximo(t *testing.T) {
 	ctx, repo, fin, _ := setupIntegration(t)
-	_, _ = repo.Pool.Exec(ctx, `TRUNCATE sap_supplier_invoices, maximo_invoice_exports`)
-	// Dokumen PO & GRN yang pernah dikirim middleware (sumber itemnum, budget code, nomor GRN Maximo).
-	if err := repo.QueueDocument(ctx, model.Document{DocType: "PO", DocumentNo: "4500011147",
-		RawPayload: []byte(`{"PONUM":"4500011147","LINES":[{"POLINENUM":1,"ITEMNUM":"68-00045","BUDGETCODE":"43071","MAINACCOUNT":"114001"}]}`),
-		SAPPayload: []byte(`{}`)}); err != nil {
-		t.Fatal(err)
-	}
-	_ = repo.QueueDocument(ctx, model.Document{DocType: "GRN", DocumentNo: "038/RI/VI/24", RawPayload: []byte(`{}`), SAPPayload: []byte(`{}`)})
-	_, _ = repo.Pool.Exec(ctx, `UPDATE documents SET status = 'success', sap_document_no = '5000000096' WHERE doc_type = 'GRN'`)
-
-	recs, _ := ParseSAPSupplierInvoices([]byte(sapInvoiceJSON))
-	if _, err := repo.UpsertSAPSupplierInvoices(ctx, recs); err != nil {
-		t.Fatal(err)
-	}
+	_, _ = repo.Pool.Exec(ctx, `TRUNCATE maximo_invoice_exports`)
 	d := "2026-11-05"
 	_, _ = repo.UpsertGLLineItems(ctx, []model.GLLineItem{
-		{Key: "J1", CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "100000123", LedgerGLLineItem: "000001", AccountingDocumentType: "SA", DebitCreditCode: "S", GLAccount: "513043", CostCenter: "10081", AmountInTransactionCurrency: 1000, TransactionCurrency: "IDR", PostingDate: &d, Raw: []byte(`{}`)},
-		{Key: "J2", CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "100000123", LedgerGLLineItem: "000002", AccountingDocumentType: "SA", DebitCreditCode: "H", GLAccount: "141000", AmountInTransactionCurrency: -1000, TransactionCurrency: "IDR", PostingDate: &d, Raw: []byte(`{}`)},
-		{Key: "K1", CompanyCode: "5110", FiscalYear: "2026", AccountingDocument: "190000001", LedgerGLLineItem: "000001", AccountingDocumentType: "KR", DebitCreditCode: "S", GLAccount: "516044", AmountInTransactionCurrency: 1, PostingDate: &d, Raw: []byte(`{}`)},
+		// Jurnal SA dengan cost center -> JOURNAL.
+		{Key: "J1", CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: "10000123", LedgerGLLineItem: "000001", AccountingDocumentType: "SA", DebitCreditCode: "S", GLAccount: "513043", CostCenter: "10081", ProfitCenter: "P2000", PostingDate: &d, Raw: []byte(`{"AmountInGlobalCurrency":"100","GlobalCurrency":"USD"}`)},
+		{Key: "J2", CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: "10000123", LedgerGLLineItem: "000002", AccountingDocumentType: "SA", DebitCreditCode: "H", GLAccount: "141000", PostingDate: &d, Raw: []byte(`{"AmountInGlobalCurrency":"-100"}`)},
+		// Jurnal SA tanpa cost center -> tidak dikirim.
+		{Key: "J3", CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: "10000124", LedgerGLLineItem: "000001", AccountingDocumentType: "SA", DebitCreditCode: "S", GLAccount: "513043", PostingDate: &d, Raw: []byte(`{}`)},
+		// Invoice KR dengan baris supplier -> INVOICE.
+		{Key: "K1", CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: "19000001", LedgerGLLineItem: "000001", AccountingDocumentType: "KR", DebitCreditCode: "H", GLAccount: "211001", Supplier: "V100", ProfitCenter: "P1000", PostingDate: &d, Raw: []byte(`{"AmountInGlobalCurrency":"-25","GlobalCurrency":"USD"}`)},
+		{Key: "K2", CompanyCode: "1000", FiscalYear: "2026", AccountingDocument: "19000001", LedgerGLLineItem: "000002", AccountingDocumentType: "KR", DebitCreditCode: "S", GLAccount: "516044", CostCenter: "60001", PostingDate: &d, Raw: []byte(`{"AmountInGlobalCurrency":"25"}`)},
 	})
 
 	// Tanpa writer hanya dry run yang boleh.
@@ -444,14 +436,15 @@ func TestIntegration_ExportToMaximo(t *testing.T) {
 		t.Fatalf("dry run: %+v %v", dry, err)
 	}
 	inv := dry.Messages[0]
-	if inv.SourceType != "INVOICE" || inv.Rows[0].ItemNum != "68-00045" || inv.Rows[0].BPIGRNNumber != "038/RI/VI/24" || inv.Rows[0].GLDebitAcct != "114001-43071" {
-		t.Errorf("lookups not applied in dry run: %+v", inv.Rows[0])
+	if inv.SourceType != "INVOICE" || inv.SourceKey != "1000/2026/19000001" || inv.Rows[0].Vendor != "V100" || inv.Rows[0].LineCost != 25 ||
+		inv.Rows[0].SiteID != "P1000" || inv.Rows[0].BudgetNum != "600012026" || inv.Rows[0].CostLineNum != "19000001" {
+		t.Errorf("invoice row wrong: %+v", inv.Rows[0])
 	}
-	if dry.Messages[1].SourceType != "JOURNAL" || dry.Messages[1].SourceKey != "5110/2026/100000123" {
-		t.Errorf("only journal doc types (SA) must be exported as JOURNAL: %+v", dry.Messages[1])
+	if dry.Messages[1].SourceType != "JOURNAL" || dry.Messages[1].SourceKey != "1000/2026/10000123" || dry.Messages[1].Rows[0].LineCost != 100 {
+		t.Errorf("only SA journals with cost center must be exported as JOURNAL: %+v", dry.Messages[1])
 	}
 
-	w := &fakeMaximoWriter{failKey: "100000123", next: 4768700}
+	w := &fakeMaximoWriter{failKey: "10000123", next: 4768700}
 	fin.MaximoWriter = w
 	res, err := fin.ExportToMaximo(ctx, MaximoExportOptions{})
 	if err != nil || res.Exported != 1 || res.Failed != 1 {
@@ -472,7 +465,7 @@ func TestIntegration_ExportToMaximo(t *testing.T) {
 	for _, e := range exports {
 		got[e.SourceType] = e
 	}
-	if got["INVOICE"].Status != "EXPORTED" || got["INVOICE"].TransIDs != "4768701,4768702,4768703" || got["JOURNAL"].Status != "EXPORTED" {
+	if got["INVOICE"].Status != "EXPORTED" || got["INVOICE"].TransIDs != "4768701" || got["JOURNAL"].Status != "EXPORTED" {
 		t.Errorf("unexpected export history %+v", exports)
 	}
 }

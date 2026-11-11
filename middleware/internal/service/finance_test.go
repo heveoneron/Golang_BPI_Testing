@@ -33,7 +33,7 @@ func TestValidateJournalEntry_DefaultsAndBalance(t *testing.T) {
 	if err := ValidateJournalEntry(&req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if req.CompanyCode != "5110" || req.DocumentType != "SA" || req.Currency != "IDR" {
+	if req.CompanyCode != "1000" || req.DocumentType != "SA" || req.Currency != "IDR" {
 		t.Errorf("defaults not applied: %+v", req)
 	}
 	if req.Items[0].DebitCredit != "S" {
@@ -67,6 +67,7 @@ func TestValidateJournalEntry_Rejects(t *testing.T) {
 }
 
 func TestBuildJournalEntrySOAP(t *testing.T) {
+	t.Setenv("FIN_COMPANY_CODE", "5110")
 	req := validJournal()
 	if err := ValidateJournalEntry(&req); err != nil {
 		t.Fatal(err)
@@ -455,7 +456,7 @@ func TestParseAndBuildSupplierInvoices_CSV(t *testing.T) {
 	if err != nil || len(rowErrs) > 0 {
 		t.Fatalf("unexpected errors: %v %v", err, rowErrs)
 	}
-	if len(rows) != 3 || rows[0].RowNumber != 2 || rows[0].CompanyCode != "5110" || rows[0].DocType != "" || rows[0].TaxCode != "V0" {
+	if len(rows) != 3 || rows[0].RowNumber != 2 || rows[0].CompanyCode != "1000" || rows[0].DocType != "" || rows[0].TaxCode != "V0" {
 		t.Fatalf("unexpected rows %+v", rows)
 	}
 	drafts, errs := BuildSupplierInvoices(rows)
@@ -627,7 +628,7 @@ func TestValidateAssetAcquisition(t *testing.T) {
 	if err := ValidateAssetAcquisition(&req); err != nil {
 		t.Fatal(err)
 	}
-	if req.FixedAsset != "0" || req.CompanyCode != "5110" || req.AssetValueDate != "2026-11-05" || req.Currency != "IDR" {
+	if req.FixedAsset != "0" || req.CompanyCode != "1000" || req.AssetValueDate != "2026-11-05" || req.Currency != "IDR" {
 		t.Errorf("defaults not applied: %+v", req)
 	}
 	bad := model.AssetAcquisitionRequest{Reference: "AQ-2", DocumentDate: "x"}

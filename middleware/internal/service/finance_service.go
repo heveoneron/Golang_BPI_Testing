@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -42,6 +43,9 @@ type FinanceService struct {
 	MaximoWriter MaximoInvoiceWriter
 	// InventoryReader membaca staging Maximo [axinvissue]/[axinvtrans] untuk RICEF 2.
 	InventoryReader InventoryStagingReader
+	// outOfScopeInventory mengingat referensi GI/ADJ dengan valuation class di luar cakupan
+	// agar tidak dicek ulang ke SAP setiap siklus (hilang saat restart).
+	outOfScopeInventory sync.Map
 }
 
 func NewFinanceService(pgRepo *repository.PostgresRepository, sapClient *client.SAPClient) *FinanceService {
@@ -57,7 +61,15 @@ func envOr(key, def string) string {
 
 // DefaultCompanyCode adalah company code default (FIN_COMPANY_CODE, default 5110).
 func DefaultCompanyCode() string {
-	return envOr("FIN_COMPANY_CODE", "5110")
+	return envOr("FIN_COMPANY_CODE", "1000")
+}
+
+// ErrValuationClassOutOfScope menandai item dengan valuation class di luar daftar yang diposting (bukan error data).
+var ErrValuationClassOutOfScope = errors.New("valuation class di luar cakupan jurnal GI/Stock Adj")
+
+// ValuationClassInScope: hanya valuation class pada FIN_GI_VALUATION_CLASSES (default S001–S011) yang dijurnal.
+func ValuationClassInScope(vc string) bool {
+	return envSet("FIN_GI_VALUATION_CLASSES", "S001,S002,S003,S004,S005,S006,S007,S008,S009,S010,S011")[strings.ToUpper(strings.TrimSpace(vc))]
 }
 
 func validDate(s string) bool {
@@ -495,7 +507,11 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 		}
 	}
 
-	// 2. Lookup matriks pemetaan Valuation Class -> GL & Cost Center
+	if !ValuationClassInScope(valClass) {
+		return model.JournalEntryRequest{}, fmt.Errorf("%w: %s (item %s)", ErrValuationClassOutOfScope, valClass, itemNum)
+	}
+
+	// 2. Lookup matriks pemetaan Valuation Class -> GL & Cost Center (Material Config, lalu tabel FSD)
 	mapping, err := f.PGRepo.GetValuationClassGLMapping(ctx, valClass)
 	if err != nil {
 		return model.JournalEntryRequest{}, fmt.Errorf("gagal menemukan mapping GL untuk valuation class %s: %w", valClass, err)
@@ -527,7 +543,7 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 
 	companyCode := strings.TrimSpace(input.CompanyCode)
 	if companyCode == "" {
-		companyCode = envOr("FIN_COMPANY_CODE", "5110")
+		companyCode = DefaultCompanyCode()
 	}
 
 	ccy := strings.ToUpper(strings.TrimSpace(input.Currency))
@@ -537,31 +553,38 @@ func (f *FinanceService) DetermineJournalEntryFromGIOrAdj(ctx context.Context, i
 	}
 
 	// 4. Determinasi Akun, Debit/Credit, DocType, dan Header Text
-	isGI := strings.EqualFold(input.TransactionType, "GOODS_ISSUE") || strings.EqualFold(input.TransactionType, "GI") || strings.EqualFold(input.TransactionType, "WL")
+	txType := strings.ToUpper(strings.TrimSpace(input.TransactionType))
+	isReturn := txType == "GOODS_RETURN" || txType == "RETURN"
+	isGI := isReturn || txType == "GOODS_ISSUE" || txType == "GI" || txType == "WL"
 
 	var docType string
 	var headerText string
 	var items []model.JournalEntryItem
 
 	if isGI {
-		// Goods Issue: AccountingDocumentType = "WL"
+		// Goods Issue: AccountingDocumentType = "WL". Pengembalian (RETURN) membalik debit/kredit.
 		docType = "WL"
 		headerText = "Goods Issue"
+		invDC, giDC := "H", "S"
+		if isReturn {
+			headerText = "Goods Return"
+			invDC, giDC = "S", "H"
+		}
 
-		// Baris 1: Inventory Posting, Kredit (H), TANPA Cost Center
+		// Baris 1: Inventory Posting, TANPA Cost Center
 		items = append(items, model.JournalEntryItem{
 			GLAccount:   mapping.InventoryPostingGL,
 			Amount:      amount,
-			DebitCredit: "H",
+			DebitCredit: invDC,
 			CostCenter:  "", // Larangan: Inventory Posting tidak ditempel Cost Center
 			ItemText:    input.ItemText,
 		})
 
-		// Baris 2: Goods Issue Expense, Debit (S), DENGAN Cost Center
+		// Baris 2: Goods Issue Expense, DENGAN Cost Center
 		items = append(items, model.JournalEntryItem{
 			GLAccount:   mapping.GoodsIssueGL,
 			Amount:      amount,
-			DebitCredit: "S",
+			DebitCredit: giDC,
 			CostCenter:  mapping.CostCenter,
 			ItemText:    input.ItemText,
 		})
@@ -822,6 +845,46 @@ func (f *FinanceService) ApproveAssetAcquisition(ctx context.Context, id uuid.UU
 			return repository.QueueDocumentTx(ctx, tx, model.Document{
 				DocType: model.DocTypeAssetAcq, DocumentNo: a.Reference, RawPayload: rawBytes, SAPPayload: sapBytes,
 			})
+		})
+}
+
+// EditAssetAcquisition mengubah data parking berstatus PARKED/FAILED (tombol "Edit" pengganti Reject).
+// Reference tetap; pengubah menjadi maker baru sehingga tidak bisa meng-approve hasil editnya sendiri,
+// dan Print Form wajib dicetak ulang sebelum Approve.
+func (f *FinanceService) EditAssetAcquisition(ctx context.Context, id uuid.UUID, req model.AssetAcquisitionRequest, by string) (*model.AssetAcquisition, error) {
+	if by = strings.TrimSpace(by); by == "" {
+		return nil, newValidation("by wajib diisi")
+	}
+	return f.PGRepo.TransitionAssetAcquisition(ctx, id,
+		func(a *model.AssetAcquisition) error {
+			if a.Status != "PARKED" && a.Status != "FAILED" {
+				return newValidation(fmt.Sprintf("status %s tidak dapat diedit (hanya PARKED atau FAILED)", a.Status))
+			}
+			req.Reference, req.ParkedBy = a.Reference, by
+			if err := ValidateAssetAcquisition(&req); err != nil {
+				return err
+			}
+			exists, err := f.PGRepo.FixedAssetExists(ctx, req.CompanyCode, req.MasterFixedAsset, req.FixedAsset)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return newValidation(fmt.Sprintf("aset %s/%s/%s belum ada di data lokal; jalankan sinkron Fixed Asset (RICEF 9) terlebih dahulu",
+					req.CompanyCode, req.MasterFixedAsset, req.FixedAsset))
+			}
+			return nil
+		},
+		func(ctx context.Context, tx pgx.Tx, a *model.AssetAcquisition) error {
+			if _, err := tx.Exec(ctx, `
+				UPDATE asset_acquisitions SET company_code = $2, master_fixed_asset = $3, fixed_asset = $4, document_date = $5,
+					posting_date = $6, asset_value_date = $7, amount = $8, currency = $9, offsetting_account = $10, item_text = $11,
+					status = 'PARKED', parked_by = $12, error_message = NULL, rejected_by = NULL, reject_reason = NULL, updated_at = NOW()
+				WHERE id = $1`, a.ID, req.CompanyCode, req.MasterFixedAsset, req.FixedAsset, req.DocumentDate, req.PostingDate,
+				req.AssetValueDate, req.Amount, req.Currency, req.OffsettingAccount, req.ItemText, by); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `DELETE FROM asset_acquisition_prints WHERE acquisition_id = $1`, a.ID)
+			return err
 		})
 }
 

@@ -221,10 +221,10 @@
             <div class="tab-pane fade" id="tab-asset">
                 <div class="main-card">
                     <div class="section-title">Parking jurnal pengakuan aset (RICEF 8)</div>
-                    <div class="section-hint">Aset wajib sudah tersinkron dari SAP (RICEF 9). Approve harus oleh user berbeda dari pembuat parking; setelah approve, dokumen diposting ke SAP.</div>
+                    <div class="section-hint">Aset wajib sudah tersinkron dari SAP (RICEF 9). Cetak Print Form dulu, baru tombol Approve muncul. Approve harus oleh user berbeda dari pembuat/pengubah parking; setelah approve, dokumen diposting ke SAP. Edit mengubah data parking dan mewajibkan cetak ulang.</div>
                     <form id="formAsset" class="row g-2">
                         <div class="col-md-2"><label class="form-label">Reference</label><input class="form-control form-control-sm" name="reference" maxlength="50" required></div>
-                        <div class="col-md-1"><label class="form-label">Company</label><input class="form-control form-control-sm" name="company_code" value="5110"></div>
+                        <div class="col-md-1"><label class="form-label">Company</label><input class="form-control form-control-sm" name="company_code" placeholder="default"></div>
                         <div class="col-md-2"><label class="form-label">Master fixed asset</label><input class="form-control form-control-sm" name="master_fixed_asset" required list="assetList"></div>
                         <div class="col-md-1"><label class="form-label">Sub</label><input class="form-control form-control-sm" name="fixed_asset" value="0"></div>
                         <div class="col-md-2"><label class="form-label">Document date</label><input class="form-control form-control-sm" type="date" name="document_date" data-default-today required></div>
@@ -234,7 +234,7 @@
                         <div class="col-md-1"><label class="form-label">Currency</label><input class="form-control form-control-sm" name="currency" value="IDR"></div>
                         <div class="col-md-2"><label class="form-label">Offsetting account</label><input class="form-control form-control-sm" name="offsetting_account" required></div>
                         <div class="col-md-5"><label class="form-label">Item text</label><input class="form-control form-control-sm" name="item_text" maxlength="50"></div>
-                        <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary btn-sm w-100">Simpan parking</button></div>
+                        <div class="col-md-2 d-flex align-items-end gap-1"><button class="btn btn-primary btn-sm w-100" id="btnAssetSave">Simpan parking</button><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="btnAssetCancel">Batal</button></div>
                     </form>
                     <datalist id="assetList"></datalist>
                 </div>
@@ -252,7 +252,7 @@
             <div class="tab-pane fade" id="tab-maximo">
                 <div class="main-card">
                     <div class="section-title">Invoice &amp; jurnal SAP → Maximo (dbo.mxinvoice)</div>
-                    <div class="section-hint">1) Tarik supplier invoice dari SAP (jurnal diambil dari data GL Line Item). 2) Pratinjau baris yang akan ditulis. 3) Tulis ke Maximo: setiap baris masuk dbo.mxinvoice + dbo.mxin_inter_trans. Dokumen yang sudah tertulis tidak ditulis ulang.</div>
+                    <div class="section-hint">1) Tarik GL Line Item invoice (RE/KR) dari SAP; jurnal (SA) ikut tarikan GL biasa. 2) Pratinjau baris yang akan ditulis: satu baris per dokumen SAP sesuai dokumen mapping (SITEID = Profit Center, BUDGETNUM = Cost Center + tahun, nilai dalam Global Currency). 3) Tulis ke Maximo: baris masuk dbo.mxinvoice + dbo.mxin_inter_trans. Dokumen yang sudah tertulis tidak ditulis ulang.</div>
                     <form id="formMxPull" class="d-flex flex-wrap gap-2 align-items-end mb-2">
                         <div><label class="form-label">Posting dari</label><input class="form-control form-control-sm" type="date" name="from"></div>
                         <div><label class="form-label">Sampai</label><input class="form-control form-control-sm" type="date" name="to"></div>
@@ -558,7 +558,10 @@
                     ['No. SAP / Pesan', r => esc(r.sap_document_no || '') + (r.error_message || r.reject_reason ? `<div class="small text-danger">${esc(r.error_message || r.reject_reason)}</div>` : '')],
                     ['', r => `<button class="btn btn-outline-secondary btn-sm py-0" data-print="${esc(r.id)}">Print Form</button>` +
                         ((r.status === 'PARKED' || r.status === 'FAILED') && r.printed_at
-                            ? ` <button class="btn btn-success btn-sm py-0" data-approve="${esc(r.id)}">Approve</button>` + (r.status === 'PARKED' ? ` <button class="btn btn-outline-danger btn-sm py-0" data-reject="${esc(r.id)}">Tolak</button>` : '')
+                            ? ` <button class="btn btn-success btn-sm py-0" data-approve="${esc(r.id)}">Approve</button>`
+                            : '') +
+                        ((r.status === 'PARKED' || r.status === 'FAILED')
+                            ? ` <button class="btn btn-outline-primary btn-sm py-0" data-edit="${esc(r.id)}">Edit</button>`
                             : '')]
                 ], d.data);
                 const a = await api('GET', '/fixed-assets');
@@ -570,10 +573,46 @@
                 document.getElementById('assetList').innerHTML = (a.data || []).map(r => `<option value="${esc(r.master_fixed_asset)}">${esc(r.description)}</option>`).join('');
             } catch (e) { toast(e.message, false); }
         }
-        bindPost('formAsset', '/assets/acquisitions', ['amount'], r => { toast('Parking ' + r.reference + ' disimpan', true); loadAsset(); });
-        document.getElementById('tblAcq').addEventListener('click', async ev => {
-            const ap = ev.target.getAttribute('data-approve'), rj = ev.target.getAttribute('data-reject'), pr = ev.target.getAttribute('data-print');
+        // Satu form untuk parking baru dan Edit: saat editId terisi, simpan memakai PUT ke parking yang dipilih.
+        let assetEditId = '';
+        function resetAssetForm() {
+            const f = document.getElementById('formAsset');
+            if (assetEditId) f.reference.value = '';
+            assetEditId = '';
+            f.reference.readOnly = false;
+            document.getElementById('btnAssetSave').textContent = 'Simpan parking';
+            document.getElementById('btnAssetCancel').classList.add('d-none');
+        }
+        document.getElementById('formAsset').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const btn = document.getElementById('btnAssetSave'); btn.disabled = true;
             try {
+                const body = formJSON(ev.target, ['amount']);
+                const r = assetEditId
+                    ? await api('PUT', `/assets/acquisitions/${encodeURIComponent(assetEditId)}`, body)
+                    : await api('POST', '/assets/acquisitions', body);
+                toast(assetEditId ? `Parking ${r.reference} diperbarui; cetak ulang Print Form sebelum Approve` : `Parking ${r.reference} disimpan`, true);
+                resetAssetForm(); loadAsset();
+            } catch (e) { toast(e.message, false); }
+            finally { btn.disabled = false; }
+        });
+        document.getElementById('btnAssetCancel').addEventListener('click', resetAssetForm);
+        document.getElementById('tblAcq').addEventListener('click', async ev => {
+            const ap = ev.target.getAttribute('data-approve'), ed = ev.target.getAttribute('data-edit'), pr = ev.target.getAttribute('data-print');
+            try {
+                if (ed) {
+                    const r = (store.acq || []).find(x => x.id === ed); if (!r) return;
+                    const f = document.getElementById('formAsset');
+                    for (const k of ['reference', 'company_code', 'master_fixed_asset', 'fixed_asset', 'document_date', 'posting_date', 'asset_value_date', 'amount', 'currency', 'offsetting_account', 'item_text']) {
+                        if (f[k]) f[k].value = r[k] ?? '';
+                    }
+                    f.reference.readOnly = true;
+                    assetEditId = ed;
+                    document.getElementById('btnAssetSave').textContent = 'Simpan perubahan';
+                    document.getElementById('btnAssetCancel').classList.remove('d-none');
+                    f.scrollIntoView({ behavior: 'smooth' });
+                    return;
+                }
                 if (pr) {
                     const r = (store.acq || []).find(x => x.id === pr); if (!r) return;
                     const w = window.open('', '_blank'); if (!w) { toast('Pop-up diblokir browser', false); return; }
@@ -595,9 +634,6 @@
                 } else if (ap) {
                     if (!confirm('Approve dan posting ke SAP?')) return;
                     await api('POST', `/assets/acquisitions/${encodeURIComponent(ap)}/approve`, {}); toast('Disetujui, diantre posting ke SAP', true); loadAsset();
-                } else if (rj) {
-                    const reason = prompt('Alasan penolakan:'); if (!reason) return;
-                    await api('POST', `/assets/acquisitions/${encodeURIComponent(rj)}/reject`, { reason }); toast('Parking ditolak', true); loadAsset();
                 }
             } catch (e) { toast(e.message, false); }
         });

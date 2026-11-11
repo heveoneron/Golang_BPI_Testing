@@ -55,6 +55,8 @@ func identityFields(path string) []string {
 		return []string{"by"}
 	case path == "/assets/acquisitions":
 		return []string{"parked_by"}
+	case strings.HasPrefix(path, "/assets/acquisitions/"):
+		return []string{"by"}
 	case path == "/budget/supplement" || path == "/budget/transfer":
 		return []string{"requested_by"}
 	}
@@ -88,7 +90,8 @@ func (c *FinanceController) Proxy(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "gagal membaca request"})
 			return
 		}
-		if fields := identityFields(path); len(fields) > 0 && strings.HasPrefix(contentType, "application/json") {
+		// Selalu ditimpa apa pun Content-Type-nya: Engine membaca body sebagai JSON tanpa melihat header.
+		if fields := identityFields(path); len(fields) > 0 {
 			var obj map[string]interface{}
 			if len(bytes.TrimSpace(raw)) == 0 {
 				obj = map[string]interface{}{}
@@ -100,6 +103,7 @@ func (c *FinanceController) Proxy(ctx *gin.Context) {
 				obj[f] = user
 			}
 			raw, _ = json.Marshal(obj)
+			contentType = "application/json"
 		}
 		body = bytes.NewReader(raw)
 	}

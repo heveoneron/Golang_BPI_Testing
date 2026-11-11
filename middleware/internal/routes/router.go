@@ -95,6 +95,8 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		fin.GET("/valuation-class-mappings", fc.ListValuationClassGLMappings)
 		fin.POST("/valuation-class-mappings", fc.SaveValuationClassGLMapping)
 		fin.POST("/inventory/sync", fc.SyncInventoryJournals)
+		fin.GET("/sap-environment", fc.GetSAPEnvironment)
+		fin.PUT("/sap-environment", fc.SetSAPEnvironment)
 		// RICEF 3/4, 5, 9
 		fin.GET("/gl-line-items", fc.ListGLLineItems)
 		fin.GET("/gl-line-items/detail", fc.GetGLLineItemDetail)
@@ -124,6 +126,7 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		fin.GET("/assets/acquisitions", fc.ListAssetAcquisitions)
 		fin.POST("/assets/acquisitions", fc.ParkAssetAcquisition)
 		fin.GET("/assets/acquisitions/:id", fc.GetAssetAcquisition)
+		fin.PUT("/assets/acquisitions/:id", fc.EditAssetAcquisition)
 		fin.POST("/assets/acquisitions/:id/print", fc.PrintAssetAcquisition)
 		fin.POST("/assets/acquisitions/:id/approve", fc.ApproveAssetAcquisition)
 		fin.POST("/assets/acquisitions/:id/reject", fc.RejectAssetAcquisition)

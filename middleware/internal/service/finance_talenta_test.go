@@ -7,7 +7,8 @@ import (
 )
 
 func TestNormalizeTalentaReimbursement_HTMLXLS(t *testing.T) {
-	t.Setenv("FIN_TALENTA_DEFAULT_COST_CENTER", "51101101")
+	t.Setenv("FIN_TALENTA_INVOICING_PARTY", "VND-0061")
+	t.Setenv("FIN_COMPANY_CODE", "")
 	xls := `<html><body><table>
 <tr><th>Transaction ID</th><th>Employee ID</th><th>Reimbursement Policy Name</th><th>Reimbursement Effective Date</th><th>Total Reimbursement Paid Amount</th><th>Reimbursement Notes</th>
 <th>Benefit Name 1</th><th>Paid Amount 1</th><th>Description 1</th><th>Benefit Name 2</th><th>Paid Amount 2</th><th>Description 2</th><th>Final Status</th></tr>
@@ -25,14 +26,15 @@ func TestNormalizeTalentaReimbursement_HTMLXLS(t *testing.T) {
 		t.Fatalf("harus 1 baris approved, dapat ok=%v rows=%v", ok, out)
 	}
 	got := strings.Join(out[1], ",")
-	want := "20260900079,5110,2026-10-08,2026-11-10,VND-5072,IDR,350000,Rawat jalan,NT15,Medical Claim - Outpatient,,51101101,350000,V0,Klinik,20260900079"
+	// Employee ID tidak dipakai; Cost Center kosong (diisi Budget Code saat resolusi mapping).
+	want := "20260900079,1000,2026-10-08,2026-11-10,VND-0061,IDR,350000,Rawat jalan,NT15,Medical Claim - Outpatient,,,350000,V0,Klinik,20260900079"
 	if got != want {
 		t.Fatalf("\n got: %s\nwant: %s", got, want)
 	}
 }
 
 func TestNormalizeTalentaBusinessTrip_ParsesEndToEnd(t *testing.T) {
-	t.Setenv("FIN_TALENTA_DEFAULT_COST_CENTER", "51101101")
+	t.Setenv("FIN_TALENTA_INVOICING_PARTY", "VND-0061")
 	csv := "Trip ID,Employee ID (Requested By),Trip Type,Trip Purpose,Destination,Request Date,Departure Date,Approved Expense Amount,Approval Report Date,Trip Status\n" +
 		"BT20260955986,5072,Domestic,Koordinasi Stakeholder,Semarang,2026-09-15,2026-09-20,Rp 1.500.000,2026-10-08,Approved\n"
 	rows, rowErrs, err := ParseSupplierInvoiceFile("Bussiness Trip BT1008.csv", []byte(csv))
@@ -43,7 +45,7 @@ func TestNormalizeTalentaBusinessTrip_ParsesEndToEnd(t *testing.T) {
 		t.Fatalf("rows=%d", len(rows))
 	}
 	r := rows[0]
-	if r.InvoiceRef != "BT20260955986" || r.InvoicingParty != "VND-5072" || r.GrossAmount != 1500000 || r.PolicyName != "Domestic" || r.DocumentDate != "2026-10-08" {
+	if r.InvoiceRef != "BT20260955986" || r.InvoicingParty != "VND-0061" || r.GrossAmount != 1500000 || r.PolicyName != "Domestic" || r.DocumentDate != "2026-10-08" {
 		t.Fatalf("hasil salah: %+v", r)
 	}
 }

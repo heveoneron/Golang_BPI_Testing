@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -49,10 +50,13 @@ func GIInputFromStaging(row repository.InventoryStagingRow) (model.GIOrAdjustmen
 	id := strconv.FormatInt(row.SourceID, 10)
 	switch row.Source {
 	case "axinvissue":
-		if !envSet("FIN_GI_ISSUETYPES", "ISSUE")[row.TransType] {
+		if !envSet("FIN_GI_ISSUETYPES", "ISSUE,RETURN")[row.TransType] {
 			return in, false
 		}
 		in.TransactionType = "GOODS_ISSUE"
+		if row.TransType == "RETURN" {
+			in.TransactionType = "GOODS_RETURN"
+		}
 		in.Reference = "GI-" + id
 		in.Reference1 = truncate(row.InvUseNum, 20)
 		text := row.Description
@@ -111,11 +115,16 @@ func (f *FinanceService) SyncInventoryJournals(ctx context.Context, reader Inven
 		return res
 	}
 	for _, in := range inputs {
-		if existing[in.Reference] {
+		if _, outOfScope := f.outOfScopeInventory.Load(in.Reference); existing[in.Reference] || outOfScope {
 			res.Skipped++
 			continue
 		}
 		if _, err := f.ProcessGoodsIssueOrAdjustment(ctx, in); err != nil {
+			if errors.Is(err, ErrValuationClassOutOfScope) {
+				f.outOfScopeInventory.Store(in.Reference, true)
+				res.Skipped++
+				continue
+			}
 			res.Failed++
 			if len(res.Errors) < 20 {
 				res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", in.Reference, err))
