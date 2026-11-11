@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"golang-bpi-testing/internal/repository"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -62,6 +64,27 @@ func TestWebController_IngestManualPO_NilDB(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when PGRepo is nil, got %d", w.Code)
+	}
+}
+
+func TestWebController_SaveSAPEndpoint_HostAllowlist(t *testing.T) {
+	ctrl := NewWebController(repository.NewPostgresRepository(nil), nil)
+	post := func(body string) int {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request, _ = http.NewRequest("POST", "/api/v1/sap/endpoints", bytes.NewBufferString(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		ctrl.SaveSAPEndpoint(c)
+		return w.Code
+	}
+	if code := post(`{"service_code":"PO","username":"u","base_url":"https://evil.example.com"}`); code != http.StatusBadRequest {
+		t.Fatalf("host outside allowlist must be rejected, got %d", code)
+	}
+	if code := post(`{"service_code":"PO","username":"u","base_url":"https://my446174-api.s4hana.cloud.sap"}`); code != http.StatusOK {
+		t.Fatalf("allowed host must be accepted, got %d", code)
+	}
+	if code := post(`{"service_code":"PO","username":"u","base_url":""}`); code != http.StatusOK {
+		t.Fatalf("empty base_url (MOCK) must be accepted, got %d", code)
 	}
 }
 

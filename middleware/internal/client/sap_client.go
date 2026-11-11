@@ -194,6 +194,10 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 			return 0, "", "", fmt.Errorf("network error fetching csrf token: %w", err)
 		}
 		defer respGet.Body.Close()
+		if respGet.StatusCode == http.StatusUnauthorized || respGet.StatusCode == http.StatusForbidden {
+			body, _ := io.ReadAll(io.LimitReader(respGet.Body, 2000))
+			return respGet.StatusCode, "", string(body), fmt.Errorf("SAP menolak kredensial saat fetch CSRF token (HTTP %d) untuk user %s", respGet.StatusCode, username)
+		}
 
 		csrfToken = respGet.Header.Get("x-csrf-token")
 		if csrfToken == "" {
@@ -233,10 +237,9 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 	respStr := string(bodyBytes)
 
 	// 3. Ekstrak Document Number berdasarkan OData Version
-	sapDocNo := fmt.Sprintf("SAP-%s-%d", ep.ServiceCode, time.Now().Unix())
-	if respMain.StatusCode == http.StatusNoContent {
-		sapDocNo = fmt.Sprintf("SAP-%s-UPDATED", ep.ServiceCode)
-	}
+	// Kosong bila SAP tidak mengembalikan nomor dokumen (mis. PATCH 204). Nomor sintetis tidak dibuat
+	// karena tersimpan sebagai sap_document_no dan dipakai sebagai referensi Return/Cancel.
+	sapDocNo := ""
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &respMap); err == nil {
 		// Kandidat field nomor dokumen: SAP_RESPONSE_DOCNO_FIELDS_V2 / SAP_RESPONSE_DOCNO_FIELDS_V4.

@@ -41,6 +41,22 @@ func TestDocNoFieldsOverride(t *testing.T) {
 	}
 }
 
+func TestPatchKeySuffix(t *testing.T) {
+	const base = "/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/"
+	if s, err := PatchKeySuffix(base+"PurchaseOrder", []byte(`{"PurchaseOrder":"4100000032"}`)); err != nil || s != "('4100000032')" {
+		t.Fatalf("header key: %q %v", s, err)
+	}
+	if s, err := PatchKeySuffix(base+"PurchaseOrderItem", []byte(`{"PurchaseOrder":"4100000032","PurchaseOrderItem":"1"}`)); err != nil || s != "(PurchaseOrder='4100000032',PurchaseOrderItem='1')" {
+		t.Fatalf("item key: %q %v", s, err)
+	}
+	if _, err := PatchKeySuffix(base+"PurchaseOrder", []byte(`{}`)); err == nil {
+		t.Fatal("missing PurchaseOrder must error")
+	}
+	if s, _ := PatchKeySuffix(base+"PurchaseOrder('1')", nil); s != "" {
+		t.Fatalf("path already keyed: %q", s)
+	}
+}
+
 // Path lookup mengikuti endpoint_path yang terdaftar, bukan path literal.
 func TestProductValuationUsesEndpointPath(t *testing.T) {
 	var gotPath string

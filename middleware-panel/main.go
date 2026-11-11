@@ -12,6 +12,8 @@ import (
 func main() {
     // 1. Inisialisasi Database
     config.ConnectDatabase()
+    // Header X-API-Key ke Engine bila ENGINE_API_KEY diisi (.env dimuat oleh ConnectDatabase).
+    config.InstallEngineAuth()
 
     // Auto Migrate Tabel
     config.DB.AutoMigrate(

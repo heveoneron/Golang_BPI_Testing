@@ -92,6 +92,38 @@ func TestIntegration_LegacyEndpointSeedUsesSAPBaseURL(t *testing.T) {
 	_, _ = repo.Pool.Exec(ctx, `UPDATE sap_endpoints SET base_url = 'MOCK' WHERE service_code = 'MATERIAL_DOC_DETAIL'`)
 }
 
+// A4: kiriman ulang Maximo untuk GRN yang sudah sukses tidak boleh kembali ke pending (GR ganda).
+func TestIntegration_SuccessfulDocumentNotRequeued(t *testing.T) {
+	ctx, repo, _, _ := setupIntegration(t)
+	raw := []byte(`{"BPIGRNUMBER":"GR-DUP-1","TRANSID":"1","LINES":[]}`)
+	doc := model.Document{DocType: "GRN", DocumentNo: "GR-DUP-1", FlowType: "forward", GroupID: "GRP-GRN-GR-DUP-1",
+		RawPayload: raw, SAPPayload: []byte(`{}`), Status: "pending", SyncBackStatus: "pending"}
+	if err := repo.UpsertCoreDocument(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Pool.Exec(ctx, `UPDATE documents SET status='success', sap_document_no='5000000099' WHERE document_no='GR-DUP-1'`); err != nil {
+		t.Fatal(err)
+	}
+	resend := []byte(`{"BPIGRNUMBER":"GR-DUP-1","TRANSID":"2","LINES":[]}`) // TRANSID baru, data sama
+	if posted, err := repo.IsAlreadyPosted(ctx, "GRN", "GR-DUP-1", "forward", resend); err != nil || !posted {
+		t.Fatalf("resend must be detected as already posted: %v %v", posted, err)
+	}
+	doc.RawPayload = resend
+	if err := repo.UpsertCoreDocument(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	if s := docStatus(t, ctx, repo, "GRN", "GR-DUP-1"); s != "success" {
+		t.Fatalf("successful document reset to %q", s)
+	}
+	doc.RawPayload = []byte(`{"BPIGRNUMBER":"GR-DUP-1","TRANSID":"3","LINES":[{"QTY":5}]}`) // data berubah = revisi
+	if err := repo.UpsertCoreDocument(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	if s := docStatus(t, ctx, repo, "GRN", "GR-DUP-1"); s != "pending" {
+		t.Fatalf("changed data must be requeued, got %q", s)
+	}
+}
+
 type fakeInventoryReader struct {
 	rows []repository.InventoryStagingRow
 }

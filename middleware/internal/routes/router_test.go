@@ -167,6 +167,38 @@ func TestRouter_SchedulerStatus_NoDB(t *testing.T) {
 	}
 }
 
+func TestRouter_APIKeyAuth(t *testing.T) {
+	t.Setenv("ENGINE_API_KEY", "s3cret")
+	r := SetupRouter(controller.NewWebController(nil, nil))
+	call := func(path string, hdr map[string]string) int {
+		req, _ := http.NewRequest("GET", path, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if c := call("/api/v1/documents", nil); c != http.StatusUnauthorized {
+		t.Fatalf("no key: expected 401, got %d", c)
+	}
+	if c := call("/api/v1/documents", map[string]string{"X-API-Key": "wrong"}); c != http.StatusUnauthorized {
+		t.Fatalf("wrong key: expected 401, got %d", c)
+	}
+	if c := call("/api/v1/documents", map[string]string{"X-API-Key": "s3cret"}); c != http.StatusOK {
+		t.Fatalf("valid key: expected 200, got %d", c)
+	}
+	if c := call("/api/v1/documents", map[string]string{"Authorization": "Bearer s3cret"}); c != http.StatusOK {
+		t.Fatalf("bearer: expected 200, got %d", c)
+	}
+	if c := call("/api/v1/health", nil); c != http.StatusOK {
+		t.Fatalf("health must stay open, got %d", c)
+	}
+	if c := call("/swagger", nil); c != http.StatusMovedPermanently {
+		t.Fatalf("swagger UI must stay open, got %d", c)
+	}
+}
+
 func TestRouter_SchedulerToggle_NoDB(t *testing.T) {
 	ctrl := controller.NewWebController(nil, nil)
 	r := SetupRouter(ctrl)

@@ -111,7 +111,9 @@ func (r *PostgresRepository) UpsertCoreDocument(ctx context.Context, doc model.D
 			status = 'pending',
 			retry_count = 0,
 			error_message = NULL,
-			updated_at = NOW();
+			updated_at = NOW()
+		-- Dokumen yang sudah sukses di SAP dengan data Maximo yang sama tidak dikirim ulang (cegah GR ganda).
+		WHERE NOT (documents.status = 'success' AND ` + sameRawSQL("documents.raw_payload", "EXCLUDED.raw_payload") + `);
 	`
 	if doc.ID == uuid.Nil {
 		doc.ID = uuid.New()
@@ -122,6 +124,30 @@ func (r *PostgresRepository) UpsertCoreDocument(ctx context.Context, doc model.D
 		doc.Status, doc.RetryCount, doc.SyncBackStatus,
 	)
 	return err
+}
+
+// sameRawSQL membandingkan raw_payload Maximo tanpa field antrean yang berubah tiap kirim ulang.
+func sameRawSQL(a, b string) string {
+	return fmt.Sprintf("(%s - 'TRANSID' - 'TRANSSEQ') = (%s - 'TRANSID' - 'TRANSSEQ')", a, b)
+}
+
+// IsAlreadyPosted bernilai true bila dokumen dengan kunci sama sudah sukses di SAP dan data Maximo-nya
+// identik (kiriman ulang dari Maximo). Dokumen seperti ini tidak ditransformasi/dikirim ulang.
+func (r *PostgresRepository) IsAlreadyPosted(ctx context.Context, docType, docNo, flowType string, raw json.RawMessage) (bool, error) {
+	if r.Pool == nil || len(raw) == 0 {
+		return false, nil
+	}
+	if flowType == "" {
+		flowType = "forward"
+	}
+	var exists bool
+	err := r.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM documents
+			WHERE doc_type = $1 AND document_no = $2 AND flow_type = $3 AND status = 'success'
+			  AND `+sameRawSQL("raw_payload", "$4::jsonb")+`
+		)`, docType, docNo, flowType, string(raw)).Scan(&exists)
+	return exists, err
 }
 
 // Atomic lock untuk dispatching worker ke SAP Grow

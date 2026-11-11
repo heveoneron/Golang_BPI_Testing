@@ -1,8 +1,11 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang-bpi-testing/internal/model"
@@ -38,6 +41,45 @@ func ServicePath(ep *model.SAPEndpoint, suffix string) (string, error) {
 		return "", fmt.Errorf("endpoint_path '%s' untuk %s tidak valid (harus /<root layanan>/<entity set>)", ep.EndpointPath, ep.ServiceCode)
 	}
 	return root + "/" + strings.TrimLeft(suffix, "/"), nil
+}
+
+// PatchKeySuffix menyusun key entity OData v4 untuk PATCH Purchase Order dari payload:
+// header -> ('<PurchaseOrder>'), item (entity set PurchaseOrderItem) ->
+// (PurchaseOrder='<po>',PurchaseOrderItem='<item>'). Mengembalikan "" bila endpoint_path sudah
+// memuat key atau bukan entity PO. Error bila key wajib tapi tidak ada di payload.
+func PatchKeySuffix(endpointPath string, payload []byte) (string, error) {
+	p := strings.TrimRight(strings.TrimSpace(endpointPath), "/")
+	if strings.Contains(p, "(") {
+		return "", nil
+	}
+	entity := p[strings.LastIndex(p, "/")+1:]
+	if entity != "PurchaseOrder" && entity != "PurchaseOrderItem" {
+		return "", nil
+	}
+	var m map[string]interface{}
+	_ = json.Unmarshal(payload, &m)
+	val := func(k string) string {
+		switch v := m[k].(type) {
+		case string:
+			return strings.TrimSpace(v)
+		case float64:
+			return strconv.FormatFloat(v, 'f', -1, 64)
+		}
+		return ""
+	}
+	lit := func(s string) string { return url.PathEscape(strings.ReplaceAll(s, "'", "''")) }
+	po := val("PurchaseOrder")
+	if po == "" {
+		return "", fmt.Errorf("PATCH %s butuh field PurchaseOrder di payload untuk key entity", entity)
+	}
+	if entity == "PurchaseOrder" {
+		return "('" + lit(po) + "')", nil
+	}
+	item := val("PurchaseOrderItem")
+	if item == "" {
+		return "", fmt.Errorf("PATCH PurchaseOrderItem butuh field PurchaseOrderItem di payload")
+	}
+	return "(PurchaseOrder='" + lit(po) + "',PurchaseOrderItem='" + lit(item) + "')", nil
 }
 
 // Urutan field nomor dokumen yang dibaca dari response OData (diganti lewat env, daftar dipisah koma).

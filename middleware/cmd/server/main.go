@@ -47,25 +47,27 @@ func main() {
 		pgConnString = "postgres://postgres:postgres123@localhost:5432/bpi_middleware_db?sslmode=disable"
 	}
 
+	// Pool yang gagal ping ditutup DAN di-nil-kan; sebelumnya pool tertutup tetap dipakai worker
+	// (pgRepo.Pool != nil) sehingga semua query gagal terus.
 	var pgPool *pgxpool.Pool
 	var err error
 	for i := 1; i <= 15; i++ {
-		pgPool, err = pgxpool.New(ctx, pgConnString)
+		var p *pgxpool.Pool
+		p, err = pgxpool.New(ctx, pgConnString)
 		if err == nil {
-			if pingErr := pgPool.Ping(ctx); pingErr == nil {
+			if err = p.Ping(ctx); err == nil {
+				pgPool = p
 				log.Println("[INFO] Terhubung ke PostgreSQL Staging Engine.")
 				break
-			} else {
-				log.Printf("[WARN] Menunggu PostgreSQL Staging Engine (%d/15): %v", i, pingErr)
-				pgPool.Close()
 			}
-		} else {
-			log.Printf("[WARN] Menunggu PostgreSQL Staging Engine (%d/15): %v", i, err)
+			p.Close()
 		}
+		log.Printf("[WARN] Menunggu PostgreSQL Staging Engine (%d/15): %v", i, err)
 		time.Sleep(2 * time.Second)
 	}
 	if pgPool == nil {
-		log.Printf("[WARN] PostgreSQL Pool gagal connect ke %s: %v", pgConnString, err)
+		// Jangan cetak connection string (berisi password).
+		log.Printf("[ERROR] PostgreSQL tidak dapat dihubungi setelah 15 percobaan: %v. Engine berjalan tanpa database (API mengembalikan 503).", err)
 	}
 
 	// 2. Inisialisasi Database SQL Server 2012 (Maximo Staging DB)

@@ -697,10 +697,22 @@ func (c *WebController) GetSAPEndpoints(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
+	// Password tidak pernah dikirim keluar; has_password hanya penanda. Panel mengirim password kosong
+	// saat edit = password tersimpan dipertahankan.
+	out := make([]gin.H, 0, len(endpoints))
+	for _, ep := range endpoints {
+		hasPassword := ep.Password != ""
+		ep.Password = ""
+		b, _ := json.Marshal(ep)
+		var m gin.H
+		_ = json.Unmarshal(b, &m)
+		m["has_password"] = hasPassword
+		out = append(out, m)
+	}
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"status": "success",
-		"data":   endpoints,
+		"data":   out,
 	})
 }
 
@@ -797,6 +809,17 @@ func (c *WebController) SaveSAPEndpoint(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: "ServiceCode dan Username wajib diisi"})
 		return
 	}
+	// Kredensial SAP dikirim ke base_url, jadi host wajib ada di FIN_SAP_ALLOWED_HOSTS (atau MOCK),
+	// sama dengan aturan PUT /finance/sap-environment.
+	if strings.TrimSpace(ep.BaseURL) == "" {
+		ep.BaseURL = "MOCK" // kosong sudah diperlakukan sebagai MOCK oleh client.IsMock
+	}
+	cleanBase, err := service.NormalizeSAPBaseURL(ep.BaseURL)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	ep.BaseURL = cleanBase
 
 	if err := c.PGRepo.SaveSAPEndpoint(ctx.Request.Context(), &ep); err != nil {
 		ctx.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})

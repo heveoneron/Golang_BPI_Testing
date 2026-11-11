@@ -90,6 +90,14 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 		var transformErr error
 		docNo := stage.DocumentNo
 
+		// Kiriman ulang Maximo untuk dokumen yang sudah sukses di SAP: jangan transform (budget lock) / post ulang.
+		if posted, err := s.PGRepo.IsAlreadyPosted(ctx, stage.DocType, docNo, stage.FlowType, stage.RawPayload); err == nil && posted {
+			log.Printf("[SKIP] %s %s sudah sukses di SAP dengan data identik; kiriman ulang Maximo diabaikan", stage.DocType, docNo)
+			_ = s.PGRepo.MarkStagingProcessed(ctx, stage.ID, "DUPLICATE", "Sudah sukses di SAP dengan data identik")
+			_ = s.PGRepo.InsertIntegrationLog(ctx, fmt.Sprintf("GRP-%s-%s", stage.DocType, docNo), "MIDDLEWARE", "MIDDLEWARE", stage.DocType, docNo, "DUPLICATE", "", "Kiriman ulang Maximo diabaikan: dokumen sudah sukses di SAP")
+			continue
+		}
+
 		switch strings.ToUpper(stage.DocType) {
 		case "PO", "AXMXPO":
 			sapPayloadBytes, transformErr = s.transformPO(ctx, stage.RawPayload)
@@ -959,6 +967,40 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 	return json.Marshal(sapProduct)
 }
 
+// isSAPMatDoc: nomor Material Document SAP = 10 digit angka. Nomor palsu (SAP-<code>-...) tidak lolos.
+func isSAPMatDoc(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) != 10 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isYear(s string) bool {
+	y, err := strconv.Atoi(strings.TrimSpace(s))
+	return err == nil && y >= 1900 && y <= 9999
+}
+
+// matDocYearFromResponse membaca MaterialDocumentYear dari respons SAP GR asli (OData v2 "d" atau root).
+func matDocYearFromResponse(resp json.RawMessage) string {
+	var m map[string]interface{}
+	if len(resp) == 0 || json.Unmarshal(resp, &m) != nil {
+		return ""
+	}
+	if d, ok := m["d"].(map[string]interface{}); ok {
+		m = d
+	}
+	if y, ok := m["MaterialDocumentYear"].(string); ok && len(y) == 4 {
+		return y
+	}
+	return ""
+}
+
 func formatQuantity(qty float64) string {
 	return strconv.FormatFloat(qty, 'f', -1, 64)
 }
@@ -989,10 +1031,11 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		targetMatDoc := ""
 		targetDocYear := ""
 
-		// Coba cari di PostgreSQL core_documents terlebih dahulu
+		// Coba cari di PostgreSQL core_documents terlebih dahulu (tahun diambil dari respons SAP GR asli)
 		if lookupDocNo != "" && lookupDocNo != "-" && s.PGRepo != nil {
-			if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", lookupDocNo); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && *existingDoc.SAPDocumentNo != "" {
+			if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", lookupDocNo); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && isSAPMatDoc(*existingDoc.SAPDocumentNo) {
 				targetMatDoc = *existingDoc.SAPDocumentNo
+				targetDocYear = matDocYearFromResponse(existingDoc.SAPResponse)
 			}
 		}
 
@@ -1007,25 +1050,22 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 			}
 		}
 
-		// Fallback: Jika pengguna sementara menaruh nomor SAP Material Document di field PONum
+		// Fallback: Jika pengguna sementara menaruh nomor SAP Material Document di field PONum.
+		// Nomor PO biasa TIDAK dipakai sebagai nomor Material Document (cancel akan salah sasaran);
+		// bila tetap kosong, Push menandai dokumen error_data.
 		if targetMatDoc == "" {
 			trimmedPO := strings.TrimSpace(maxReceipt.PONum)
-			if trimmedPO != "" && trimmedPO != "-" {
-				if len(trimmedPO) == 10 && strings.HasPrefix(trimmedPO, "500") {
-					targetMatDoc = trimmedPO
-				} else if s.PGRepo != nil {
-					if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", trimmedPO); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && *existingDoc.SAPDocumentNo != "" {
-						targetMatDoc = *existingDoc.SAPDocumentNo
-					} else {
-						targetMatDoc = trimmedPO
-					}
-				} else {
-					targetMatDoc = trimmedPO
+			if isSAPMatDoc(trimmedPO) && strings.HasPrefix(trimmedPO, "500") {
+				targetMatDoc = trimmedPO
+			} else if trimmedPO != "" && trimmedPO != "-" && s.PGRepo != nil {
+				if existingDoc, err := s.PGRepo.GetDocumentByTypeAndNo(ctx, "GRN", trimmedPO); err == nil && existingDoc != nil && existingDoc.SAPDocumentNo != nil && isSAPMatDoc(*existingDoc.SAPDocumentNo) {
+					targetMatDoc = *existingDoc.SAPDocumentNo
+					targetDocYear = matDocYearFromResponse(existingDoc.SAPResponse)
 				}
 			}
 		}
 
-		// Fallback tahun jika kosong: ambil tahun dari ActualDate atau tahun sekarang
+		// Fallback tahun jika tidak diketahui dari SAP: tahun ActualDate atau tahun sekarang
 		if targetDocYear == "" {
 			if len(maxReceipt.ActualDate) >= 4 {
 				targetDocYear = maxReceipt.ActualDate[:4]
@@ -1229,18 +1269,28 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 				targetDocYear := strings.TrimSpace(cancelParam.MaterialDocumentYear)
 
 				// Fallback jika MaterialDocument di SAPPayload masih kosong, coba ambil dari raw_payload (REF_BPIGRNUMBER atau PONUM 500xxx)
+				// (hanya bila nilainya memang berbentuk nomor Material Document SAP).
 				if targetMatDoc == "" && rawMap != nil {
-					if r, ok := rawMap["REF_BPIGRNUMBER"].(string); ok && r != "" && r != "-" {
+					if r, ok := rawMap["REF_BPIGRNUMBER"].(string); ok && isSAPMatDoc(r) {
 						targetMatDoc = strings.TrimSpace(r)
-					} else if p, ok := rawMap["PONUM"].(string); ok && p != "" && p != "-" && len(p) == 10 && strings.HasPrefix(p, "500") {
+					} else if p, ok := rawMap["PONUM"].(string); ok && isSAPMatDoc(p) && strings.HasPrefix(strings.TrimSpace(p), "500") {
 						targetMatDoc = strings.TrimSpace(p)
 					}
 				}
+				if targetDocYear == "" {
+					targetDocYear = fmt.Sprintf("%d", time.Now().Year())
+				}
 
-				if targetMatDoc != "" {
-					if targetDocYear == "" {
-						targetDocYear = fmt.Sprintf("%d", time.Now().Year())
-					}
+				// Tanpa nomor Material Document SAP yang valid, Cancel tidak dikirim (sebelumnya payload cancel
+				// ter-POST ke A_MaterialDocumentHeader dan pasti ditolak SAP).
+				if !isSAPMatDoc(targetMatDoc) || !isYear(targetDocYear) {
+					reason := fmt.Sprintf("Cancel GRN %s: nomor Material Document SAP tidak ditemukan/valid (doc=%q, tahun=%q)", doc.DocumentNo, targetMatDoc, targetDocYear)
+					log.Printf("[WARN] %s", reason)
+					_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_data", reason, nil)
+					_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", reason, reason)
+					continue
+				}
+				{
 					// Root layanan Material Document diambil dari endpoint_path endpoint GRN.
 					cancelEP := *ep
 					cancelPath, pErr := client.ServicePath(ep, fmt.Sprintf("Cancel?MaterialDocumentYear='%s'&MaterialDocument='%s'", targetDocYear, targetMatDoc))
@@ -1253,8 +1303,6 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 					cancelEP.CSRFPath = csrfPath
 					epToSend = &cancelEP
 					payloadToSend = nil
-				} else {
-					log.Printf("[WARN] Dokumen Cancel GRN %s belum memiliki nomor Material Document SAP", doc.DocumentNo)
 				}
 			}
 		}
@@ -1279,6 +1327,21 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 		httpMethod := "POST"
 		if strings.Contains(strings.ToUpper(epToSend.ServiceName), "PATCH") || strings.Contains(strings.ToUpper(epToSend.ServiceCode), "CHANGE") {
 			httpMethod = "PATCH"
+			// PATCH OData v4 harus ke entity ber-key, bukan ke koleksi (.../PurchaseOrder -> 405/400).
+			suffix, kErr := client.PatchKeySuffix(epToSend.EndpointPath, payloadToSend)
+			if kErr != nil {
+				_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_data", kErr.Error(), nil)
+				_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", doc.DocType, doc.DocumentNo, "FAILED", kErr.Error(), kErr.Error())
+				continue
+			}
+			if suffix != "" {
+				patchEP := *epToSend
+				patchEP.EndpointPath = strings.TrimRight(patchEP.EndpointPath, "/") + suffix
+				if patchEP.CSRFPath == "" {
+					patchEP.CSRFPath = epToSend.EndpointPath
+				}
+				epToSend = &patchEP
+			}
 		}
 
 		var statusCode int
