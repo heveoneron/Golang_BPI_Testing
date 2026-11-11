@@ -77,12 +77,16 @@ func (c *MaterialConfigMappingController) HandleSave(ctx *gin.Context) {
 	}
 
 	var req struct {
-		ID          uint   `json:"id"`
-		ConfigType  string `json:"config_type" binding:"required"`
-		MaximoValue string `json:"maximo_value" binding:"required"`
-		SAPValue    string `json:"sap_value" binding:"required"`
-		Description string `json:"description"`
-		IsActive    bool   `json:"is_active"`
+		ID                 uint   `json:"id"`
+		ConfigType         string `json:"config_type" binding:"required"`
+		MaximoValue        string `json:"maximo_value" binding:"required"`
+		SAPValue           string `json:"sap_value" binding:"required"`
+		InventoryPostingGL string `json:"inventory_posting_gl"`
+		GoodsIssueGL       string `json:"goods_issue_gl"`
+		StockAdjGL         string `json:"stock_adj_gl"`
+		CostCenter         string `json:"cost_center"`
+		Description        string `json:"description"`
+		IsActive           bool   `json:"is_active"`
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -91,12 +95,16 @@ func (c *MaterialConfigMappingController) HandleSave(ctx *gin.Context) {
 	}
 
 	mapping := models.MaterialConfigMapping{
-		ID:          req.ID,
-		ConfigType:  req.ConfigType,
-		MaximoValue: req.MaximoValue,
-		SAPValue:    req.SAPValue,
-		Description: req.Description,
-		IsActive:    req.IsActive,
+		ID:                 req.ID,
+		ConfigType:         req.ConfigType,
+		MaximoValue:        req.MaximoValue,
+		SAPValue:           req.SAPValue,
+		InventoryPostingGL: req.InventoryPostingGL,
+		GoodsIssueGL:       req.GoodsIssueGL,
+		StockAdjGL:         req.StockAdjGL,
+		CostCenter:         req.CostCenter,
+		Description:        req.Description,
+		IsActive:           req.IsActive,
 	}
 
 	if err := c.svc.SaveMapping(&mapping); err != nil {

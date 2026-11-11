@@ -300,11 +300,15 @@ type ReimbursementGLMapping struct {
 
 // EmployeeVendorMapping menyatakan vendor karyawan termasuk CIP atau Non CIP.
 type EmployeeVendorMapping struct {
-	VendorCode  string    `json:"vendor_code" example:"VND-5072"`
-	CIPFlag     string    `json:"cip_flag" example:"NON_CIP"`
-	Description string    `json:"description,omitempty"`
-	IsActive    bool      `json:"is_active"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	VendorCode    string    `json:"vendor_code" example:"VND-5072"`
+	CIPFlag       string    `json:"cip_flag" example:"NON_CIP"`
+	Email         string    `json:"email,omitempty" example:"vendor@company.com"`
+	BankKey       string    `json:"bank_key,omitempty" example:"Mandiri"`
+	BankAccount   string    `json:"bank_account,omitempty" example:"1010101"`
+	AccountHolder string    `json:"account_holder,omitempty" example:"PT Vendor"`
+	Description   string    `json:"description,omitempty"`
+	IsActive      bool      `json:"is_active"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // NormalizePolicyName menyamakan penulisan nama kebijakan: huruf kecil, semua jenis tanda pisah

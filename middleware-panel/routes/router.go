@@ -88,6 +88,8 @@ func getFirstAllowedPath(allowed string) string {
 			return "/recon-account-mapping"
 		case "material_mapping":
 			return "/material-mapping"
+		case "vendor_master":
+			return "/vendor-master"
 		case "config":
 			return "/config"
 		case "sap_endpoints":
@@ -201,6 +203,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	materialConfigMappingService := services.NewMaterialConfigMappingService(materialConfigMappingRepo)
 	materialConfigMappingController := controllers.NewMaterialConfigMappingController(materialConfigMappingService)
 
+	// 13. Vendor Master Data Domain (Outbound Master Data Vendor)
+	vendorMasterRepo := repository.NewVendorMasterRepository(db)
+	vendorMasterService := services.NewVendorMasterService(vendorMasterRepo)
+	vendorMasterController := controllers.NewVendorMasterController(vendorMasterService)
+
 	// ==========================================
 	// ROUTES MAPPING
 	// ==========================================
@@ -265,6 +272,13 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/material-mapping", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleSave)
 	r.POST("/api/material-mapping/toggle/:id", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleToggleActive)
 	r.DELETE("/api/material-mapping/:id", requireMenuGuard("material_mapping"), materialConfigMappingController.HandleDelete)
+
+	// Vendor Master Data (menu: vendor_master)
+	r.GET("/vendor-master", requireMenuGuard("vendor_master"), vendorMasterController.ShowVendorMaster)
+	r.POST("/api/vendor-master", requireMenuGuard("vendor_master"), vendorMasterController.HandleSave)
+	r.POST("/api/vendor-master/toggle/:code", requireMenuGuard("vendor_master"), vendorMasterController.HandleToggleActive)
+	r.DELETE("/api/vendor-master/:code", requireMenuGuard("vendor_master"), vendorMasterController.HandleDelete)
+	r.POST("/api/vendor-master/sync-sap", requireMenuGuard("vendor_master"), vendorMasterController.HandleSyncSAP)
 
 	// Scheduler Config & Manual Pull (menu: scheduler)
 	r.GET("/scheduler-config", requireMenuGuard("scheduler"), schedController.ShowSchedulerConfig)

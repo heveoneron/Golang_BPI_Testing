@@ -116,6 +116,7 @@ func RegisterFinanceRoutes(r *gin.Engine, fc *controller.FinanceController) {
 		fin.POST("/employee-vendors", fc.SaveEmployeeVendor)
 		fin.POST("/employee-vendors/import", fc.ImportEmployeeVendors)
 		fin.DELETE("/employee-vendors/:code", fc.DeleteEmployeeVendor)
+		fin.POST("/vendor-master/sync-sap", fc.SyncVendorMaster)
 		// SAP -> Maximo (dbo.mxinvoice)
 		fin.POST("/maximo/export", fc.ExportToMaximo)
 		fin.GET("/maximo/exports", fc.ListMaximoExports)

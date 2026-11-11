@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendor Master Data - Middleware Panel</title>
+    
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">    
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --sidebar-bg: #0B1220; 
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --accent-green: #10B981;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }        
+       
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; color: var(--text-main); margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px;}
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; width: 100%; margin-bottom: 24px; }
+        
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 14px 16px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); color: var(--text-main); }
+        .table-custom tbody tr:hover td { background-color: #F8FAFC; }
+
+        .pagination-sm .page-link {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 6px;
+            color: var(--text-main);
+            border-color: var(--border-soft);
+        }
+        .pagination-sm .page-item.active .page-link {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+        .pagination-sm .page-item.disabled .page-link {
+            background-color: #F8FAFC;
+            color: var(--text-muted);
+            border-color: var(--border-soft);
+        }
+
+        .vendor-code-badge { background-color: #EFF6FF; color: #1D4ED8; font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid #BFDBFE; display: inline-flex; align-items: center; gap: 6px; }
+        .cip-badge { background-color: #F0FDF4; color: #15803D; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid #BBF7D0; }
+        .non-cip-badge { background-color: #F8FAFC; color: #475569; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid #E2E8F0; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Partial -->
+    {{ template "sidebar" . }}
+
+    <!-- Content Body -->
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-person-lines-fill text-primary"></i> Vendor Master Data</h3>
+                <div class="text-muted small">Outbound Master Data Vendor (Maximo &amp; SAP S/4HANA): CIP/Non-CIP, Email, Bank Key, Bank Account, dan Account Holder</div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-primary fw-bold d-flex align-items-center gap-2 shadow-sm" id="btnSyncSAP" onclick="syncFromSAP()">
+                    <i class="bi bi-cloud-arrow-down" id="iconSync"></i> <span id="textSync">Sync Data dari SAP</span>
+                </button>
+                <button type="button" class="btn btn-primary fw-bold d-flex align-items-center gap-2 shadow-sm" onclick="openAddModal()">
+                    <i class="bi bi-plus-circle"></i> Tambah Vendor
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric Stat Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Total Vendor</div>
+                    <div class="stat-val text-dark">{{ .Total }}</div>
+                    <div class="text-muted small mt-1"><i class="bi bi-check-circle-fill text-success me-1"></i>{{ .ActiveCount }} Aktif</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Vendor CIP</div>
+                    <div class="stat-val text-success">{{ .CIPCount }}</div>
+                    <div class="text-muted small mt-1">Capital in Progress</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Vendor Non-CIP</div>
+                    <div class="stat-val text-secondary">{{ .NonCIPCount }}</div>
+                    <div class="text-muted small mt-1">Operasional Standard</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="text-muted small fw-bold text-uppercase">Rekening Bank Terdaftar</div>
+                    <div class="stat-val text-primary">{{ .BankCount }}</div>
+                    <div class="text-muted small mt-1">Data rekening aktif</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Card Table -->
+        <div class="main-card">
+            <div class="p-4 border-bottom bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="input-group" style="max-width: 380px;">
+                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" id="searchVendor" class="form-control border-start-0 ps-0" placeholder="Cari Kode Vendor, Email, Bank, Nama Rekening...">
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    <select id="filterCIP" class="form-select form-select-sm" style="width: 140px;" onchange="applyFilters()">
+                        <option value="">Semua CIP</option>
+                        <option value="CIP">CIP</option>
+                        <option value="NON_CIP">Non CIP</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-custom mb-0" id="tableVendor">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">No</th>
+                            <th style="width: 160px;">Vendor Code</th>
+                            <th style="width: 120px;">CIP / Non CIP</th>
+                            <th>Email</th>
+                            <th style="width: 140px;">Bank Key</th>
+                            <th style="width: 160px;">Bank Account</th>
+                            <th style="width: 180px;">Account Holder</th>
+                            <th>Keterangan</th>
+                            <th style="width: 90px;" class="text-center">Status</th>
+                            <th style="width: 110px;" class="text-end">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range $index, $v := .Vendors }}
+                        <tr data-cip="{{ $v.CIPFlag }}">
+                            <td class="text-muted">{{ add $index 1 }}</td>
+                            <td><span class="vendor-code-badge"><i class="bi bi-building me-1"></i>{{ $v.VendorCode }}</span></td>
+                            <td>
+                                {{ if eq $v.CIPFlag "CIP" }}
+                                    <span class="cip-badge"><i class="bi bi-check-circle me-1"></i>CIP</span>
+                                {{ else }}
+                                    <span class="non-cip-badge">Non CIP</span>
+                                {{ end }}
+                            </td>
+                            <td>
+                                {{ if $v.Email }}
+                                    <a href="mailto:{{ $v.Email }}" class="text-decoration-none text-primary"><i class="bi bi-envelope me-1"></i>{{ $v.Email }}</a>
+                                {{ else }}
+                                    <span class="text-muted">-</span>
+                                {{ end }}
+                            </td>
+                            <td><span class="badge bg-light text-dark border">{{ if $v.BankKey }}{{ $v.BankKey }}{{ else }}-{{ end }}</span></td>
+                            <td><span class="font-monospace fw-bold">{{ if $v.BankAccount }}{{ $v.BankAccount }}{{ else }}-{{ end }}</span></td>
+                            <td>{{ if $v.AccountHolder }}{{ $v.AccountHolder }}{{ else }}<span class="text-muted">-</span>{{ end }}</td>
+                            <td class="text-muted">{{ if $v.Description }}{{ $v.Description }}{{ else }}-{{ end }}</td>
+                            <td class="text-center">
+                                <div class="form-check form-switch d-inline-block">
+                                    <input class="form-check-input cursor-pointer" type="checkbox" role="switch" {{ if $v.IsActive }}checked{{ end }} onchange="toggleActive('{{ $v.VendorCode }}')">
+                                </div>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal('{{ $v.VendorCode }}', '{{ $v.CIPFlag }}', '{{ $v.Email }}', '{{ $v.BankKey }}', '{{ $v.BankAccount }}', '{{ $v.AccountHolder }}', '{{ $v.Description }}', {{ $v.IsActive }})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteVendor('{{ $v.VendorCode }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="10" class="text-center text-muted py-4">Belum ada data Vendor Master</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center p-3 border-top flex-wrap gap-2">
+                <div class="text-muted small" id="infoVendor">Menampilkan data</div>
+                <nav>
+                    <ul class="pagination pagination-sm mb-0 gap-1" id="paginationVendor"></ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Form Add / Edit Vendor -->
+    <div class="modal fade" id="vendorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom px-4 py-3">
+                    <h5 class="modal-title fw-bold fs-6" id="modalTitle">Tambah Vendor Master</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <form id="vendorForm">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small text-muted">Vendor Code (BusinessPartner) <span class="text-danger">*</span></label>
+                                <input type="text" id="vendorCode" class="form-control font-monospace" placeholder="Contoh: VND-0009" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small text-muted">Status CIP / Non CIP <span class="text-danger">*</span></label>
+                                <select id="cipFlag" class="form-select" required>
+                                    <option value="NON_CIP">Non CIP (Operasional Standard)</option>
+                                    <option value="CIP">CIP (Capital in Progress)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Email Vendor</label>
+                            <input type="email" id="email" class="form-control" placeholder="Contoh: vendor@company.com">
+                        </div>
+
+                        <div class="p-3 mb-3 rounded-2" style="background-color: #F8FAFC; border: 1px dashed #CBD5E1;">
+                            <div class="fw-bold small text-primary mb-2"><i class="bi bi-bank me-1"></i>Informasi Rekening Bank (to_BusinessPartnerBank)</div>
+                            <div class="row g-2">
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted fw-bold mb-1">Bank Key / Bank Name</label>
+                                    <input type="text" id="bankKey" class="form-control form-control-sm" placeholder="Contoh: Mandiri, BNI, BCA">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted fw-bold mb-1">Bank Account (No. Rekening)</label>
+                                    <input type="text" id="bankAccount" class="form-control form-control-sm font-monospace" placeholder="Contoh: 1010101010">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted fw-bold mb-1">Account Holder Name</label>
+                                    <input type="text" id="accountHolder" class="form-control form-control-sm" placeholder="Contoh: PT NAMA PERUSAHAAN">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted">Keterangan / Deskripsi</label>
+                            <input type="text" id="description" class="form-control" placeholder="Catatan tambahan untuk vendor">
+                        </div>
+
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="isActive" checked>
+                            <label class="form-check-label small fw-bold" for="isActive">Status Aktif</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer border-top px-4 py-3">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-primary fw-bold px-4" onclick="saveVendor()">Simpan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(msg, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const msgEl = document.getElementById('toastMessage');
+            if (isSuccess) {
+                toastEl.classList.remove('bg-danger');
+                toastEl.classList.add('bg-success');
+                msgEl.innerHTML = '<i class="bi bi-check-circle-fill fs-5"></i> ' + msg;
+            } else {
+                toastEl.classList.remove('bg-success');
+                toastEl.classList.add('bg-danger');
+                msgEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill fs-5"></i> ' + msg;
+            }
+            new bootstrap.Toast(toastEl, { delay: 3500 }).show();
+        }
+
+        let isEditing = false;
+        let currentPage = 1;
+        const pageSize = 20;
+
+        function getTableRows() {
+            const tbody = document.querySelector('#tableVendor tbody');
+            return Array.from(tbody.querySelectorAll('tr')).filter(r => !r.querySelector('td[colspan]'));
+        }
+
+        function applyFilters() {
+            const query = document.getElementById('searchVendor').value.toLowerCase().trim();
+            const cipFilter = document.getElementById('filterCIP').value;
+            const rows = getTableRows();
+
+            let matched = [];
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                const cip = row.getAttribute('data-cip') || '';
+                const matchQuery = !query || text.includes(query);
+                const matchCIP = !cipFilter || cip === cipFilter;
+
+                if (matchQuery && matchCIP) {
+                    matched.push(row);
+                }
+                row.style.display = 'none';
+            });
+
+            const total = matched.length;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, total);
+
+            for (let i = startIdx; i < endIdx; i++) {
+                if (matched[i]) matched[i].style.display = '';
+            }
+
+            const infoEl = document.getElementById('infoVendor');
+            if (total === 0) {
+                infoEl.innerText = 'Tidak ada entri yang cocok';
+            } else {
+                infoEl.innerHTML = `Menampilkan <b class="text-dark">${startIdx + 1}–${endIdx}</b> dari <b class="text-dark">${total}</b> entri (20 per halaman)`;
+            }
+
+            renderPagination(totalPages);
+        }
+
+        function renderPagination(totalPages) {
+            const navEl = document.getElementById('paginationVendor');
+            navEl.innerHTML = '';
+            if (totalPages <= 1) return;
+
+            const prevLi = document.createElement('li');
+            prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+            prevLi.innerHTML = `<button class="page-link" type="button"><i class="bi bi-chevron-left"></i></button>`;
+            if (currentPage > 1) {
+                prevLi.onclick = (e) => { e.preventDefault(); currentPage--; applyFilters(); };
+            }
+            navEl.appendChild(prevLi);
+
+            for (let p = 1; p <= totalPages; p++) {
+                const li = document.createElement('li');
+                li.className = `page-item ${p === currentPage ? 'active' : ''}`;
+                li.innerHTML = `<button class="page-link" type="button">${p}</button>`;
+                if (p !== currentPage) {
+                    li.onclick = (e) => { e.preventDefault(); currentPage = p; applyFilters(); };
+                }
+                navEl.appendChild(li);
+            }
+
+            const nextLi = document.createElement('li');
+            nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+            nextLi.innerHTML = `<button class="page-link" type="button"><i class="bi bi-chevron-right"></i></button>`;
+            if (currentPage < totalPages) {
+                nextLi.onclick = (e) => { e.preventDefault(); currentPage++; applyFilters(); };
+            }
+            navEl.appendChild(nextLi);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('searchVendor').addEventListener('input', () => { currentPage = 1; applyFilters(); });
+            applyFilters();
+        });
+
+        function openAddModal() {
+            isEditing = false;
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle text-primary me-2"></i>Tambah Vendor Master';
+            const codeInput = document.getElementById('vendorCode');
+            codeInput.value = '';
+            codeInput.disabled = false;
+            document.getElementById('cipFlag').value = 'NON_CIP';
+            document.getElementById('email').value = '';
+            document.getElementById('bankKey').value = '';
+            document.getElementById('bankAccount').value = '';
+            document.getElementById('accountHolder').value = '';
+            document.getElementById('description').value = '';
+            document.getElementById('isActive').checked = true;
+            new bootstrap.Modal(document.getElementById('vendorModal')).show();
+        }
+
+        function openEditModal(code, cip, email, bankKey, bankAccount, accountHolder, desc, isActive) {
+            isEditing = true;
+            document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>Edit Vendor Master';
+            const codeInput = document.getElementById('vendorCode');
+            codeInput.value = code;
+            codeInput.disabled = true;
+            document.getElementById('cipFlag').value = (cip === 'CIP' ? 'CIP' : 'NON_CIP');
+            document.getElementById('email').value = email;
+            document.getElementById('bankKey').value = bankKey;
+            document.getElementById('bankAccount').value = bankAccount;
+            document.getElementById('accountHolder').value = accountHolder;
+            document.getElementById('description').value = desc;
+            document.getElementById('isActive').checked = isActive;
+            new bootstrap.Modal(document.getElementById('vendorModal')).show();
+        }
+
+        function saveVendor() {
+            const vendorCode = document.getElementById('vendorCode').value.trim();
+            const cipFlag = document.getElementById('cipFlag').value;
+            const email = document.getElementById('email').value.trim();
+            const bankKey = document.getElementById('bankKey').value.trim();
+            const bankAccount = document.getElementById('bankAccount').value.trim();
+            const accountHolder = document.getElementById('accountHolder').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const isActive = document.getElementById('isActive').checked;
+
+            if (!vendorCode) {
+                showToast('Vendor Code wajib diisi', false);
+                return;
+            }
+
+            fetch('/api/vendor-master', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    vendor_code: vendorCode,
+                    cip_flag: cipFlag,
+                    email: email,
+                    bank_key: bankKey,
+                    bank_account: bankAccount,
+                    account_holder: accountHolder,
+                    description: description,
+                    is_active: isActive
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Vendor berhasil disimpan', true);
+                    setTimeout(() => location.reload(), 700);
+                } else {
+                    showToast(data.message || 'Gagal menyimpan vendor', false);
+                }
+            })
+            .catch(err => {
+                showToast('Terjadi kesalahan jaringan', false);
+            });
+        }
+
+        function toggleActive(code) {
+            fetch('/api/vendor-master/toggle/' + encodeURIComponent(code), {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Status vendor diperbarui', true);
+                } else {
+                    showToast(data.message || 'Gagal mengubah status', false);
+                }
+            })
+            .catch(() => showToast('Gagal mengubah status', false));
+        }
+
+        function deleteVendor(code) {
+            if (!confirm('Yakin ingin menghapus vendor ' + code + '?')) return;
+            fetch('/api/vendor-master/' + encodeURIComponent(code), {
+                method: 'DELETE'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('Vendor ' + code + ' berhasil dihapus', true);
+                    setTimeout(() => location.reload(), 700);
+                } else {
+                    showToast(data.message || 'Gagal menghapus vendor', false);
+                }
+            })
+            .catch(() => showToast('Gagal menghapus vendor', false));
+        }
+
+        function syncFromSAP() {
+            const btn = document.getElementById('btnSyncSAP');
+            const icon = document.getElementById('iconSync');
+            const text = document.getElementById('textSync');
+
+            btn.disabled = true;
+            icon.className = 'spinner-border spinner-border-sm';
+            text.innerText = 'Menarik dari SAP...';
+
+            fetch('/api/vendor-master/sync-sap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast(data.message || 'Sinkronisasi SAP berhasil', true);
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(data.message || 'Gagal sinkronisasi dari SAP', false);
+                    btn.disabled = false;
+                    icon.className = 'bi bi-cloud-arrow-down';
+                    text.innerText = 'Sync Data dari SAP';
+                }
+            })
+            .catch(err => {
+                showToast('Terjadi kesalahan jaringan ke SAP', false);
+                btn.disabled = false;
+                icon.className = 'bi bi-cloud-arrow-down';
+                text.innerText = 'Sync Data dari SAP';
+            });
+        }
+    </script>
+</body>
+</html>

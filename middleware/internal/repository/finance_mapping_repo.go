@@ -131,7 +131,7 @@ func (r *PostgresRepository) ListEmployeeVendors(ctx context.Context, search str
 		limit = 1000
 	}
 	rows, err := r.Pool.Query(ctx, `
-		SELECT vendor_code, cip_flag, COALESCE(description, ''), is_active, updated_at
+		SELECT vendor_code, cip_flag, COALESCE(email, ''), COALESCE(bank_key, ''), COALESCE(bank_account, ''), COALESCE(account_holder, ''), COALESCE(description, ''), is_active, updated_at
 		FROM employee_vendor_mappings
 		WHERE ($1 = '' OR vendor_code ILIKE '%' || $1 || '%' OR description ILIKE '%' || $1 || '%')
 		ORDER BY vendor_code LIMIT $2`, search, limit)
@@ -142,7 +142,7 @@ func (r *PostgresRepository) ListEmployeeVendors(ctx context.Context, search str
 	var out []model.EmployeeVendorMapping
 	for rows.Next() {
 		var m model.EmployeeVendorMapping
-		if err := rows.Scan(&m.VendorCode, &m.CIPFlag, &m.Description, &m.IsActive, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.VendorCode, &m.CIPFlag, &m.Email, &m.BankKey, &m.BankAccount, &m.AccountHolder, &m.Description, &m.IsActive, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -161,11 +161,11 @@ func (r *PostgresRepository) UpsertEmployeeVendors(ctx context.Context, items []
 	batch := &pgx.Batch{}
 	for _, m := range items {
 		batch.Queue(`
-			INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, description, is_active, updated_at)
-			VALUES ($1, $2, $3, $4, NOW())
+			INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 			ON CONFLICT (vendor_code) DO UPDATE SET
-				cip_flag = EXCLUDED.cip_flag, description = EXCLUDED.description, is_active = EXCLUDED.is_active, updated_at = NOW()
-		`, strings.TrimSpace(m.VendorCode), m.CIPFlag, m.Description, m.IsActive)
+				cip_flag = EXCLUDED.cip_flag, email = EXCLUDED.email, bank_key = EXCLUDED.bank_key, bank_account = EXCLUDED.bank_account, account_holder = EXCLUDED.account_holder, description = EXCLUDED.description, is_active = EXCLUDED.is_active, updated_at = NOW()
+		`, strings.TrimSpace(m.VendorCode), m.CIPFlag, m.Email, m.BankKey, m.BankAccount, m.AccountHolder, m.Description, m.IsActive)
 	}
 	return execBatch(ctx, r, batch, len(items))
 }

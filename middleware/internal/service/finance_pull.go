@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"golang-bpi-testing/internal/client"
 	"golang-bpi-testing/internal/model"
 )
 
@@ -481,4 +482,151 @@ func (f *FinanceService) GetFixedAssetDetail(ctx context.Context, companyCode, m
 		return nil, err
 	}
 	return body, nil
+}
+
+// SyncVendorMasterFromSAP menarik Master Data Vendor dari SAP OData API_BUSINESS_PARTNER
+// sesuai spesifikasi Excel sheet "Outbound Master Data Vendor" (Address, Email, dan Bank).
+func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.SyncResult {
+	res := model.SyncResult{Target: "vendor_master"}
+	ep, err := f.PGRepo.GetSAPEndpointByCode(ctx, "BP")
+	if err != nil || ep == nil {
+		res.Error = "endpoint SAP 'BP' (Business Partner) tidak terdaftar"
+		return res
+	}
+	if !ep.IsActive {
+		res.Error = "endpoint SAP 'BP' nonaktif"
+		return res
+	}
+
+	// Jika mode simulasi (MOCK), gunakan sample data dari Excel sheet Outbound Master Data Vendor
+	if client.IsMock(ep) {
+		mockVendors := []model.EmployeeVendorMapping{
+			{
+				VendorCode:    "VND-0009",
+				CIPFlag:       "CIP",
+				Email:         "account.payable01@supplier.com",
+				BankKey:       "Mandiri",
+				BankAccount:   "140001928374",
+				AccountHolder: "PT Dwijaya Perkasa",
+				Description:   "Outbound SAP Vendor (Sample)",
+				IsActive:      true,
+			},
+			{
+				VendorCode:    "VND-0035",
+				CIPFlag:       "NON_CIP",
+				Email:         "billing@megatech.co.id",
+				BankKey:       "BCA",
+				BankAccount:   "8830192847",
+				AccountHolder: "PT Megatech Solusindo",
+				Description:   "Outbound SAP Vendor (Sample)",
+				IsActive:      true,
+			},
+			{
+				VendorCode:    "VND-0061",
+				CIPFlag:       "CIP",
+				Email:         "finance@andalankita.co.id",
+				BankKey:       "BNI",
+				BankAccount:   "0928374615",
+				AccountHolder: "CV Andalan Mandiri",
+				Description:   "Outbound SAP Vendor (Sample)",
+				IsActive:      true,
+			},
+			{
+				VendorCode:    "VND-0063",
+				CIPFlag:       "NON_CIP",
+				Email:         "contact@primasinergi.com",
+				BankKey:       "BRI",
+				BankAccount:   "034101002938",
+				AccountHolder: "PT Prima Sinergi",
+				Description:   "Outbound SAP Vendor (Sample)",
+				IsActive:      true,
+			},
+		}
+		n, err := f.PGRepo.UpsertEmployeeVendors(ctx, mockVendors)
+		if err != nil {
+			res.Error = err.Error()
+			return res
+		}
+		res.Fetched = len(mockVendors)
+		res.Upserted = n
+		res.Pages = 1
+		return res
+	}
+
+	// Live mode: tarik A_BusinessPartnerAddress dengan expand to_EmailAddress
+	// Link 1 & 2 di Excel: /sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerAddress?$format=json
+	addrPath := "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerAddress?$expand=to_EmailAddress&$format=json&$top=500"
+	_, body, err := f.SAPClient.GetOData(ep, addrPath)
+	if err != nil {
+		res.Error = fmt.Sprintf("gagal mengambil A_BusinessPartnerAddress dari SAP: %v", err)
+		return res
+	}
+
+	recs, err := odataRecords(body)
+	if err != nil {
+		res.Error = fmt.Sprintf("format data SAP tidak valid: %v", err)
+		return res
+	}
+
+	var items []model.EmployeeVendorMapping
+	for _, m := range recs {
+		vendorCode := str(m, "BusinessPartner")
+		if vendorCode == "" {
+			continue
+		}
+		extID := strings.ToUpper(str(m, "AddressIDByExternalSystem"))
+		cipFlag := "NON_CIP"
+		if strings.Contains(extID, "CIP") && !strings.Contains(extID, "NON") {
+			cipFlag = "CIP"
+		}
+
+		// Email dari to_EmailAddress
+		email := ""
+		if toEmail, ok := m["to_EmailAddress"].(map[string]interface{}); ok {
+			if results, ok := toEmail["results"].([]interface{}); ok && len(results) > 0 {
+				if em, ok := results[0].(map[string]interface{}); ok {
+					email = str(em, "EmailAddress")
+				}
+			} else {
+				email = str(toEmail, "EmailAddress")
+			}
+		}
+
+		// Tarik data Bank dari A_BusinessPartner('{Vendor}')/to_BusinessPartnerBank?$format=json (Link 3 di Excel)
+		bankKey := ""
+		bankAccount := ""
+		accHolder := ""
+		bankPath := fmt.Sprintf("/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner('%s')/to_BusinessPartnerBank?$format=json", odataLiteral(vendorCode))
+		if _, bankBody, bErr := f.SAPClient.GetOData(ep, bankPath); bErr == nil {
+			if bRecs, bParseErr := odataRecords(bankBody); bParseErr == nil && len(bRecs) > 0 {
+				bm := bRecs[0]
+				bankKey = str(bm, "BankName", "BankNumber", "BankInternalID")
+				bankAccount = str(bm, "BankAccount")
+				accHolder = str(bm, "BankAccountHolderName")
+			}
+		}
+
+		items = append(items, model.EmployeeVendorMapping{
+			VendorCode:    vendorCode,
+			CIPFlag:       cipFlag,
+			Email:         email,
+			BankKey:       bankKey,
+			BankAccount:   bankAccount,
+			AccountHolder: accHolder,
+			Description:   "Tersinkronisasi dari SAP OData",
+			IsActive:      true,
+		})
+	}
+
+	if len(items) > 0 {
+		n, err := f.PGRepo.UpsertEmployeeVendors(ctx, items)
+		if err != nil {
+			res.Error = err.Error()
+			return res
+		}
+		res.Upserted = n
+	}
+	res.Fetched = len(items)
+	res.Pages = 1
+	return res
 }

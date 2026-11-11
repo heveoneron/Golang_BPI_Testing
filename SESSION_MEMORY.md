@@ -121,6 +121,17 @@ Dokumen ini adalah ringkasan status, arsitektur, progres implementasi terakhir, 
   - `docs.SwaggerInfo.Host = ""` dan Swagger spec diset dinamis (empty string) agar Swagger UI di browser laptop memanggil IP server (`192.168.214.210:8085`) bukan hardcoded `localhost:8085`.
   - Link Swagger di web panel (`sidebar.html` & `exchange_rates.html`) disesuaikan agar otomatis mengarah ke IP server yang sedang diakses.
 
+### F. Enhancements Material Config & Master Data Vendor
+- **Material Config Item Group**:
+  - Menambahkan kolom finansial sesuai DJ-MM-ENH-ZME003 di tabel dan modal form `material_mapping.html`: `Inventory Posting (GL)`, `Goods Issue (GL)`, `Stock Adj (GL)`, dan `Cost Center`.
+  - Menambahkan kolom tersebut pada model `MaterialConfigMapping` dan skema database `material_config_mappings`.
+  - Menambahkan auto-fill preset untuk Valuation Class `S001`-`S011`.
+- **Vendor Master Data (Outbound Master Data Vendor)**:
+  - Memisahkan card Vendor dari menu `Finance Integration` Tab `Reimbursement` ke menu Master Data baru: `Vendor Master Data` (`/vendor-master`).
+  - Menampilkan dan mengelola data lengkap vendor outbound: `Vendor Code`, `CIP / Non CIP`, `Email`, `Bank Key`, `Bank Account`, `Account Holder`, `Keterangan`, `Status`, `Aksi`.
+  - Didukung model `VendorMaster`, repository, service, controller, dan template `vendor_master.html` dengan pagination, search filter, modal add/edit, dan toggle status.
+  - **Tombol Sync Data dari SAP (Manual Trigger)**: Disediakan tombol on-demand di header `/vendor-master` untuk menarik data langsung dari SAP OData `API_BUSINESS_PARTNER` (`A_BusinessPartnerAddress` $\rightarrow$ `to_EmailAddress` & `A_BusinessPartner` $\rightarrow$ `to_BusinessPartnerBank`) tanpa background scheduler otomatis, lengkap dengan feedback spinner dan toast notification. Sedia fallback sample mock vendors untuk lingkungan simulasi/testing.
+
 ---
 
 ## 4. Status Verifikasi & Testing

@@ -459,6 +459,10 @@ CREATE TABLE IF NOT EXISTS material_config_mappings (
     config_type VARCHAR(50) NOT NULL,
     maximo_value VARCHAR(50) NOT NULL,
     sap_value VARCHAR(50) NOT NULL,
+    inventory_posting_gl VARCHAR(50),
+    goods_issue_gl VARCHAR(50),
+    stock_adj_gl VARCHAR(50),
+    cost_center VARCHAR(50),
     description VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -467,6 +471,21 @@ CREATE TABLE IF NOT EXISTS material_config_mappings (
 );
 CREATE INDEX IF NOT EXISTS idx_mat_cfg_type ON material_config_mappings(config_type);
 CREATE INDEX IF NOT EXISTS idx_mat_cfg_maximo ON material_config_mappings(maximo_value);
+
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS inventory_posting_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS goods_issue_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS stock_adj_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS cost_center VARCHAR(50);
+
+-- Preset Akun GL & Cost Center untuk Item Group / Valuation Class (DJ-MM-ENH-ZME003)
+UPDATE material_config_mappings SET inventory_posting_gl = '114001', goods_issue_gl = '512033', stock_adj_gl = '512033', cost_center = '71098' WHERE sap_value = 'S001' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114004', goods_issue_gl = '512030', stock_adj_gl = '512030', cost_center = '71099' WHERE sap_value = 'S002' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114009', goods_issue_gl = '512031', stock_adj_gl = '512031', cost_center = '71099' WHERE sap_value = 'S003' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114012', goods_issue_gl = '512032', stock_adj_gl = '512032', cost_center = '71099' WHERE sap_value = 'S004' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114006', goods_issue_gl = '512034', stock_adj_gl = '512034', cost_center = '71099' WHERE sap_value = 'S006' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114017', goods_issue_gl = '512028', stock_adj_gl = '512028', cost_center = '71099' WHERE sap_value = 'S009' AND config_type = 'ITEM_GROUP';
+UPDATE material_config_mappings SET inventory_posting_gl = '114016', goods_issue_gl = '512023', stock_adj_gl = '512023', cost_center = '71099' WHERE sap_value = 'S011' AND config_type = 'ITEM_GROUP';
+
 
 -- Seed Material Config Mappings
 INSERT INTO material_config_mappings (config_type, maximo_value, sap_value, description, is_active, created_at, updated_at) VALUES ('ITEM_TYPE', 'Item', 'ZITM', 'ITEM_TYPE Mapping: Item -> ZITM', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (config_type, maximo_value) DO UPDATE SET sap_value = EXCLUDED.sap_value, updated_at = CURRENT_TIMESTAMP;

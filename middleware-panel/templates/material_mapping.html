@@ -159,12 +159,16 @@
                         <table class="table table-custom mb-0" id="tableItemGroup">
                             <thead>
                                 <tr>
-                                    <th style="width: 70px;">ID</th>
-                                    <th style="width: 220px;">Maximo ITEMGROUPID</th>
-                                    <th style="width: 220px;">SAP Valuation Class</th>
+                                    <th style="width: 60px;">ID</th>
+                                    <th style="width: 170px;">Maximo ITEMGROUPID</th>
+                                    <th style="width: 170px;">SAP Valuation Class</th>
+                                    <th style="width: 150px;">Inventory Posting</th>
+                                    <th style="width: 130px;">Goods Issue</th>
+                                    <th style="width: 130px;">Stock Adj</th>
+                                    <th style="width: 120px;">Cost Center</th>
                                     <th>Keterangan</th>
-                                    <th style="width: 130px;" class="text-center">Status</th>
-                                    <th style="width: 140px;" class="text-end">Aksi</th>
+                                    <th style="width: 100px;" class="text-center">Status</th>
+                                    <th style="width: 110px;" class="text-end">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -173,6 +177,10 @@
                                     <td class="text-muted">{{ .ID }}</td>
                                     <td><span class="maximo-code-badge"><i class="bi bi-database me-1"></i>{{ .MaximoValue }}</span></td>
                                     <td><span class="sap-code-badge"><i class="bi bi-cloud-check me-1"></i>{{ .SAPValue }}</span></td>
+                                    <td><span class="badge bg-light text-dark border font-monospace">{{ if .InventoryPostingGL }}{{ .InventoryPostingGL }}{{ else }}-{{ end }}</span></td>
+                                    <td><span class="badge bg-light text-dark border font-monospace">{{ if .GoodsIssueGL }}{{ .GoodsIssueGL }}{{ else }}-{{ end }}</span></td>
+                                    <td><span class="badge bg-light text-dark border font-monospace">{{ if .StockAdjGL }}{{ .StockAdjGL }}{{ else }}-{{ end }}</span></td>
+                                    <td><span class="badge bg-light text-dark border font-monospace">{{ if .CostCenter }}{{ .CostCenter }}{{ else }}-{{ end }}</span></td>
                                     <td class="text-muted">{{ if .Description }}{{ .Description }}{{ else }}-{{ end }}</td>
                                     <td class="text-center">
                                         <div class="form-check form-switch d-inline-block">
@@ -180,7 +188,7 @@
                                         </div>
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal({{ .ID }}, '{{ .ConfigType }}', '{{ .MaximoValue }}', '{{ .SAPValue }}', '{{ .Description }}', {{ .IsActive }})">
+                                        <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal({{ .ID }}, '{{ .ConfigType }}', '{{ .MaximoValue }}', '{{ .SAPValue }}', '{{ .Description }}', {{ .IsActive }}, '{{ .InventoryPostingGL }}', '{{ .GoodsIssueGL }}', '{{ .StockAdjGL }}', '{{ .CostCenter }}')">
                                             <i class="bi bi-pencil"></i>
                                         </button>
                                         <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteMapping({{ .ID }}, '{{ .MaximoValue }}')">
@@ -190,7 +198,7 @@
                                 </tr>
                                 {{ else }}
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">Belum ada data Item Group</td>
+                                    <td colspan="10" class="text-center text-muted py-4">Belum ada data Item Group</td>
                                 </tr>
                                 {{ end }}
                             </tbody>
@@ -336,7 +344,7 @@
                         <input type="hidden" id="mappingId" value="0">
                         <div class="mb-3">
                             <label class="form-label fw-bold small text-muted">Kategori Konfigurasi</label>
-                            <select id="configType" class="form-select" required>
+                            <select id="configType" class="form-select" required onchange="toggleConfigTypeFields()">
                                 <option value="ITEM_GROUP">Item Group (ITEMGROUPID &rarr; ValuationClass)</option>
                                 <option value="ITEM_TYPE">Item Type (ITEMTYPE &rarr; ProductType)</option>
                                 <option value="STOCK_TYPE">Stock Type (StockType &rarr; ProductGroup)</option>
@@ -348,7 +356,30 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small text-muted">Nilai SAP Grow</label>
-                            <input type="text" id="sapValue" class="form-control" placeholder="Contoh: 3000, ZITM, ZSTK" required>
+                            <input type="text" id="sapValue" class="form-control" placeholder="Contoh: 3000, S001, ZITM, ZSTK" required oninput="checkValuationPreset()">
+                        </div>
+                        <div id="itemGroupExtraFields">
+                            <div class="p-3 mb-3 rounded-2" style="background-color: #F8FAFC; border: 1px dashed #CBD5E1;">
+                                <div class="fw-bold small text-primary mb-2"><i class="bi bi-diagram-3 me-1"></i>Konfigurasi Finansial Valuation Class (DJ-MM-ENH-ZME003)</div>
+                                <div class="row g-2">
+                                    <div class="col-md-6 mb-2">
+                                        <label class="form-label small text-muted fw-bold mb-1">Inventory Posting (GL)</label>
+                                        <input type="text" id="inventoryPostingGL" class="form-control form-control-sm" placeholder="Contoh: 114001">
+                                    </div>
+                                    <div class="col-md-6 mb-2">
+                                        <label class="form-label small text-muted fw-bold mb-1">Goods Issue (GL)</label>
+                                        <input type="text" id="goodsIssueGL" class="form-control form-control-sm" placeholder="Contoh: 512033">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted fw-bold mb-1">Stock Adj (GL)</label>
+                                        <input type="text" id="stockAdjGL" class="form-control form-control-sm" placeholder="Contoh: 512033">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted fw-bold mb-1">Cost Center</label>
+                                        <input type="text" id="costCenter" class="form-control form-control-sm" placeholder="Contoh: 71098">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small text-muted">Keterangan / Catatan</label>
@@ -510,6 +541,39 @@
             paginators.stockType = initClientPagination('tableStockType', 'searchStockType', 'paginationStockType', 'infoStockType', 20);
         });
 
+        const valClassPresets = {
+            'S001': { inv: '114001', gi: '512033', sa: '512033', cc: '71098' },
+            'S002': { inv: '114004', gi: '512030', sa: '512030', cc: '71099' },
+            'S003': { inv: '114009', gi: '512031', sa: '512031', cc: '71099' },
+            'S004': { inv: '114012', gi: '512032', sa: '512032', cc: '71099' },
+            'S006': { inv: '114006', gi: '512034', sa: '512034', cc: '71099' },
+            'S009': { inv: '114017', gi: '512028', sa: '512028', cc: '71099' },
+            'S011': { inv: '114016', gi: '512023', sa: '512023', cc: '71099' }
+        };
+
+        function toggleConfigTypeFields() {
+            const t = document.getElementById('configType').value;
+            const extra = document.getElementById('itemGroupExtraFields');
+            if (t === 'ITEM_GROUP') {
+                extra.style.display = 'block';
+            } else {
+                extra.style.display = 'none';
+            }
+        }
+
+        function checkValuationPreset() {
+            const t = document.getElementById('configType').value;
+            if (t !== 'ITEM_GROUP') return;
+            const val = document.getElementById('sapValue').value.trim().toUpperCase();
+            if (valClassPresets[val]) {
+                const p = valClassPresets[val];
+                if (!document.getElementById('inventoryPostingGL').value) document.getElementById('inventoryPostingGL').value = p.inv;
+                if (!document.getElementById('goodsIssueGL').value) document.getElementById('goodsIssueGL').value = p.gi;
+                if (!document.getElementById('stockAdjGL').value) document.getElementById('stockAdjGL').value = p.sa;
+                if (!document.getElementById('costCenter').value) document.getElementById('costCenter').value = p.cc;
+            }
+        }
+
         function openAddModal() {
             document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle text-primary me-2"></i>Tambah Pemetaan Material';
             document.getElementById('mappingId').value = 0;
@@ -517,20 +581,30 @@
             document.getElementById('configType').disabled = false;
             document.getElementById('maximoValue').value = '';
             document.getElementById('sapValue').value = '';
+            document.getElementById('inventoryPostingGL').value = '';
+            document.getElementById('goodsIssueGL').value = '';
+            document.getElementById('stockAdjGL').value = '';
+            document.getElementById('costCenter').value = '';
             document.getElementById('description').value = '';
             document.getElementById('isActive').checked = true;
+            toggleConfigTypeFields();
             new bootstrap.Modal(document.getElementById('mappingModal')).show();
         }
 
-        function openEditModal(id, configType, maximoVal, sapVal, desc, isActive) {
+        function openEditModal(id, configType, maximoVal, sapVal, desc, isActive, invGL = '', giGL = '', saGL = '', cc = '') {
             document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>Edit Pemetaan Material';
             document.getElementById('mappingId').value = id;
             document.getElementById('configType').value = configType;
             document.getElementById('configType').disabled = true;
             document.getElementById('maximoValue').value = maximoVal;
             document.getElementById('sapValue').value = sapVal;
+            document.getElementById('inventoryPostingGL').value = invGL;
+            document.getElementById('goodsIssueGL').value = giGL;
+            document.getElementById('stockAdjGL').value = saGL;
+            document.getElementById('costCenter').value = cc;
             document.getElementById('description').value = desc;
             document.getElementById('isActive').checked = isActive;
+            toggleConfigTypeFields();
             new bootstrap.Modal(document.getElementById('mappingModal')).show();
         }
 
@@ -541,6 +615,11 @@
             const sapValue = document.getElementById('sapValue').value.trim();
             const description = document.getElementById('description').value.trim();
             const isActive = document.getElementById('isActive').checked;
+
+            const inventoryPostingGL = document.getElementById('inventoryPostingGL').value.trim();
+            const goodsIssueGL = document.getElementById('goodsIssueGL').value.trim();
+            const stockAdjGL = document.getElementById('stockAdjGL').value.trim();
+            const costCenter = document.getElementById('costCenter').value.trim();
 
             if (!maximoValue || !sapValue) {
                 showToast('Nilai Maximo dan Nilai SAP wajib diisi', false);
@@ -555,6 +634,10 @@
                     config_type: configType,
                     maximo_value: maximoValue,
                     sap_value: sapValue,
+                    inventory_posting_gl: inventoryPostingGL,
+                    goods_issue_gl: goodsIssueGL,
+                    stock_adj_gl: stockAdjGL,
+                    cost_center: costCenter,
                     description: description,
                     is_active: isActive
                 })

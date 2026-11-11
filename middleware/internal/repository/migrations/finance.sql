@@ -125,15 +125,38 @@ CREATE TABLE IF NOT EXISTS reimbursement_gl_mappings (
     CONSTRAINT uq_reimb_policy UNIQUE (policy_key, cip_flag)
 );
 
--- RICEF 7: vendor karyawan -> status CIP / Non CIP (sheet Vendor Employee)
+-- RICEF 7: vendor karyawan -> status CIP / Non CIP & Outbound Master Data Vendor
 CREATE TABLE IF NOT EXISTS employee_vendor_mappings (
-    vendor_code VARCHAR(20) PRIMARY KEY,
-    cip_flag VARCHAR(10) NOT NULL,                 -- CIP / NON_CIP
+    vendor_code VARCHAR(50) PRIMARY KEY,
+    cip_flag VARCHAR(20) NOT NULL,                 -- CIP / NON_CIP
+    email VARCHAR(150),
+    bank_key VARCHAR(100),
+    bank_account VARCHAR(100),
+    account_holder VARCHAR(150),
     description VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS email VARCHAR(150);
+ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS bank_key VARCHAR(100);
+ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS bank_account VARCHAR(100);
+ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS account_holder VARCHAR(150);
+
+-- Seed Outbound Master Data Vendor
+INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
+VALUES ('VND-0009', 'CIP', 'mrauff341@gmail.com', 'bank key1', '1010101', 'Mandiri', 'Vendor Sample Mandiri', true)
+ON CONFLICT (vendor_code) DO UPDATE SET 
+    cip_flag = EXCLUDED.cip_flag,
+    email = EXCLUDED.email,
+    bank_key = EXCLUDED.bank_key,
+    bank_account = EXCLUDED.bank_account,
+    account_holder = EXCLUDED.account_holder,
+    updated_at = NOW();
+
+INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
+VALUES ('VND-0061', 'NON_CIP', 'soltius@gmail.com', 'MGAJKT001', '1202228837', 'PT.BANK MUAMALAT INDONESIA TBK', 'PT Chevron Indonesia', true)
+ON CONFLICT (vendor_code) DO NOTHING;
 
 -- SAP -> Maximo: supplier invoice yang ditarik dari SAP (API_SUPPLIERINVOICE_PROCESS_SRV)
 CREATE TABLE IF NOT EXISTS sap_supplier_invoices (

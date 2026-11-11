@@ -585,6 +585,8 @@ func (c *FinanceController) TriggerSync(ctx *gin.Context) {
 		}))
 	case "asset":
 		results = append(results, c.Svc.SyncFixedAssets(reqCtx, ctx.Query("company_code")))
+	case "vendor", "vendor-master", "vendor_master":
+		results = append(results, c.Svc.SyncVendorMasterFromSAP(reqCtx))
 	case "all":
 		results = c.Svc.SyncAll(reqCtx)
 	default:
@@ -942,6 +944,28 @@ func (c *FinanceController) DeleteEmployeeVendor(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+// SyncVendorMaster godoc
+// @Summary      [Outbound Vendor] Tarik data master vendor dari SAP API_BUSINESS_PARTNER sekarang
+// @Tags         Finance - Supplier Invoice
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /finance/vendor-master/sync-sap [post]
+func (c *FinanceController) SyncVendorMaster(ctx *gin.Context) {
+	if !c.ready(ctx) {
+		return
+	}
+	res := c.Svc.SyncVendorMasterFromSAP(ctx.Request.Context())
+	if res.Error != "" {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": res.Error, "data": res})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": fmt.Sprintf("Berhasil sinkronisasi %d vendor dari SAP (%d data baru/diperbarui)", res.Fetched, res.Upserted),
+		"data":    res,
+	})
 }
 
 // ===================== SAP -> Maximo (dbo.mxinvoice) =====================
