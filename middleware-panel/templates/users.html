@@ -321,6 +321,12 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="default_values" id="new_menu_default_values" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_default_values"><i class="bi bi-ui-checks-grid me-1 text-primary"></i> Default Value</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input new-menu-cb" type="checkbox" value="table_mapping" id="new_menu_table_mapping" onchange="onCheckboxChange('new')">
                                         <label class="form-check-label small" for="new_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
                                     </div>
@@ -464,6 +470,12 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="default_values" id="edit_menu_default_values" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_default_values"><i class="bi bi-ui-checks-grid me-1 text-primary"></i> Default Value</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input edit-menu-cb" type="checkbox" value="table_mapping" id="edit_menu_table_mapping" onchange="onCheckboxChange('edit')">
                                         <label class="form-check-label small" for="edit_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
                                     </div>
@@ -519,7 +531,7 @@
 
         const allMenuCodes = [
             'dashboard', 'swagger', 'finance', 'exchange_rates', 'uom_mapping',
-            'config', 'sap_endpoints', 'table_mapping', 'scheduler',
+            'config', 'sap_endpoints', 'default_values', 'table_mapping', 'scheduler',
             'backup', 'users'
         ];
 

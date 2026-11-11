@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Default Value - Middleware Panel</title>
+
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --primary: #2563EB;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .top-nav-title h3 { font-weight: 800; margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px; }
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; margin-bottom: 24px; }
+        .stat-card { background: #ffffff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 18px 22px; box-shadow: var(--shadow-card); }
+        .stat-val { font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 6px; }
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 10px 16px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); }
+        .key-badge { font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; font-size: 12.5px; color: #1D4ED8; }
+        .cat-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: #EEF2FF; color: #4338CA; }
+        .value-input { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; min-width: 180px; }
+        .value-input.changed { border-color: #F59E0B; background: #FFFBEB; }
+        .default-hint { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--text-muted); }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-ui-checks-grid text-primary"></i> Default Value</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Nilai tetap yang dipakai Engine saat membentuk payload SAP (CompanyCode, TaxCode V0, PurchasingGroup, movement type, dll)</span>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+
+        {{ if .LoadError }}
+        <div class="alert alert-warning border-0 shadow-sm">{{ .LoadError }}</div>
+        {{ end }}
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700;">Total Default Value</div>
+                    <div class="stat-val text-primary">{{ .Total }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700;">Diubah dari Nilai Awal</div>
+                    <div class="stat-val text-warning">{{ .ChangedCount }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="text-muted text-uppercase" style="font-size: 11px; font-weight: 700;">Berlaku di Engine</div>
+                    <div class="stat-val text-dark" style="font-size: 18px; margin-top: 10px;">&le; 1 menit, tanpa restart</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-info border-0 shadow-sm d-flex align-items-center gap-3 py-2 px-3 mb-4 rounded-3" style="font-size: 13px;">
+            <i class="bi bi-info-circle-fill fs-5 text-primary"></i>
+            <div>
+                Mapping (UOM, Recon &amp; BP Grouping, Material Config) tetap diutamakan; nilai di sini dipakai bila mapping tidak ditemukan atau data Maximo kosong.
+                Mengosongkan <code>PO_DEFAULT_MATERIAL</code> / <code>PO_DEFAULT_COST_CENTER</code> membuat dokumen tanpa nilai tersebut ditolak sebagai error data.
+                Tenant my445160 memakai company code <code>1000</code>: sesuaikan <code>PO_COMPANY_CODE</code>, <code>BP_COMPANY_CODE</code> dan purchasing org bila perlu.
+            </div>
+        </div>
+
+        <div class="main-card p-4">
+            <div class="d-flex gap-2 mb-3 flex-wrap">
+                <div class="input-group" style="max-width: 320px;">
+                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" id="searchDV" class="form-control border-start-0 ps-0" placeholder="Cari key / deskripsi / nilai...">
+                </div>
+                <select id="filterCategory" class="form-select" style="max-width: 200px;">
+                    <option value="">Semua kategori</option>
+                    {{ range .Categories }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                </select>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-custom mb-0 align-middle" id="tableDV">
+                    <thead>
+                        <tr>
+                            <th style="width: 90px;">Kategori</th>
+                            <th>Key &amp; Deskripsi</th>
+                            <th style="width: 260px;">Nilai</th>
+                            <th style="width: 150px;">Nilai Awal</th>
+                            <th style="width: 150px;">Diubah</th>
+                            <th style="width: 120px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Values }}
+                        <tr data-key="{{ .Key }}" data-category="{{ .Category }}">
+                            <td><span class="cat-badge">{{ .Category }}</span></td>
+                            <td>
+                                <div class="key-badge">{{ .Key }}</div>
+                                <div class="text-muted" style="font-size: 12.5px;">{{ .Description }}</div>
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm value-input {{ if ne .Value .DefaultValue }}changed{{ end }}"
+                                       value="{{ .Value }}" data-original="{{ .Value }}" data-default="{{ .DefaultValue }}">
+                            </td>
+                            <td><span class="default-hint">{{ if .DefaultValue }}{{ .DefaultValue }}{{ else }}(kosong){{ end }}</span></td>
+                            <td class="text-muted" style="font-size: 12px;">{{ if .UpdatedBy }}{{ .UpdatedBy }}<br>{{ end }}{{ .UpdatedAt.Format "2006-01-02 15:04" }}</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-primary" title="Simpan" onclick="saveValue(this)"><i class="bi bi-check-lg"></i></button>
+                                <button class="btn btn-sm btn-outline-secondary" title="Kembalikan ke nilai awal" onclick="resetValue(this)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                            </td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="6" class="text-center text-muted py-4">Belum ada data default value.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            const toastMsg = document.getElementById('toastMessage');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            toastMsg.textContent = message;
+            new bootstrap.Toast(toastEl, { delay: 4000 }).show();
+        }
+
+        function rowOf(btn) { return btn.closest('tr'); }
+
+        async function post(url, body) {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : null
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.status !== 'success') throw new Error(data.message || ('HTTP ' + res.status));
+            return data;
+        }
+
+        async function saveValue(btn) {
+            const tr = rowOf(btn);
+            const input = tr.querySelector('.value-input');
+            const key = tr.dataset.key;
+            if (input.value.trim() === '' && !confirm('Simpan ' + key + ' dengan nilai KOSONG?')) return;
+            try {
+                const data = await post('/api/default-values', { key: key, value: input.value });
+                input.dataset.original = input.value.trim();
+                input.value = input.value.trim();
+                input.classList.toggle('changed', input.value !== input.dataset.default);
+                showToast(data.message, true);
+            } catch (e) { showToast(e.message, false); }
+        }
+
+        async function resetValue(btn) {
+            const tr = rowOf(btn);
+            const input = tr.querySelector('.value-input');
+            const key = tr.dataset.key;
+            if (!confirm('Kembalikan ' + key + ' ke nilai awal "' + input.dataset.default + '"?')) return;
+            try {
+                const data = await post('/api/default-values/reset/' + encodeURIComponent(key));
+                input.value = input.dataset.default;
+                input.dataset.original = input.value;
+                input.classList.remove('changed');
+                showToast(data.message, true);
+            } catch (e) { showToast(e.message, false); }
+        }
+
+        function applyFilter() {
+            const q = document.getElementById('searchDV').value.toLowerCase();
+            const cat = document.getElementById('filterCategory').value;
+            document.querySelectorAll('#tableDV tbody tr[data-key]').forEach(tr => {
+                const text = tr.innerText.toLowerCase() + ' ' + tr.querySelector('.value-input').value.toLowerCase();
+                const show = (!cat || tr.dataset.category === cat) && (!q || text.includes(q));
+                tr.style.display = show ? '' : 'none';
+            });
+        }
+        document.getElementById('searchDV').addEventListener('input', applyFilter);
+        document.getElementById('filterCategory').addEventListener('change', applyFilter);
+    </script>
+</body>
+</html>

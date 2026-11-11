@@ -94,6 +94,8 @@ func getFirstAllowedPath(allowed string) string {
 			return "/config"
 		case "sap_endpoints":
 			return "/sap-endpoints"
+		case "default_values":
+			return "/default-values"
 		case "table_mapping":
 			return "/table-api-mapping"
 		case "scheduler":
@@ -208,6 +210,9 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	vendorMasterService := services.NewVendorMasterService(vendorMasterRepo)
 	vendorMasterController := controllers.NewVendorMasterController(vendorMasterService)
 
+	// 14. Default Value (nilai default transform Maximo -> SAP, tabel sap_default_values)
+	defaultValueController := controllers.NewDefaultValueController(repository.NewDefaultValueRepository(db))
+
 	// ==========================================
 	// ROUTES MAPPING
 	// ==========================================
@@ -236,6 +241,11 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.GET("/config", requireMenuGuard("config"), appConfigController.ShowConfig)
 	r.POST("/api/config", requireMenuGuard("config"), appConfigController.SaveConfig)
 	r.DELETE("/api/config/:key", requireMenuGuard("config"), appConfigController.DeleteConfig)
+
+	// Default Value (menu: default_values)
+	r.GET("/default-values", requireMenuGuard("default_values"), defaultValueController.ShowDefaultValues)
+	r.POST("/api/default-values", requireMenuGuard("default_values"), defaultValueController.HandleSave)
+	r.POST("/api/default-values/reset/:key", requireMenuGuard("default_values"), defaultValueController.HandleReset)
 
 	// SAP Integration Endpoints & Sandbox (menu: sap_endpoints)
 	r.GET("/sap-endpoints", requireMenuGuard("sap_endpoints"), sapEndpointController.ShowEndpoints)

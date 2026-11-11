@@ -17,6 +17,8 @@ import (
 
 type PostgresRepository struct {
 	Pool *pgxpool.Pool
+	// defaults adalah cache sap_default_values (lihat default_values.go).
+	defaults defaultValueCache
 }
 
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {

@@ -361,6 +361,20 @@ CREATE TABLE IF NOT EXISTS configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 15b. TABEL DEFAULT VALUE (Panel > Configuration > Default Value)
+-- Nilai default transform Maximo -> SAP (CompanyCode, TaxCode V0, PurchasingGroup, dll).
+-- Baris di-seed oleh Engine saat start (repository.DefaultValueSpecs); nilai yang diubah dari Panel
+-- tidak ditimpa. default_value = nilai awal untuk tombol "Reset".
+CREATE TABLE IF NOT EXISTS sap_default_values (
+    key VARCHAR(100) PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    default_value TEXT NOT NULL DEFAULT '',
+    category VARCHAR(30) NOT NULL DEFAULT 'GENERAL',
+    description TEXT,
+    updated_by VARCHAR(100),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 16. TABEL SYSTEM LOGS
 CREATE TABLE IF NOT EXISTS system_logs (
     id BIGSERIAL PRIMARY KEY,

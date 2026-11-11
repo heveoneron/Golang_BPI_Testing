@@ -49,7 +49,31 @@ type FinanceService struct {
 }
 
 func NewFinanceService(pgRepo *repository.PostgresRepository, sapClient *client.SAPClient) *FinanceService {
+	setDefaultsSource(pgRepo)
 	return &FinanceService{PGRepo: pgRepo, SAPClient: sapClient}
+}
+
+// defaultsSource dipakai fungsi validasi murni (tanpa receiver) untuk membaca menu Default Value.
+var (
+	defaultsMu     sync.RWMutex
+	defaultsSource *repository.PostgresRepository
+)
+
+func setDefaultsSource(r *repository.PostgresRepository) {
+	if r == nil {
+		return
+	}
+	defaultsMu.Lock()
+	defaultsSource = r
+	defaultsMu.Unlock()
+}
+
+// defaultValue membaca nilai menu Default Value (sap_default_values); tanpa database = nilai awal.
+func defaultValue(key string) string {
+	defaultsMu.RLock()
+	r := defaultsSource
+	defaultsMu.RUnlock()
+	return r.Default(context.Background(), key)
 }
 
 func envOr(key, def string) string {
@@ -233,10 +257,10 @@ func ValidateJournalEntry(req *model.JournalEntryRequest) error {
 		req.CompanyCode = DefaultCompanyCode()
 	}
 	if req.DocumentType == "" {
-		req.DocumentType = "SA"
+		req.DocumentType = defaultValue("JE_DEFAULT_DOC_TYPE")
 	}
 	if req.Currency == "" {
-		req.Currency = "IDR"
+		req.Currency = defaultValue("JE_DEFAULT_CURRENCY")
 	}
 	req.Reference1 = strings.TrimSpace(req.Reference1)
 	if req.Reference1 == "" {
@@ -746,7 +770,7 @@ func ValidateAssetAcquisition(req *model.AssetAcquisitionRequest) error {
 		req.FixedAsset = "0"
 	}
 	if req.Currency == "" {
-		req.Currency = "IDR"
+		req.Currency = defaultValue("ASSET_DEFAULT_CURRENCY")
 	}
 	if req.MasterFixedAsset == "" {
 		errs = append(errs, "master_fixed_asset wajib diisi")

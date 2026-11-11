@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +22,21 @@ type SyncService struct {
 	SQLRepo   *repository.SQLServerRepository
 	PGRepo    *repository.PostgresRepository
 	SAPClient *client.SAPClient
+}
+
+// dv membaca nilai dari menu Default Value (tabel sap_default_values, lihat repository.DefaultValueSpecs).
+func (s *SyncService) dv(ctx context.Context, key string) string {
+	return s.PGRepo.Default(ctx, key)
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func NewSyncService(sqlRepo *repository.SQLServerRepository, pgRepo *repository.PostgresRepository, sapClient *client.SAPClient) *SyncService {
@@ -183,11 +197,11 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	// "If Prefix PO 45 = ZPRC, Else If Prefix PO 47 = ZCTR, Else fallback ZBPI atau NB"
 	cleanPO := strings.TrimSpace(maxPO.PONum)
 	sapPONum := ConvertMaximoPOToSAP(cleanPO)
-	poType := "ZBPI"
+	poType := s.dv(ctx, "PO_TYPE_DEFAULT")
 	if strings.HasPrefix(cleanPO, "45") {
-		poType = "ZPRC"
+		poType = s.dv(ctx, "PO_TYPE_PREFIX_45")
 	} else if strings.HasPrefix(cleanPO, "47") {
-		poType = "ZCTR"
+		poType = s.dv(ctx, "PO_TYPE_PREFIX_47")
 	}
 
 	// 2. Nomor PO asli Maximo selalu ditaruh di field SupplierRespSalesPersonName
@@ -198,8 +212,12 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 
 	docCurrency := strings.TrimSpace(maxPO.CurrencyCode)
 	if docCurrency == "" {
-		docCurrency = "IDR"
+		docCurrency = s.dv(ctx, "PO_DEFAULT_CURRENCY")
 	}
+	defMaterial, defUOM, defPlant, defCostCenter := s.dv(ctx, "PO_DEFAULT_MATERIAL"), s.dv(ctx, "PO_DEFAULT_UOM"), s.dv(ctx, "PO_DEFAULT_PLANT"), s.dv(ctx, "PO_DEFAULT_COST_CENTER")
+	acctCat, noTaxCode, taxCond, priceCond := s.dv(ctx, "PO_ACCOUNT_ASSIGNMENT_CATEGORY"), s.dv(ctx, "PO_NO_TAX_CODE"), s.dv(ctx, "PO_TAX_CONDITION_TYPE"), s.dv(ctx, "PO_PRICE_CONDITION_TYPE")
+	noteType, noteLang := s.dv(ctx, "PO_ITEM_NOTE_TEXT_TYPE"), s.dv(ctx, "PO_LANGUAGE")
+	defTaxRate, _ := strconv.ParseFloat(s.dv(ctx, "PO_DEFAULT_TAX_RATE"), 64)
 
 	orderDate := strings.TrimSpace(maxPO.OrderDate)
 	if orderDate == "" {
@@ -238,7 +256,10 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 
 		itemNum := strings.TrimSpace(line.ItemNum)
 		if itemNum == "" {
-			itemNum = "SP006"
+			itemNum = defMaterial
+		}
+		if itemNum == "" {
+			return nil, fmt.Errorf("baris PO %d: ITEMNUM kosong dan PO_DEFAULT_MATERIAL tidak diisi", idx+1)
 		}
 
 		// Line Number: gunakan POLINENUM jika ada, jika tidak urutkan idx+1
@@ -253,15 +274,12 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		if desc == "" {
 			desc = itemNum
 		}
-		itemText := desc
-		if len(itemText) > 40 {
-			itemText = itemText[:40]
-		}
+		itemText := truncateRunes(desc, 40)
 
 		// UOM conversion
 		orderUnit := strings.TrimSpace(line.OrderUnit)
 		if orderUnit == "" {
-			orderUnit = "PC"
+			orderUnit = defUOM
 		}
 		if s.PGRepo != nil {
 			if u, err := s.PGRepo.GetSAPUOM(ctx, orderUnit); err == nil && u != "" {
@@ -275,20 +293,23 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			plant = strings.TrimSpace(maxPO.SiteID)
 		}
 		if plant == "" {
-			plant = "5110"
+			plant = defPlant
 		}
 
 		// Cost center untuk AccountAssignment
 		lineCostCenter := strings.TrimSpace(line.CostCenter)
 		if lineCostCenter == "" {
-			lineCostCenter = "51101101"
+			lineCostCenter = defCostCenter
+		}
+		if lineCostCenter == "" {
+			return nil, fmt.Errorf("baris PO %s: COSTCENTER kosong dan PO_DEFAULT_COST_CENTER tidak diisi", lineNumStr)
 		}
 
 		itemObj := model.SAPGrowPOItem{
 			PurchaseOrderItem:         lineNumStr,
 			Material:                  itemNum,
 			Plant:                     plant,
-			AccountAssignmentCategory: "K",
+			AccountAssignmentCategory: acctCat,
 			PurchaseOrderItemText:     itemText,
 			PurchaseOrderQuantityUnit: orderUnit,
 			OrderPriceUnit:            orderUnit,
@@ -309,8 +330,8 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 				{
 					PurchaseOrder:     sapPONum,
 					PurchaseOrderItem: lineNumStr,
-					TextObjectType:    "F01",
-					Language:          "EN",
+					TextObjectType:    noteType,
+					Language:          noteLang,
 					PlainLongText:     desc,
 				},
 			},
@@ -323,23 +344,23 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		// Jika tidak ada Tax maka _PurOrdPricingElement tidak usah diisi (hanya TaxCode: "V0" dan NetPriceAmount: UnitCost).
 		tax1 := strings.TrimSpace(line.TaxCodePPN)
 		if tax1 != "" {
-			taxRate := parseTaxRate(tax1)
+			taxRate := parseTaxRateOr(tax1, defTaxRate)
 
 			itemObj.PurOrdPricingElement = []model.SAPGrowPurOrdPricingElement{
 				{
 					PurchaseOrderItem:      lineNumStr,
-					ConditionType:          "DRG1",
+					ConditionType:          taxCond,
 					ConditionRateAmount:    taxRate,
 					ConditionRateRatioUnit: "%",
 				},
 				{
 					PurchaseOrderItem:   lineNumStr,
-					ConditionType:       "PMP0",
+					ConditionType:       priceCond,
 					ConditionRateAmount: line.UnitCost,
 				},
 			}
 		} else {
-			itemObj.TaxCode = "V0"
+			itemObj.TaxCode = noTaxCode
 		}
 
 		sapItems = append(sapItems, itemObj)
@@ -362,9 +383,9 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		PurchaseOrder:                 sapPONum,
 		PurchaseOrderType:             poType,
 		PurchaseOrderDate:             orderDate,
-		CompanyCode:                   "5110",
-		PurchasingOrganization:        "5110",
-		PurchasingGroup:               "001",
+		CompanyCode:                   s.dv(ctx, "PO_COMPANY_CODE"),
+		PurchasingOrganization:        s.dv(ctx, "PO_PURCHASING_ORG"),
+		PurchasingGroup:               s.dv(ctx, "PO_PURCHASING_GROUP"),
 		Supplier:                      strings.TrimSpace(maxPO.Vendor),
 		SupplierRespSalesPersonName:   salesPerson,
 		DocumentCurrency:              docCurrency,
@@ -378,6 +399,11 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 }
 
 func parseTaxRate(taxCode string) float64 {
+	return parseTaxRateOr(taxCode, 11.0)
+}
+
+// parseTaxRateOr membaca tarif dari kode pajak Maximo (PPN11, V11, 11%); def bila tidak berisi angka.
+func parseTaxRateOr(taxCode string, def float64) float64 {
 	clean := strings.ToUpper(strings.TrimSpace(taxCode))
 	clean = strings.TrimPrefix(clean, "PPN")
 	clean = strings.TrimPrefix(clean, "V")
@@ -385,7 +411,7 @@ func parseTaxRate(taxCode string) float64 {
 	if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
 		return val
 	}
-	return 11.0
+	return def
 }
 
 // ConvertMaximoPOToSAP mengonversi nomor PO Maximo ke format PurchaseOrder SAP Grow sesuai aturan:
@@ -437,22 +463,26 @@ func ConvertMaximoPOToSAP(maximoPONum string) string {
 	return cleanPO
 }
 
+// defaultPlantMap adalah pemetaan lama SITEID -> Plant (dipakai bila menu Default Value tidak tersedia).
+const defaultPlantMap = "JKT=1000,1000=1000,BTNG=2000,2000=2000"
+
 func convertSiteIDToPlant(siteID string, defaultPlant string) string {
+	return convertSiteIDToPlantMap(siteID, defaultPlant, defaultPlantMap)
+}
+
+// convertSiteIDToPlantMap memetakan SITEID Maximo ke Plant SAP sesuai GRN_PLANT_MAP ("SITE=PLANT,...").
+// SITEID yang tidak terdaftar dikirim apa adanya; SITEID kosong memakai defaultPlant.
+func convertSiteIDToPlantMap(siteID, defaultPlant, plantMap string) string {
 	clean := strings.ToUpper(strings.TrimSpace(siteID))
-	switch clean {
-	case "JKT", "1000":
-		return "1000"
-	case "BTNG", "2000":
-		return "2000"
-	default:
-		if clean != "" {
-			return clean
-		}
-		if defaultPlant != "" {
-			return defaultPlant
-		}
-		return "5110"
+	if clean == "" {
+		return defaultPlant
 	}
+	for _, pair := range splitList(plantMap) {
+		if k, v, ok := strings.Cut(pair, "="); ok && strings.EqualFold(strings.TrimSpace(k), clean) {
+			return strings.TrimSpace(v)
+		}
+	}
+	return clean
 }
 
 func formatODataV2Date(dateStr string, preventBackdate bool) (string, string) {
@@ -605,7 +635,8 @@ func (s *SyncService) transformVendor(ctx context.Context, raw json.RawMessage) 
 	}
 
 	// 3. Mapping BusinessPartnerGrouping
-	bpGrouping := "Z001"
+	bpGrouping := s.dv(ctx, "BP_DEFAULT_GROUPING")
+	bpCompany := s.dv(ctx, "BP_COMPANY_CODE")
 	if s.PGRepo != nil {
 		if g, err := s.PGRepo.GetBPGrouping(ctx, bpiVendorGroup); err == nil && g != "" {
 			bpGrouping = g
@@ -616,9 +647,9 @@ func (s *SyncService) transformVendor(ctx context.Context, raw json.RawMessage) 
 	name1, name2, name3, name4 := splitBPName(name)
 
 	// 5. Mapping Reconciliation Account
-	reconAccount := "211001"
+	reconAccount := s.dv(ctx, "BP_DEFAULT_RECON_ACCOUNT")
 	if s.PGRepo != nil {
-		if acc, err := s.PGRepo.GetReconAccount(ctx, bpiVendorGroup, "5110"); err == nil && acc != "" {
+		if acc, err := s.PGRepo.GetReconAccount(ctx, bpiVendorGroup, bpCompany); err == nil && acc != "" {
 			reconAccount = acc
 		}
 	}
@@ -626,7 +657,11 @@ func (s *SyncService) transformVendor(ctx context.Context, raw json.RawMessage) 
 	// 6. Currency
 	docCurrency := strings.TrimSpace(currencyCode)
 	if docCurrency == "" {
-		docCurrency = "IDR"
+		docCurrency = s.dv(ctx, "BP_DEFAULT_CURRENCY")
+	}
+	var roles []model.SAPBPRole
+	for _, role := range splitList(s.dv(ctx, "BP_ROLES")) {
+		roles = append(roles, model.SAPBPRole{BusinessPartnerRole: role})
 	}
 
 	_ = orgID // Bisa dipakai di masa depan jika ada mapping org
@@ -634,32 +669,29 @@ func (s *SyncService) transformVendor(ctx context.Context, raw json.RawMessage) 
 	// 7. Bentuk payload target SAP Grow OData v2 Business Partner
 	sapBP := model.SAPGrowBPPayload{
 		BusinessPartner:          company,
-		BusinessPartnerCategory:  "2",
+		BusinessPartnerCategory:  s.dv(ctx, "BP_CATEGORY"),
 		BusinessPartnerGrouping:  bpGrouping,
 		OrganizationBPName1:      name1,
 		OrganizationBPName2:      name2,
 		OrganizationBPName3:      name3,
 		OrganizationBPName4:      name4,
 		SearchTerm1:              "",
-		FormOfAddress:            "0003",
+		FormOfAddress:            s.dv(ctx, "BP_FORM_OF_ADDRESS"),
 		BusinessPartnerIsBlocked: false,
-		ToBusinessPartnerRole: []model.SAPBPRole{
-			{BusinessPartnerRole: "FLVN00"},
-			{BusinessPartnerRole: "FLVN01"},
-		},
+		ToBusinessPartnerRole:    roles,
 		ToBusinessPartnerAddress: []model.SAPBPAddress{
-			{Country: "ID", Language: "EN"},
+			{Country: s.dv(ctx, "BP_COUNTRY"), Language: s.dv(ctx, "BP_LANGUAGE")},
 		},
 		ToSupplier: &model.SAPBPSupplier{
 			ToSupplierCompany: []model.SAPSupplierCompany{
 				{
-					CompanyCode:           "5110",
+					CompanyCode:           bpCompany,
 					ReconciliationAccount: reconAccount,
 				},
 			},
 			ToSupplierPurchasingOrg: []model.SAPSupplierPurchasingOrg{
 				{
-					PurchasingOrganization: "5110",
+					PurchasingOrganization: s.dv(ctx, "BP_PURCHASING_ORG"),
 					PurchaseOrderCurrency:  docCurrency,
 				},
 			},
@@ -823,22 +855,23 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 
 	// 2. Mapping ProductType (Maximo ITEMTYPE -> SAP ProductType)
 	// Default: ZITM
-	productType := "ZITM"
+	productType := s.dv(ctx, "PRODUCT_DEFAULT_TYPE")
+	serviceType := s.dv(ctx, "PRODUCT_SERVICE_TYPE")
 	if s.PGRepo != nil && itemType != "" {
 		if pt, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "ITEM_TYPE", itemType); err == nil && pt != "" {
 			productType = pt
 		} else if strings.EqualFold(itemType, "SERVICE") {
-			productType = "ZSVC"
+			productType = serviceType
 		} else if strings.EqualFold(itemType, "ROH") {
 			productType = "ROH"
 		}
 	} else if strings.EqualFold(itemType, "SERVICE") {
-		productType = "ZSVC"
+		productType = serviceType
 	}
 
 	// 3. Mapping ProductGroup (Kini dari Maximo StockType -> SAP ProductGroup / Material Group)
-	// Default: ZSTK atau fallback ke nilai stockType
-	productGroup := "ZSTK"
+	// Default: PRODUCT_DEFAULT_GROUP atau fallback ke nilai stockType
+	productGroup := s.dv(ctx, "PRODUCT_DEFAULT_GROUP")
 	if s.PGRepo != nil && stockType != "" {
 		if pg, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "STOCK_TYPE", stockType); err == nil && pg != "" {
 			productGroup = pg
@@ -850,7 +883,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 	}
 
 	// 4. Mapping BaseUnit & PurchaseOrderQuantityUnit via uom_mappings
-	baseUnit := "PC"
+	baseUnit := s.dv(ctx, "PRODUCT_DEFAULT_BASE_UNIT")
 	if s.PGRepo != nil && issueUnit != "" {
 		if u, err := s.PGRepo.GetSAPUOM(ctx, issueUnit); err == nil && u != "" {
 			baseUnit = u
@@ -874,7 +907,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 
 	// 5. Mapping ValuationClass (Kini dari Maximo ITEMGROUPID -> SAP ValuationClass)
 	// Default: "3000" (Standard SAP Material Valuation Class)
-	valuationClass := "3000"
+	valuationClass := s.dv(ctx, "PRODUCT_DEFAULT_VALUATION_CLASS")
 	if s.PGRepo != nil && itemGroupID != "" {
 		if vc, err := s.PGRepo.GetMaterialConfigSAPValue(ctx, "ITEM_GROUP", itemGroupID); err == nil && vc != "" {
 			valuationClass = vc
@@ -882,25 +915,14 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 	}
 
 	// 6. Truncate Description to 40 chars (sesuai spesifikasi skema OData v2 A_ProductDescription MaxLength: 40)
-	desc := strings.TrimSpace(description)
-	if len(desc) > 40 {
-		desc = desc[:40]
-	}
+	desc := truncateRunes(description, 40)
 
-	// 7. Plant & Valuation Areas (dapat dikonfigurasi via SAP_PRODUCT_PLANTS, default ke 5110 & BTNG untuk tenant my445160)
-	plants := []string{"5110", "BTNG"}
-	if envPlants := os.Getenv("SAP_PRODUCT_PLANTS"); envPlants != "" {
-		parts := strings.Split(envPlants, ",")
-		var cleaned []string
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				cleaned = append(cleaned, trimmed)
-			}
-		}
-		if len(cleaned) > 0 {
-			plants = cleaned
-		}
+	// 7. Plant & Valuation Areas: menu Default Value PRODUCT_PLANTS (seed awal dari SAP_PRODUCT_PLANTS bila diisi)
+	plants := splitList(s.dv(ctx, "PRODUCT_PLANTS"))
+	if len(plants) == 0 {
+		return nil, fmt.Errorf("PRODUCT_PLANTS di menu Default Value kosong")
 	}
+	valProc := s.dv(ctx, "PRODUCT_VALUATION_PROCEDURE")
 
 	var plantItems []model.SAPProductPlant
 	var valuationItems []model.SAPProductValuation
@@ -913,7 +935,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 			Product:                     itemNum,
 			ValuationArea:               pl,
 			ValuationClass:              valuationClass,
-			InventoryValuationProcedure: "V",
+			InventoryValuationProcedure: valProc,
 		})
 	}
 
@@ -950,7 +972,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 			Results: []model.SAPProductDescription{
 				{
 					Product:            itemNum,
-					Language:           "EN",
+					Language:           s.dv(ctx, "PRODUCT_LANGUAGE"),
 					ProductDescription: desc,
 				},
 			},
@@ -1083,6 +1105,8 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 
 	headerSiteID := strings.TrimSpace(maxReceipt.SiteID)
 	docDateStr, postingDateStr := formatODataV2Date(maxReceipt.ActualDate, true)
+	grnPlant, grnPlantMap := s.dv(ctx, "GRN_DEFAULT_PLANT"), s.dv(ctx, "GRN_PLANT_MAP")
+	grnMoveCode, grnPrintVer := s.dv(ctx, "GRN_GOODS_MOVEMENT_CODE"), s.dv(ctx, "GRN_PRINT_VERSION")
 
 	// 2. Kasus RETURN (Return to Vendor - Movement 122)
 	if issueType == "RETURN" {
@@ -1127,7 +1151,7 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 			if lineSite == "" {
 				lineSite = headerSiteID
 			}
-			plant := convertSiteIDToPlant(lineSite, "5110")
+			plant := convertSiteIDToPlantMap(lineSite, grnPlant, grnPlantMap)
 			sapPONum := ConvertMaximoPOToSAP(poNum)
 
 			// Kuantitas return di Maximo negatif (-1.00), harus positif di SAP
@@ -1137,22 +1161,22 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 			items = append(items, model.SAPMaterialDocumentItem{
 				Material:                    line.ItemNum,
 				Plant:                       plant,
-				GoodsMovementType:           "122",
+				GoodsMovementType:           s.dv(ctx, "GRN_MOVEMENT_RETURN"),
 				PurchaseOrder:               sapPONum,
 				PurchaseOrderItem:           fmt.Sprintf("%d", line.POLineNum),
-				GoodsMovementReasonCode:     "1",
+				GoodsMovementReasonCode:     s.dv(ctx, "GRN_RETURN_REASON_CODE"),
 				GoodsMovementRefDocType:     "B",
 				QuantityInEntryUnit:         qtyStr,
 				InvtryMgmtReferenceDocument: refMatDoc,
-				MaterialDocumentItemText:    "Goods Receipt from Maximo",
+				MaterialDocumentItemText:    s.dv(ctx, "GRN_RETURN_ITEM_TEXT"),
 			})
 		}
 
 		sapPayload := model.SAPGrowMaterialDocumentPayload{
 			MaterialDocumentHeaderText: maxReceipt.BPIGRNNumber,
 			ReferenceDocument:          maxReceipt.PackingSlipNum,
-			GoodsMovementCode:          "01",
-			VersionForPrintingSlip:     "3",
+			GoodsMovementCode:          grnMoveCode,
+			VersionForPrintingSlip:     grnPrintVer,
 			DocumentDate:               docDateStr,
 			PostingDate:                postingDateStr,
 			ToMaterialDocumentItem:     items,
@@ -1171,7 +1195,7 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		if lineSite == "" {
 			lineSite = headerSiteID
 		}
-		plant := convertSiteIDToPlant(lineSite, "5110")
+		plant := convertSiteIDToPlantMap(lineSite, grnPlant, grnPlantMap)
 		sapPONum := ConvertMaximoPOToSAP(poNum)
 
 		qtyAbs := math.Abs(line.Qty)
@@ -1180,7 +1204,7 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 		items = append(items, model.SAPMaterialDocumentItem{
 			Material:                line.ItemNum,
 			Plant:                   plant,
-			GoodsMovementType:       "101",
+			GoodsMovementType:       s.dv(ctx, "GRN_MOVEMENT_RECEIPT"),
 			PurchaseOrder:           sapPONum,
 			PurchaseOrderItem:       fmt.Sprintf("%d", line.POLineNum),
 			GoodsMovementRefDocType: "B",
@@ -1191,8 +1215,8 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 	sapPayload := model.SAPGrowMaterialDocumentPayload{
 		MaterialDocumentHeaderText: maxReceipt.BPIGRNNumber,
 		ReferenceDocument:          maxReceipt.PackingSlipNum,
-		GoodsMovementCode:          "01",
-		VersionForPrintingSlip:     "3",
+		GoodsMovementCode:          grnMoveCode,
+		VersionForPrintingSlip:     grnPrintVer,
 		DocumentDate:               docDateStr,
 		PostingDate:                postingDateStr,
 		ToMaterialDocumentItem:     items,

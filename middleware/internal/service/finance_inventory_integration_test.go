@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -121,6 +122,40 @@ func TestIntegration_SuccessfulDocumentNotRequeued(t *testing.T) {
 	}
 	if s := docStatus(t, ctx, repo, "GRN", "GR-DUP-1"); s != "pending" {
 		t.Fatalf("changed data must be requeued, got %q", s)
+	}
+}
+
+// Menu Default Value: nilai yang diubah Panel (UPDATE langsung ke tabel) dipakai transform PO dan
+// tidak ditimpa seed berikutnya.
+func TestIntegration_DefaultValuesFromPanel(t *testing.T) {
+	ctx, repo, _, sync := setupIntegration(t)
+	if got := repo.Default(ctx, "PO_COMPANY_CODE"); got != "5110" {
+		t.Fatalf("seeded default: %q", got)
+	}
+	if _, err := repo.Pool.Exec(ctx, `UPDATE sap_default_values SET value = '1000', updated_by = 'panel' WHERE key IN ('PO_COMPANY_CODE','PO_PURCHASING_ORG')`); err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Pool.Exec(ctx, `UPDATE sap_default_values SET value = default_value`)
+	if err := repo.MigrateFinance(ctx); err != nil { // seed ulang tidak boleh menimpa
+		t.Fatal(err)
+	}
+	repo.InvalidateDefaultValues()
+	raw := []byte(`{"PONUM":"4500000777","VENDOR":"V1","LINES":[{"ITEMNUM":"SP001","QTY":1,"UNITCOST":10,"DEPARTMENT":"CC1"}]}`)
+	out, err := sync.TransformPO(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var po model.SAPGrowPOPayload
+	_ = json.Unmarshal(out, &po)
+	if po.CompanyCode != "1000" || po.PurchasingOrganization != "1000" || po.PurchasingGroup != "001" {
+		t.Fatalf("PO must use Panel values: %+v", po)
+	}
+	if _, err := repo.Pool.Exec(ctx, `UPDATE sap_default_values SET value = '' WHERE key = 'PO_DEFAULT_MATERIAL'`); err != nil {
+		t.Fatal(err)
+	}
+	repo.InvalidateDefaultValues()
+	if _, err := sync.TransformPO(ctx, []byte(`{"PONUM":"4500000778","LINES":[{"QTY":1,"UNITCOST":10,"DEPARTMENT":"CC1"}]}`)); err == nil {
+		t.Fatal("empty PO_DEFAULT_MATERIAL must reject a line without ITEMNUM")
 	}
 }
 

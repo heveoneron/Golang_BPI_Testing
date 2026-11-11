@@ -83,6 +83,9 @@ func (r *PostgresRepository) MigrateFinance(ctx context.Context) error {
 	if err := r.seedReimbursementMappings(ctx); err != nil {
 		return fmt.Errorf("seed reimbursement mapping: %w", err)
 	}
+	if err := r.EnsureDefaultValues(ctx); err != nil {
+		return fmt.Errorf("seed default values: %w", err)
+	}
 	return nil
 }
 
