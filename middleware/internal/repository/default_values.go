@@ -71,6 +71,7 @@ var DefaultValueSpecs = []DefaultValueSpec{
 	{Key: "GRN_RETURN_REASON_CODE", Value: "1", Category: "GRN", Description: "GoodsMovementReasonCode retur"},
 	{Key: "GRN_RETURN_ITEM_TEXT", Value: "Goods Receipt from Maximo", Category: "GRN", Description: "MaterialDocumentItemText baris retur"},
 	// Finance
+	{Key: "FIN_COMPANY_CODE", Value: "1000", Category: "FINANCE", Description: "Company code modul finance: jurnal GI, tarik GL/aset, invoice, Talenta (my445160 = 1000, my446174 = 5110)", SeedEnv: "FIN_COMPANY_CODE"},
 	{Key: "JE_DEFAULT_DOC_TYPE", Value: "SA", Category: "FINANCE", Description: "AccountingDocumentType jurnal bila tidak diisi"},
 	{Key: "JE_DEFAULT_CURRENCY", Value: "IDR", Category: "FINANCE", Description: "Mata uang jurnal bila tidak diisi"},
 	{Key: "ASSET_DEFAULT_CURRENCY", Value: "IDR", Category: "FINANCE", Description: "Mata uang akuisisi aset bila tidak diisi"},

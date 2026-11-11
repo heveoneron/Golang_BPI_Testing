@@ -56,7 +56,14 @@ func setupIntegration(t *testing.T) (context.Context, *repository.PostgresReposi
 		t.Fatal(err)
 	}
 	sap := client.NewSAPClient("MOCK", "", "")
-	return ctx, repo, NewFinanceService(repo, sap), NewSyncService(nil, repo, sap)
+	fin := NewFinanceService(repo, sap)
+	// Lepas sumber Default Value global agar unit test berikutnya (pool sudah ditutup) memakai env/nilai awal.
+	t.Cleanup(func() {
+		defaultsMu.Lock()
+		defaultsSource = nil
+		defaultsMu.Unlock()
+	})
+	return ctx, repo, fin, NewSyncService(nil, repo, sap)
 }
 
 func docStatus(t *testing.T, ctx context.Context, repo *repository.PostgresRepository, docType, docNo string) string {

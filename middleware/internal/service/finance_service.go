@@ -83,9 +83,10 @@ func envOr(key, def string) string {
 	return def
 }
 
-// DefaultCompanyCode adalah company code default (FIN_COMPANY_CODE, default 5110).
+// DefaultCompanyCode adalah company code modul finance: menu Default Value key FIN_COMPANY_CODE
+// (seed awal dari env FIN_COMPANY_CODE, default 1000).
 func DefaultCompanyCode() string {
-	return envOr("FIN_COMPANY_CODE", "1000")
+	return defaultValue("FIN_COMPANY_CODE")
 }
 
 // ErrValuationClassOutOfScope menandai item dengan valuation class di luar daftar yang diposting (bukan error data).

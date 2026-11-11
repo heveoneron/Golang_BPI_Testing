@@ -150,6 +150,13 @@ func TestIntegration_DefaultValuesFromPanel(t *testing.T) {
 	if po.CompanyCode != "1000" || po.PurchasingOrganization != "1000" || po.PurchasingGroup != "001" {
 		t.Fatalf("PO must use Panel values: %+v", po)
 	}
+	if _, err := repo.Pool.Exec(ctx, `UPDATE sap_default_values SET value = '5110' WHERE key = 'FIN_COMPANY_CODE'`); err != nil {
+		t.Fatal(err)
+	}
+	repo.InvalidateDefaultValues()
+	if got := DefaultCompanyCode(); got != "5110" {
+		t.Fatalf("finance company code must come from Default Value menu, got %q", got)
+	}
 	if _, err := repo.Pool.Exec(ctx, `UPDATE sap_default_values SET value = '' WHERE key = 'PO_DEFAULT_MATERIAL'`); err != nil {
 		t.Fatal(err)
 	}
