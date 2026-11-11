@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"golang-bpi-testing/internal/client"
 	"golang-bpi-testing/internal/model"
 	"golang-bpi-testing/internal/repository"
 	"golang-bpi-testing/internal/service"
@@ -512,13 +513,10 @@ func (c *WebController) GetIntegrationLogs(ctx *gin.Context) {
 				if targetService == "" {
 					targetService = "PO"
 				}
-				targetURL := "https://my445160-api.s4hana.cloud.sap/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
 				if mapping, _ := c.PGRepo.GetTableAPIMapping(ctx.Request.Context(), targetService); mapping != nil && mapping.TargetServiceCode != "" {
 					targetService = mapping.TargetServiceCode
 				}
-				if ep, _ := c.PGRepo.GetSAPEndpointByCode(ctx.Request.Context(), targetService); ep != nil {
-					targetURL = fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
-				}
+				targetURL := c.endpointTargetURL(ctx.Request.Context(), targetService)
 				if strings.Contains(metaStr, "Successfully posted to SAP Grow") {
 					metaStr = strings.Replace(metaStr, "Successfully posted to SAP Grow", fmt.Sprintf("Successfully posted to SAP Grow via %s [Target API: %s]", targetService, targetURL), 1)
 				} else if metaStr != "" {
@@ -555,6 +553,17 @@ func (c *WebController) GetIntegrationLogs(ctx *gin.Context) {
 		"status": "success",
 		"data":   logs,
 	})
+}
+
+// endpointTargetURL menyusun URL target dari sap_endpoints untuk tampilan log; bila service tidak
+// terdaftar dipakai endpoint PO (default lama), tanpa host/path literal di kode.
+func (c *WebController) endpointTargetURL(ctx context.Context, serviceCode string) string {
+	for _, code := range []string{serviceCode, "PO"} {
+		if ep, _ := c.PGRepo.GetSAPEndpointByCode(ctx, code); ep != nil {
+			return strings.TrimRight(ep.BaseURL, "/") + ep.EndpointPath
+		}
+	}
+	return "(endpoint " + serviceCode + " tidak terdaftar di sap_endpoints)"
 }
 
 func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docType, docNo string) []map[string]interface{} {
@@ -607,13 +616,10 @@ func (c *WebController) getSyntheticLogsFromDocuments(ctx context.Context, docTy
 
 	// Resolusi Target API URL secara dinamis dari table mapping & sap endpoints
 	targetService := dType
-	targetURL := "https://my445160-api.s4hana.cloud.sap/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder"
 	if mapping, _ := c.PGRepo.GetTableAPIMapping(ctx, dType); mapping != nil && mapping.TargetServiceCode != "" {
 		targetService = mapping.TargetServiceCode
 	}
-	if ep, _ := c.PGRepo.GetSAPEndpointByCode(ctx, targetService); ep != nil {
-		targetURL = fmt.Sprintf("%s%s", strings.TrimRight(ep.BaseURL, "/"), ep.EndpointPath)
-	}
+	targetURL := c.endpointTargetURL(ctx, targetService)
 
 	switch status {
 	case "success":
@@ -1120,27 +1126,26 @@ func (c *WebController) GetSAPMaterialDocumentDetail(ctx *gin.Context) {
 	}
 
 	if ep == nil {
-		ep = &model.SAPEndpoint{
-			ServiceCode:  "MATERIAL_DOC_DETAIL",
-			ServiceName:  "Material Document Detail OData v2",
-			ScenarioID:   "SAP_COM_0108",
-			ODataVersion: "v2",
-			BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-			EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
-			Username:     "Y_BPI_CU_SAP_COM_0108",
-			Password:     "PowerofOne@123456789",
-		}
+		// Host, path & kredensial wajib dari sap_endpoints (Panel), tidak ada fallback literal di kode.
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Endpoint SAP MATERIAL_DOC_DETAIL / GR_WITH_PO tidak terdaftar di sap_endpoints"})
+		return
 	}
 
+	// Root layanan Material Document diambil dari endpoint_path (default .../API_MATERIAL_DOCUMENT_SRV).
+	headerPath, pErr := client.ServicePath(ep, "A_MaterialDocumentHeader")
+	if pErr != nil {
+		ctx.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: pErr.Error()})
+		return
+	}
 	customEP := *ep
 	if strings.Contains(docNo, "(") {
-		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader%s", docNo)
+		customEP.EndpointPath = headerPath + docNo
 	} else if len(docNo) == 12 && (strings.HasPrefix(docNo, "2024") || strings.HasPrefix(docNo, "2025") || strings.HasPrefix(docNo, "2026")) {
 		// Contoh nomor 12 digit: 202500000001 (Tahun 2025, Dokumen 00000001)
-		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", docNo[:4], docNo[4:])
+		customEP.EndpointPath = fmt.Sprintf("%s(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", headerPath, docNo[:4], docNo[4:])
 	} else {
 		// Standar composite key SAP OData v2: MaterialDocumentYear & MaterialDocument
-		customEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", year, docNo)
+		customEP.EndpointPath = fmt.Sprintf("%s(MaterialDocumentYear='%s',MaterialDocument='%s')?$expand=to_MaterialDocumentItem", headerPath, year, docNo)
 	}
 
 	statusCode, sapDocNo, respBody, sapErr := c.SyncSvc.SAPClient.ExecuteOData(&customEP, "GET", nil)

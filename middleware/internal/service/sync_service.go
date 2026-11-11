@@ -1241,10 +1241,16 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 					if targetDocYear == "" {
 						targetDocYear = fmt.Sprintf("%d", time.Now().Year())
 					}
+					// Root layanan Material Document diambil dari endpoint_path endpoint GRN.
 					cancelEP := *ep
-					cancelEP.EndpointPath = fmt.Sprintf("/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel?MaterialDocumentYear='%s'&MaterialDocument='%s'",
-						targetDocYear, targetMatDoc)
-					cancelEP.CSRFPath = "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
+					cancelPath, pErr := client.ServicePath(ep, fmt.Sprintf("Cancel?MaterialDocumentYear='%s'&MaterialDocument='%s'", targetDocYear, targetMatDoc))
+					csrfPath, cErr := client.ServicePath(ep, "A_MaterialDocumentHeader")
+					if pErr != nil || cErr != nil {
+						_ = s.PGRepo.UpdateSAPError(ctx, doc.ID, "error_data", fmt.Sprintf("Path Cancel GRN tidak bisa disusun: %v", firstErr(pErr, cErr)), nil)
+						continue
+					}
+					cancelEP.EndpointPath = cancelPath
+					cancelEP.CSRFPath = csrfPath
 					epToSend = &cancelEP
 					payloadToSend = nil
 				} else {
@@ -1314,10 +1320,15 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 					if prodID == "" {
 						prodID = sapDocNo
 					}
-					if poUnit != "" && prodID != "" {
+					procPath, pErr := client.ServicePath(ep, "A_ProductProcurement")
+					csrfPath, cErr := client.ServicePath(ep, "A_Product")
+					if pErr != nil || cErr != nil {
+						log.Printf("[WARN] Sub-request A_ProductProcurement dilewati untuk Product %s: %v", prodID, firstErr(pErr, cErr))
+					} else if poUnit != "" && prodID != "" {
+						// Root layanan Product diambil dari endpoint_path endpoint PRODUCT.
 						procEP := *ep
-						procEP.EndpointPath = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductProcurement"
-						procEP.CSRFPath = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
+						procEP.EndpointPath = procPath
+						procEP.CSRFPath = csrfPath
 						procPayload := model.SAPProductProcurementPayload{
 							Product:                   prodID,
 							PurchaseOrderQuantityUnit: poUnit,

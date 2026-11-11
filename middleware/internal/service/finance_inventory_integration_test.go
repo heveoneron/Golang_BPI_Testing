@@ -73,6 +73,25 @@ func TestIntegration_SAPEnvironmentSwitch(t *testing.T) {
 	}
 }
 
+func TestIntegration_LegacyEndpointSeedUsesSAPBaseURL(t *testing.T) {
+	ctx, repo, _, _ := setupIntegration(t)
+	if _, err := repo.Pool.Exec(ctx, `DELETE FROM sap_endpoints WHERE service_code = 'MATERIAL_DOC_DETAIL'`); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SAP_BASE_URL", "https://my446174-api.s4hana.cloud.sap")
+	if err := repo.EnsureSAPEndpointsTable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ep, _ := repo.GetSAPEndpointByCode(ctx, "MATERIAL_DOC_DETAIL")
+	if ep == nil || ep.BaseURL != "https://my446174-api.s4hana.cloud.sap" {
+		t.Fatalf("seed must use SAP_BASE_URL: %+v", ep)
+	}
+	if other, _ := repo.GetSAPEndpointByCode(ctx, "PRODUCT"); other == nil || other.BaseURL != "MOCK" {
+		t.Fatalf("existing rows must not be overwritten by seed: %+v", other)
+	}
+	_, _ = repo.Pool.Exec(ctx, `UPDATE sap_endpoints SET base_url = 'MOCK' WHERE service_code = 'MATERIAL_DOC_DETAIL'`)
+}
+
 type fakeInventoryReader struct {
 	rows []repository.InventoryStagingRow
 }

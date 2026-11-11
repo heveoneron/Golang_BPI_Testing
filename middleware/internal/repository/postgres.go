@@ -270,7 +270,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			service_name VARCHAR(100) NOT NULL,
 			scenario_id VARCHAR(50) NOT NULL,
 			odata_version VARCHAR(10) NOT NULL DEFAULT 'v4',
-			base_url TEXT NOT NULL DEFAULT 'https://my445160-api.s4hana.cloud.sap',
+			base_url TEXT NOT NULL DEFAULT 'MOCK',
 			endpoint_path TEXT NOT NULL,
 			csrf_path TEXT,
 			username VARCHAR(100) NOT NULL,
@@ -281,8 +281,13 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			last_tested_at TIMESTAMP WITH TIME ZONE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		);
-
+		);`
+	if _, err := r.Pool.Exec(ctx, createTableSQL); err != nil {
+		return err
+	}
+	// Seed hanya mengisi baris yang belum ada (ON CONFLICT DO NOTHING); host berikutnya diganti lewat
+	// /api/v1/finance/sap-environment atau Panel.
+	seedSQL := `
 		INSERT INTO sap_endpoints (service_code, service_name, scenario_id, odata_version, base_url, endpoint_path, username, password)
 		VALUES 
 		(
@@ -290,7 +295,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Purchase Order Integration (OData v4)', 
 			'SAP_COM_0053', 
 			'v4', 
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder',
 			'CU_SAP_COM_0053',
 			'PowerofOne@123456789'
@@ -300,7 +305,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Business Partner Integration (OData v2)', 
 			'SAP_COM_0008', 
 			'v2', 
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner',
 			'CU_SAP_COM_0008',
 			'PowerofOne@123456789'
@@ -310,7 +315,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Product / Material Master Integration (OData v2)', 
 			'SAP_COM_0009', 
 			'v2', 
-			'https://my445160-api.s4hana.cloud.sap', 
+			$1, 
 			'/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product', 
 			'CU_SAP_COM_0009', 
 			'PowerofOne@123456789'
@@ -320,7 +325,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Material Document / Goods Movement (OData v2)', 
 			'SAP_COM_0108', 
 			'v2', 
-			'https://my445160-api.s4hana.cloud.sap', 
+			$1, 
 			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader', 
 			'Y_BPI_CU_SAP_COM_0108', 
 			'PowerofOne@123456789'
@@ -330,7 +335,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Cancel Goods Movement / Material Document (OData v2)',
 			'SAP_COM_0108',
 			'v2',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel',
 			'Y_BPI_CU_SAP_COM_0108',
 			'PowerofOne@123456789'
@@ -340,7 +345,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Purchase Order Change Header (PATCH OData v4)',
 			'SAP_COM_0053',
 			'v4',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder',
 			'CU_SAP_COM_0053',
 			'PowerofOne@123456789'
@@ -350,7 +355,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Purchase Order Change Item (PATCH OData v4)',
 			'SAP_COM_0053',
 			'v4',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrderItem',
 			'CU_SAP_COM_0053',
 			'PowerofOne@123456789'
@@ -360,7 +365,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Goods Receipt / Material Document with PO (OData v2)',
 			'SAP_COM_0108',
 			'v2',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
 			'Y_BPI_CU_SAP_COM_0108',
 			'PowerofOne@123456789'
@@ -370,7 +375,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Goods Receipt Non PO (OData v2)',
 			'SAP_COM_0108',
 			'v2',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
 			'Y_BPI_CU_SAP_COM_0108',
 			'PowerofOne@123456789'
@@ -380,7 +385,7 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'Material Document Header & Item Query (OData v2)',
 			'SAP_COM_0108',
 			'v2',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader',
 			'Y_BPI_CU_SAP_COM_0108',
 			'PowerofOne@123456789'
@@ -390,15 +395,24 @@ func (r *PostgresRepository) EnsureSAPEndpointsTable(ctx context.Context) error 
 			'G/L Account Line Items Query (OData v2)',
 			'SAP_COM_0303',
 			'v2',
-			'https://my445160-api.s4hana.cloud.sap',
+			$1,
 			'/sap/opu/odata/sap/API_GLACCOUNTLINEITEM/GLAccountLineItem',
 			'Y_BPI_CU_SAP_COM_0303',
 			'PowerofOne@123456789'
 		)
 		ON CONFLICT (service_code) DO NOTHING;
 	`
-	_, err := r.Pool.Exec(ctx, createTableSQL)
+	_, err := r.Pool.Exec(ctx, seedSQL, LegacySeedBaseURL())
 	return err
+}
+
+// LegacySeedBaseURL adalah base URL untuk seed endpoint Maximo->SAP (PO, BP, PRODUCT, GRN, ...):
+// SAP_BASE_URL bila diisi, selain itu tenant default my445160 (perilaku lama).
+func LegacySeedBaseURL() string {
+	if v := strings.TrimSpace(os.Getenv("SAP_BASE_URL")); v != "" {
+		return v
+	}
+	return "https://my445160-api.s4hana.cloud.sap"
 }
 
 func (r *PostgresRepository) GetSAPEndpoints(ctx context.Context) ([]model.SAPEndpoint, error) {

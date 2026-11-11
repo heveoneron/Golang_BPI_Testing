@@ -14,6 +14,8 @@ type SAPEnvironment struct {
 	BaseURLs     []repository.SAPBaseURLUsage `json:"base_urls"`
 	AllowedHosts []string                     `json:"allowed_hosts"`
 	CompanyCode  string                       `json:"company_code"`
+	// FieldMapping adalah kandidat field response SAP efektif per env FIN_<GROUP>_FIELD_<NAME>.
+	FieldMapping map[string][]string `json:"field_mapping"`
 }
 
 func allowedSAPHosts() []string {
@@ -51,7 +53,7 @@ func (f *FinanceService) GetSAPEnvironment(ctx context.Context) (*SAPEnvironment
 	if err != nil {
 		return nil, err
 	}
-	return &SAPEnvironment{BaseURLs: usage, AllowedHosts: allowedSAPHosts(), CompanyCode: DefaultCompanyCode()}, nil
+	return &SAPEnvironment{BaseURLs: usage, AllowedHosts: allowedSAPHosts(), CompanyCode: DefaultCompanyCode(), FieldMapping: SAPFieldMapping()}, nil
 }
 
 // SetSAPBaseURL memindahkan seluruh endpoint SAP ke tenant lain (misal my445160 <-> my446174).

@@ -212,28 +212,37 @@ func ParsePaymentProposals(body []byte) ([]model.PaymentProposal, error) {
 		return nil, err
 	}
 	out := make([]model.PaymentProposal, 0, len(recs))
+	entitySet := paymentEntitySet()
+	fields := map[string][]string{}
+	f := func(name string) []string {
+		if _, ok := fields[name]; !ok {
+			fields[name] = sapFieldKeys("PAYMENT", name)
+		}
+		return fields[name]
+	}
 	for _, m := range recs {
 		raw := rawRecord(m)
 		key := metadataURI(m)
 		if key == "" {
 			sum := sha1.Sum(raw)
 			key = hex.EncodeToString(sum[:])
-		} else if i := strings.Index(key, "YY1_PaymentProposal"); i >= 0 {
+		} else if i := strings.Index(key, entitySet); i >= 0 {
 			key = key[i:]
 		}
 		if len(key) > 400 {
 			sum := sha1.Sum([]byte(key))
 			key = hex.EncodeToString(sum[:])
 		}
+		// Kandidat field: FIN_PAYMENT_FIELD_<NAMA> (finance_fieldmap.go).
 		out = append(out, model.PaymentProposal{
 			RecordKey:       key,
-			PaymentRunID:    str(m, "PaymentRunID", "PaymentRunIdentification", "LAUFI"),
-			PaymentRunDate:  parseODataDate(firstPresent(m, "PaymentRunDate", "PaymentRunExecutionDate", "LAUFD")),
-			CompanyCode:     str(m, "CompanyCode", "PayingCompanyCode", "BUKRS"),
-			Supplier:        str(m, "Supplier", "Vendor", "LIFNR"),
-			PaymentDocument: str(m, "PaymentDocument", "AccountingDocument", "VBLNR"),
-			Amount:          parseODataNumber(firstPresent(m, "PaidAmountInPaytCurrency", "PaymentAmount", "AmountInPaymentCurrency", "RBETR")),
-			Currency:        str(m, "PaymentCurrency", "Currency", "WAERS"),
+			PaymentRunID:    str(m, f("RUN_ID")...),
+			PaymentRunDate:  parseODataDate(firstPresent(m, f("RUN_DATE")...)),
+			CompanyCode:     str(m, f("COMPANY_CODE")...),
+			Supplier:        str(m, f("SUPPLIER")...),
+			PaymentDocument: str(m, f("PAYMENT_DOCUMENT")...),
+			Amount:          parseODataNumber(firstPresent(m, f("AMOUNT")...)),
+			Currency:        str(m, f("CURRENCY")...),
 			Raw:             raw,
 		})
 	}
@@ -247,15 +256,16 @@ func ParseFixedAssets(body []byte) ([]model.FixedAsset, error) {
 		return nil, err
 	}
 	out := make([]model.FixedAsset, 0, len(recs))
+	descKeys, addKeys, capKeys := sapFieldKeys("ASSET", "DESCRIPTION"), sapFieldKeys("ASSET", "ADDITIONAL_DESC"), sapFieldKeys("ASSET", "CAPITALIZATION_DATE")
 	for _, m := range recs {
 		a := model.FixedAsset{
 			CompanyCode:        str(m, "CompanyCode"),
 			MasterFixedAsset:   str(m, "MasterFixedAsset"),
 			FixedAsset:         str(m, "FixedAsset"),
-			Description:        str(m, "FixedAssetDescription", "MasterFixedAssetDescription", "AssetDescription"),
-			AdditionalDesc:     str(m, "AssetAdditionalDescription", "FixedAssetAdditionalDescription"),
+			Description:        str(m, descKeys...),
+			AdditionalDesc:     str(m, addKeys...),
 			AssetClass:         str(m, "AssetClass"),
-			CapitalizationDate: parseODataDate(firstPresent(m, "AssetCapitalizationDate", "CapitalizationDate")),
+			CapitalizationDate: parseODataDate(firstPresent(m, capKeys...)),
 			Raw:                rawRecord(m),
 		}
 		if a.FixedAsset == "" {
@@ -554,8 +564,13 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 	}
 
 	// Live mode: tarik A_BusinessPartnerAddress dengan expand to_EmailAddress
-	// Link 1 & 2 di Excel: /sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerAddress?$format=json
-	addrPath := "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerAddress?$expand=to_EmailAddress&$format=json&$top=500"
+	// Link 1 & 2 di Excel: <root endpoint_path BP>/A_BusinessPartnerAddress?$format=json
+	addrPath, err := client.ServicePath(ep, "A_BusinessPartnerAddress?$expand=to_EmailAddress&$format=json&$top=500")
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	bankKeyFields, bankAccFields, holderFields := sapFieldKeys("VENDOR", "BANK_KEY"), sapFieldKeys("VENDOR", "BANK_ACCOUNT"), sapFieldKeys("VENDOR", "ACCOUNT_HOLDER")
 	_, body, err := f.SAPClient.GetOData(ep, addrPath)
 	if err != nil {
 		res.Error = fmt.Sprintf("gagal mengambil A_BusinessPartnerAddress dari SAP: %v", err)
@@ -596,13 +611,13 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 		bankKey := ""
 		bankAccount := ""
 		accHolder := ""
-		bankPath := fmt.Sprintf("/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner('%s')/to_BusinessPartnerBank?$format=json", odataLiteral(vendorCode))
+		bankPath, _ := client.ServicePath(ep, fmt.Sprintf("A_BusinessPartner('%s')/to_BusinessPartnerBank?$format=json", odataLiteral(vendorCode)))
 		if _, bankBody, bErr := f.SAPClient.GetOData(ep, bankPath); bErr == nil {
 			if bRecs, bParseErr := odataRecords(bankBody); bParseErr == nil && len(bRecs) > 0 {
 				bm := bRecs[0]
-				bankKey = str(bm, "BankName", "BankNumber", "BankInternalID")
-				bankAccount = str(bm, "BankAccount")
-				accHolder = str(bm, "BankAccountHolderName")
+				bankKey = str(bm, bankKeyFields...)
+				bankAccount = str(bm, bankAccFields...)
+				accHolder = str(bm, holderFields...)
 			}
 		}
 

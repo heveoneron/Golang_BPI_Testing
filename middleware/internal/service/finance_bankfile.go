@@ -9,29 +9,10 @@ import (
 	"golang-bpi-testing/internal/model"
 )
 
-// Nama field CDS YY1_PaymentProposal belum final ($metadata menyusul). Default di bawah bisa diganti tanpa
-// ubah kode lewat env FIN_PAYMENT_FIELD_<NAMA> (daftar nama field dipisah koma, dicoba berurutan).
-var defaultPaymentFieldKeys = map[string][]string{
-	"PAYEE_NAME": {"PayeeName", "SupplierName", "BeneficiaryName", "BusinessPartnerName", "SupplierFullName"},
-	"SHORT_NAME": {"PayeeShortName", "SupplierShortName", "SearchTerm"},
-	"BANK_NAME":  {"PayeeBankName", "BankName", "BeneficiaryBankName"},
-	"ACCOUNT":    {"PayeeBankAccount", "BankAccount", "BankAccountNumber", "BeneficiaryAccount"},
-	"BANK_CODE":  {"PayeeBankNumber", "BankNumber", "BankKey", "BankCode"},
-	"CITY":       {"PayeeCityName", "CityName", "BankCity", "City"},
-	"REMARK":     {"PaymentReference", "PaymentRemark", "DocumentItemText"},
-}
-
+// Nama field CDS YY1_PaymentProposal belum final ($metadata menyusul). Default ada di
+// defaultSAPFieldKeys["PAYMENT"] (finance_fieldmap.go) dan bisa diganti lewat env FIN_PAYMENT_FIELD_<NAMA>.
 func paymentFieldKeys(name string) []string {
-	if v := strings.TrimSpace(envOr("FIN_PAYMENT_FIELD_"+name, "")); v != "" {
-		var keys []string
-		for _, k := range strings.Split(v, ",") {
-			if k = strings.TrimSpace(k); k != "" {
-				keys = append(keys, k)
-			}
-		}
-		return keys
-	}
-	return defaultPaymentFieldKeys[name]
+	return sapFieldKeys("PAYMENT", name)
 }
 
 func rawString(raw json.RawMessage, keys []string) string {

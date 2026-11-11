@@ -239,41 +239,21 @@ func (s *SAPClient) ExecuteOData(ep *model.SAPEndpoint, method string, payloadJS
 	}
 	var respMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &respMap); err == nil {
+		// Kandidat field nomor dokumen: SAP_RESPONSE_DOCNO_FIELDS_V2 / SAP_RESPONSE_DOCNO_FIELDS_V4.
 		if ep.ODataVersion == "v2" {
 			// OData v2 membungkus response di dalam objek "d"
 			if d, ok := respMap["d"].(map[string]interface{}); ok {
-				if bp, exists := d["BusinessPartner"].(string); exists && bp != "" {
-					sapDocNo = bp
-				} else if po, exists := d["PurchaseOrder"].(string); exists && po != "" {
-					sapDocNo = po
-				} else if mat, exists := d["MaterialDocument"].(string); exists && mat != "" {
-					sapDocNo = mat
-				} else if prod, exists := d["Product"].(string); exists && prod != "" {
-					sapDocNo = prod
-				} else if inv, exists := d["SupplierInvoice"].(string); exists && inv != "" {
-					sapDocNo = inv
-					if fy, ok := d["FiscalYear"].(string); ok && fy != "" {
-						sapDocNo = inv + "/" + fy
-					}
+				if no := extractDocNo(d, DocNoFields("v2"), true); no != "" {
+					sapDocNo = no
 				} else if cancel, exists := d["Cancel"].(map[string]interface{}); exists {
 					if mat, ok := cancel["MaterialDocument"].(string); ok && mat != "" {
 						sapDocNo = mat
 					}
 				}
 			}
-		} else {
+		} else if no := extractDocNo(respMap, DocNoFields(ep.ODataVersion), false); no != "" {
 			// OData v4 mengembalikan root JSON object langsung
-			if po, exists := respMap["PurchaseOrder"].(string); exists && po != "" {
-				sapDocNo = po
-			} else if bp, exists := respMap["BusinessPartner"].(string); exists && bp != "" {
-				sapDocNo = bp
-			} else if acc, exists := respMap["AccountingDocument"].(string); exists && acc != "" {
-				sapDocNo = acc
-			} else if inv, exists := respMap["SupplierInvoice"].(string); exists && inv != "" {
-				sapDocNo = inv
-			} else if id, exists := respMap["id"].(string); exists && id != "" {
-				sapDocNo = id
-			}
+			sapDocNo = no
 		}
 	}
 
@@ -314,7 +294,11 @@ func (s *SAPClient) GetMaterialDocumentByMaximoDocNo(ep *model.SAPEndpoint, maxi
 	safeDocNo := strings.ReplaceAll(maximoDocNo, "'", "''")
 	filterQuery := fmt.Sprintf("(MaterialDocumentHeaderText eq '%s' or ReferenceDocument eq '%s')", safeDocNo, safeDocNo)
 
-	basePath := "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader"
+	// Root layanan diambil dari endpoint_path (default .../API_MATERIAL_DOCUMENT_SRV).
+	basePath, err := ServicePath(ep, "A_MaterialDocumentHeader")
+	if err != nil {
+		return "", "", err
+	}
 	queryURL := fmt.Sprintf("%s%s?$filter=%s&$select=MaterialDocument,MaterialDocumentYear,MaterialDocumentHeaderText&$top=1",
 		ep.BaseURL, basePath, url.QueryEscape(filterQuery))
 
@@ -384,7 +368,10 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 	safePO := strings.ReplaceAll(poNum, "'", "''")
 	filterQuery := fmt.Sprintf("PurchaseOrder eq '%s'", safePO)
 
-	basePath := "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentItem"
+	basePath, err := ServicePath(ep, "A_MaterialDocumentItem")
+	if err != nil {
+		return nil, err
+	}
 	queryURL := fmt.Sprintf("%s%s?$filter=%s&$select=MaterialDocument,MaterialDocumentYear,GoodsMovementType,QuantityInEntryUnit",
 		ep.BaseURL, basePath, url.QueryEscape(filterQuery))
 
@@ -457,7 +444,7 @@ func (s *SAPClient) GetMaterialDocumentItemsByPO(ep *model.SAPEndpoint, poNum st
 }
 
 // GetProductValuationClass mengambil nilai ValuationClass dari SAP S/4HANA Grow untuk Item tertentu
-// Endpoint: /sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('<ItemNum>')/to_Valuation?$format=json
+// Endpoint: <root endpoint_path PRODUCT>/A_Product('<ItemNum>')/to_Valuation?$format=json
 func (s *SAPClient) GetProductValuationClass(ep *model.SAPEndpoint, itemNum string) (string, error) {
 	v, err := s.GetProductValuation(ep, itemNum)
 	return v.Class, err
@@ -484,8 +471,12 @@ func (s *SAPClient) GetProductValuation(ep *model.SAPEndpoint, itemNum string) (
 	username, password := s.credentials(ep)
 
 	cleanBase := strings.TrimRight(ep.BaseURL, "/")
-	targetURL := fmt.Sprintf("%s/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('%s')/to_Valuation?$format=json",
-		cleanBase, url.PathEscape(strings.ReplaceAll(cleanItem, "'", "''")))
+	path, err := ServicePath(ep, fmt.Sprintf("A_Product('%s')/to_Valuation?$format=json",
+		url.PathEscape(strings.ReplaceAll(cleanItem, "'", "''"))))
+	if err != nil {
+		return ProductValuation{}, err
+	}
+	targetURL := cleanBase + path
 
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
