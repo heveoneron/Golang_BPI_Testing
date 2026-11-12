@@ -20,26 +20,19 @@ func TestBuildBTMUFile_MatchesSample(t *testing.T) {
 	})
 	vendors := VendorBankLookupFromList([]model.EmployeeVendorMapping{
 		{VendorCode: "261001", AccountHolder: "PT. BANK CENTRAL ASIA, TBK.", IsActive: true},
-		{VendorCode: "900001", AccountHolder: "MUFG BANK, LTD. JAKARTA BRANCH", IsActive: true},
 	})
-	data, err := BuildBTMUFile([]model.PaymentProposal{
-		{Supplier: "261001", Amount: 40090980, Currency: "IDR", Raw: raw},
-		{Supplier: "261001", Amount: 100, Currency: "USD", Raw: raw},
-		{Supplier: "900001", Amount: 100, Currency: "IDR", Raw: raw},
-	}, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), vendors)
+	data, err := BuildBTMUFile([]model.PaymentProposal{{Supplier: "261001", Amount: 40090980, Currency: "IDR", Raw: raw}},
+		time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), vendors)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSuffix(string(data), "\r\n"), "\r\n")
-	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWATA NUSANTARA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`)
-	if len(lines) != 3 || lines[0] != want {
-		t.Fatalf("BTMU mismatch\n got: %s\nwant: %s", lines[0], want)
+	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWATA NUSANTARA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`) + "\r\n"
+	if string(data) != want {
+		t.Fatalf("BTMU mismatch\n got: %s\nwant: %s", data, want)
 	}
-	if !strings.HasPrefix(lines[1], `3655USDCUA5100015546;"261001";"PT. CAHAYA DEWATA NUSANTARA";"Foreign Remittance";"USD"`) {
-		t.Fatalf("USD row: %s", lines[1])
-	}
-	if !strings.Contains(lines[2], `;"Book Transfer";`) {
-		t.Fatalf("vendor MUFG harus Book Transfer: %s", lines[2])
+	// Template MUFG hanya domestik: baris USD ditolak, bukan dibuatkan baris yang salah.
+	if _, err := BuildBTMUFile([]model.PaymentProposal{{Supplier: "261001", Amount: 100, Currency: "USD", Raw: raw}}, time.Time{}, vendors); err == nil {
+		t.Fatal("baris USD harus ditolak oleh template MUFG domestik")
 	}
 }
 
@@ -91,7 +84,7 @@ func TestBankFile_RequiresDebitAccount(t *testing.T) {
 		t.Fatal("BRI harus error bila rekening BPI kosong")
 	}
 	if _, err := BuildBTMUFile([]model.PaymentProposal{{Amount: 1, Currency: "SGD"}}, time.Time{}, nil); err == nil {
-		t.Fatal("MUFG harus error bila rekening debit mata uang belum diatur")
+		t.Fatal("MUFG harus menolak mata uang non-domestik")
 	}
 }
 

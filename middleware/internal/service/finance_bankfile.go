@@ -92,16 +92,6 @@ func bankAmount(v float64) string {
 	return fmt.Sprintf("%.2f", v)
 }
 
-func containsAnyFold(s string, keywords string) bool {
-	s = strings.ToUpper(s)
-	for _, k := range strings.Split(keywords, ",") {
-		if k = strings.ToUpper(strings.TrimSpace(k)); k != "" && strings.Contains(s, k) {
-			return true
-		}
-	}
-	return false
-}
-
 func intDefault(key string, def int) int {
 	if n, err := strconv.Atoi(defaultValue(key)); err == nil && n > 0 {
 		return n
@@ -110,10 +100,11 @@ func intDefault(key string, def int) int {
 }
 
 // BuildBTMUFile menghasilkan file MUFG/BTMU 30 kolom (pemisah FIN_BTMU_SEPARATOR, kolom 1 tanpa kutip,
-// kolom 2–30 berkutip ganda) sesuai "BPI - Mapping file bank MUFG". Semua nilai tetap dari menu Default Value:
-//   - 1  cabang + mata uang + tipe + rekening debit BPI per mata uang (contoh 3665IDRCUA5100015546)
+// kolom 2–30 berkutip ganda) sesuai "BPI - Mapping file bank MUFG". Template ini HANYA untuk transfer
+// domestik (cabang 3665, mata uang FIN_BTMU_CURRENCY); baris mata uang lain ditolak. Nilai tetap dari Default Value:
+//   - 1  cabang + mata uang + tipe + rekening debit BPI (contoh 3665IDRCUA5100015546)
 //   - 2  PaymentRunDate (YYMMDD)       - 3  OrganizationBPName1 (FIN_BTMU_NAME_MAX_LEN, 0 = tanpa batas)
-//   - 4  Book Transfer bila bank vendor MUFG, Domestic untuk IDR, Foreign Remittance untuk mata uang lain
+//   - 4  FIN_BTMU_TRANSFER_TYPE (Domestic)
 //   - 5  PaymentCurrency  - 6 PaymentAmountInPaytCurrency
 //   - 11 nama bank vendor: Vendor Master (account_holder) bila supplier ada, selain itu field payload
 //   - 13 PayeeBankAccount - 14 nama vendor/kota - 16 kliring - 17 instruksi - 18 charge bearer
@@ -123,33 +114,23 @@ func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors V
 		sep = ";"
 	}
 	nameMax, _ := strconv.Atoi(defaultValue("FIN_BTMU_NAME_MAX_LEN")) // 0/kosong = tanpa batas
+	domestic := strings.ToUpper(defaultValue("FIN_BTMU_CURRENCY"))
+	branch, account := defaultValue("FIN_BTMU_BRANCH"), defaultValue("FIN_BTMU_ACCOUNT")
+	if branch == "" || account == "" {
+		return nil, &ValidationError{Messages: []string{"FIN_BTMU_BRANCH / FIN_BTMU_ACCOUNT belum diatur di Default Value"}}
+	}
 	var msgs []string
 	var b strings.Builder
 	for i, p := range items {
-		cur := strings.ToUpper(firstNonEmpty(p.Currency, "IDR"))
-		var branch, account string
-		switch cur {
-		case "IDR":
-			branch, account = defaultValue("FIN_BTMU_BRANCH_IDR"), defaultValue("FIN_BTMU_ACCOUNT_IDR")
-		case "USD":
-			branch, account = defaultValue("FIN_BTMU_BRANCH_USD"), defaultValue("FIN_BTMU_ACCOUNT_USD")
-		}
-		if branch == "" || account == "" {
-			msgs = append(msgs, fmt.Sprintf("baris %d: cabang/rekening debit MUFG untuk mata uang %s belum diatur di Default Value", i+1, cur))
+		cur := strings.ToUpper(firstNonEmpty(p.Currency, domestic))
+		if domestic != "" && cur != domestic {
+			msgs = append(msgs, fmt.Sprintf("baris %d (%s): template MUFG hanya untuk transfer domestik %s, mata uang %s tidak didukung", i+1, firstNonEmpty(p.PaymentDocument, p.Supplier), domestic, cur))
 			continue
 		}
 		v := vendors.get(p.Supplier)
 		name := firstNonEmpty(paymentField(p, "PAYEE_NAME"), paymentField(p, "SHORT_NAME"), p.Supplier)
 		bankName := firstNonEmpty(v.AccountHolder, paymentField(p, "BANK_NAME"))
-		swift := paymentField(p, "SWIFT_CODE")
-
-		transfer := defaultValue("FIN_BTMU_TRANSFER_FOREIGN")
-		switch {
-		case containsAnyFold(bankName+" "+swift, defaultValue("FIN_BTMU_SAME_BANK_KEYWORDS")):
-			transfer = defaultValue("FIN_BTMU_TRANSFER_BOOK")
-		case cur == "IDR":
-			transfer = defaultValue("FIN_BTMU_TRANSFER_DOMESTIC")
-		}
+		transfer := defaultValue("FIN_BTMU_TRANSFER_TYPE")
 
 		cols := make([]string, 30)
 		cols[0] = branch + cur + defaultValue("FIN_BTMU_ACCOUNT_TYPE") + account
