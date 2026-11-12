@@ -2084,6 +2084,25 @@
             loadDashboardSPA(window.location.href);
         }
 
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Respons error berbentuk halaman HTML (mis. SAP 403 "blocked by UCON" dari Web Dispatcher) diringkas
+        // menjadi teks biasa agar tidak dirender sebagai HTML di kolom Information.
+        function looksLikeHtml(s) { return /<\s*(!doctype|html|head|body|title|h1|h2|p|div|br)\b/i.test(String(s || '')); }
+        function htmlErrorToText(raw) {
+            const s = String(raw || '');
+            const start = s.search(/<\s*(!doctype|html|head|body|title|h1|h2|p|div|br)\b/i);
+            if (start === -1) return s;
+            const doc = new DOMParser().parseFromString(s.substring(start), 'text/html');
+            doc.querySelectorAll('script,style,head').forEach(n => n.remove());
+            doc.querySelectorAll('body *').forEach(n => n.append(' ')); // pisahkan teks antar elemen (h1, p, ...)
+            const body = (doc.body ? doc.body.textContent : '').replace(/\s+/g, ' ').trim();
+            const prefix = s.substring(0, start).replace(/[\s:"'>]+$/, '').trim();
+            return [prefix, body].filter(Boolean).join(': ');
+        }
+
         function syntaxHighlight(json) {
             if (typeof json !== 'string') { json = JSON.stringify(json, null, 4); }
             json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2343,7 +2362,7 @@
                                     data-docno="${child.DocumentNo}" 
                                     data-status="${child.Status}" 
                                     data-sapdoc="${child.SAPDocumentNo || ''}" 
-                                    data-error="${child.ErrorMessage || ''}" 
+                                    data-error="${escapeHtml(child.ErrorMessage || '')}"
                                     data-created="${child.CreatedAt}" 
                                     data-updated="${child.UpdatedAt}" 
                                     data-group="${child.GroupID || child.DocumentNo}" 
@@ -2353,7 +2372,7 @@
                         </div>
                     </td>
                     <td class="text-center">${statusBadge}</td>
-                    <td class="smart-error-cell" data-status="${child.Status}" data-error="${safeError}" data-blocked="${blockedReason}"></td>
+                    <td class="smart-error-cell" data-status="${child.Status}" data-error="${escapeHtml(safeError)}" data-blocked="${escapeHtml(blockedReason)}"></td>
                     <td class="text-center">
                         <div class="d-flex align-items-center justify-content-center gap-1">
                             ${actionHtml}
@@ -2890,9 +2909,9 @@
             try {
                 const jsonStart = rawError.indexOf('{');
                 const jsonEnd = rawError.lastIndexOf('}');
-                if (jsonStart !== -1 && jsonEnd !== -1) {
-                    let prefix = cleanText(rawError.substring(0, jsonStart));
-                    let suffix = cleanText(rawError.substring(jsonEnd + 1));
+                if (!looksLikeHtml(rawError) && jsonStart !== -1 && jsonEnd !== -1) {
+                    let prefix = escapeHtml(cleanText(rawError.substring(0, jsonStart)));
+                    let suffix = escapeHtml(cleanText(rawError.substring(jsonEnd + 1)));
                     let mainJsonStr = rawError.substring(jsonStart, jsonEnd + 1);
 
                     let cleanedStr = mainJsonStr.replace(/"raw response"\s*:\s*"(?=\{)/g, '"raw response": ').replace(/\}"\s*,/g, '},').replace(/\}"\s*\}/g, '}}');
@@ -2911,6 +2930,10 @@
                 }
             } catch (e) { }
 
+            if (!handled && looksLikeHtml(rawError)) {
+                renderedContent = `<div style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(htmlErrorToText(rawError))}</div>`;
+                handled = true;
+            }
             if (!handled) {
                 let cleanRaw = rawError.replace(/\s{2,}/g, ' ').replace(/^[.'"\s]+|[.'"\s]+$/g, '').trim();
                 if (!cleanRaw.includes('{')) {
@@ -2986,21 +3009,22 @@
                         cell.innerHTML = `<div style="font-size: 12.5px; font-weight: 500; color: #334155;"><i class="bi bi-arrow-repeat me-1" style="color: #6D28D9;"></i> Waiting for confirmation from SAP</div>`;
                     } else {
                         const safeInfoData = encodeURIComponent(rawError).replace(/'/g, "%27");
+                        const infoText = escapeHtml(htmlErrorToText(rawError));
                         cell.innerHTML = `
                             <div class="d-flex flex-column align-items-start" style="gap: 4px;">
                                 <span class="error-category" style="color: #6D28D9;"><i class="bi bi-arrow-repeat me-1"></i> Processing Info</span>
-                                <span class="error-text-clamped" style="color: #334155; font-weight: 500; word-break: break-all;" title="${rawError}">${rawError}</span>
+                                <span class="error-text-clamped" style="color: #334155; font-weight: 500; word-break: break-all;" title="${infoText}">${infoText}</span>
                                 <button type="button" class="btn-view-detail text-primary" onclick="showErrorDetail('${safeInfoData}', false, 'Processing Info Detail')">View Detail <i class="bi bi-chevron-right"></i></button>
                             </div>`;
                     }
                     return;
                 }
-                if (blockedReason && blockedReason.trim() !== '') { cell.innerHTML = `<div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${blockedReason}</div>`; return; }
+                if (blockedReason && blockedReason.trim() !== '') { cell.innerHTML = `<div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${escapeHtml(blockedReason)}</div>`; return; }
                 if (!rawError || rawError === '-' || rawError.trim() === '') { cell.innerHTML = `<div class="text-muted">-</div>`; return; }
 
-                let shortMsg = rawError; let category = 'System Issue', badgeColor = '#F59E0B', badgeIcon = 'bi-exclamation-circle';
+                let shortMsg = htmlErrorToText(rawError); let category = 'System Issue', badgeColor = '#F59E0B', badgeIcon = 'bi-exclamation-circle';
                 try {
-                    const jsonStart = rawError.indexOf('{');
+                    const jsonStart = looksLikeHtml(rawError) ? -1 : rawError.indexOf('{');
                     if (jsonStart !== -1) {
                         const jsonObj = JSON.parse(rawError.substring(jsonStart));
                         if (jsonObj.error && jsonObj.error.message) { shortMsg = typeof jsonObj.error.message === 'string' ? jsonObj.error.message : jsonObj.error.message.value; }
@@ -3013,6 +3037,7 @@
                 else if (searchTarget.includes('auth') || searchTarget.includes('unauthorized') || searchTarget.includes('forbidden')) { category = 'Auth Error'; badgeColor = '#8B5CF6'; badgeIcon = 'bi-shield-lock-fill'; }
                 else if (status === 'error_conn') { category = 'Network/System Error'; badgeColor = '#3B82F6'; badgeIcon = 'bi-wifi-off'; }
                 const safeErrorData = encodeURIComponent(rawError).replace(/'/g, "%27");
+                shortMsg = escapeHtml(shortMsg);
                 cell.innerHTML = `<div class="d-flex flex-column align-items-start" style="gap: 4px;"><span class="error-category" style="color: ${badgeColor};"><i class="bi ${badgeIcon}"></i> ${category}</span><span class="error-text-clamped" style="color: #334155; font-weight: 500;" title="${shortMsg}">${shortMsg}</span><button type="button" class="btn-view-detail text-danger" onclick="showErrorDetail('${safeErrorData}', true, 'Error Technical Detail')">View Detail <i class="bi bi-chevron-right"></i></button></div>`;
             });
         }
