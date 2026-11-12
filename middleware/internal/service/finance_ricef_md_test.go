@@ -12,54 +12,86 @@ import (
 	"golang-bpi-testing/internal/repository"
 )
 
+// Baris contoh dari "BPI - Mapping file bank MUFG.csv".
 func TestBuildBTMUFile_MatchesSample(t *testing.T) {
-	t.Setenv("FIN_BTMU_DEBIT_ACCOUNT", "3665IDRCUA5100015546")
-	t.Setenv("FIN_BTMU_INSTRUCTION", "RRCR0142+")
 	raw, _ := json.Marshal(map[string]any{
-		"SupplierShortName": "PT. CAHAYA DEWA", "PayeeName": "PT. CAHAYA DEWATA NUSANTARA", "PayeeCityName": "JAKARTA",
-		"BankName": "PT. BANK CENTRAL ASIA, TBK.", "BankAccount": "2886866868",
+		"OrganizationBPName1": "PT. CAHAYA DEWATA NUSANTARA", "PayeeCityName": "JAKARTA",
+		"PayeeBankAccount": "2886866868", "BankAccount": "5637331931",
 	})
-	data, err := BuildBTMUFile([]model.PaymentProposal{{Supplier: "261001", Amount: 40090980, Currency: "IDR", Raw: raw}},
-		time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	vendors := VendorBankLookupFromList([]model.EmployeeVendorMapping{
+		{VendorCode: "261001", AccountHolder: "PT. BANK CENTRAL ASIA, TBK.", IsActive: true},
+		{VendorCode: "900001", AccountHolder: "MUFG BANK, LTD. JAKARTA BRANCH", IsActive: true},
+	})
+	data, err := BuildBTMUFile([]model.PaymentProposal{
+		{Supplier: "261001", Amount: 40090980, Currency: "IDR", Raw: raw},
+		{Supplier: "261001", Amount: 100, Currency: "USD", Raw: raw},
+		{Supplier: "900001", Amount: 100, Currency: "IDR", Raw: raw},
+	}, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), vendors)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`) + "\r\n"
-	if string(data) != want {
-		t.Fatalf("BTMU mismatch\n got: %s\nwant: %s", data, want)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\r\n"), "\r\n")
+	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`)
+	if len(lines) != 3 || lines[0] != want {
+		t.Fatalf("BTMU mismatch\n got: %s\nwant: %s", lines[0], want)
+	}
+	if !strings.HasPrefix(lines[1], `3655USDCUA5100015546;"261001";"PT. CAHAYA DEWA";"Foreign Remittance";"USD"`) {
+		t.Fatalf("USD row: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], `;"Book Transfer";`) {
+		t.Fatalf("vendor MUFG harus Book Transfer: %s", lines[2])
 	}
 }
 
 func TestBankFile_FieldNamesConfigurable(t *testing.T) {
 	t.Setenv("FIN_BRI_DEBIT_ACCOUNT", "011101000305307")
 	t.Setenv("FIN_PAYMENT_FIELD_PAYEE_NAME", "YY1_PayeeName_PAY")
-	raw, _ := json.Marshal(map[string]any{"YY1_PayeeName_PAY": "PT. CONFIG", "PayeeName": "PT. DEFAULT"})
-	data, err := BuildBRIFile([]model.PaymentProposal{{Amount: 1, Raw: raw}}, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
+	raw, _ := json.Marshal(map[string]any{"YY1_PayeeName_PAY": "PT. CONFIG", "OrganizationBPName1": "PT. DEFAULT"})
+	data, err := BuildBRIFile([]model.PaymentProposal{{Amount: 1, Raw: raw}}, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), nil)
 	if err != nil || !strings.Contains(string(data), "|PT. CONFIG|") {
 		t.Fatalf("configured field name not used: %q %v", data, err)
 	}
 }
 
+// Baris contoh dari "BPI - Mapping file bank BRI.csv" (LLG beda bank dan IFT sesama BRI).
 func TestBuildBRIFile_MatchesSample(t *testing.T) {
-	t.Setenv("FIN_BRI_DEBIT_ACCOUNT", "011101000305307")
-	raw, _ := json.Marshal(map[string]any{"PayeeName": "PT. INDO KENCANA LESTARI", "PayeeCityName": "JAKARTA", "BankNumber": "002", "BankAccount": "011101000305307"})
-	data, err := BuildBRIFile([]model.PaymentProposal{{Amount: 50000000, Currency: "IDR", Raw: raw}}, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
+	bankNow = func() time.Time { return time.Date(2026, 11, 12, 14, 30, 0, 0, time.Local) }
+	defer func() { bankNow = time.Now }()
+	raw := func(name, acc, swift string) json.RawMessage {
+		b, _ := json.Marshal(map[string]any{"OrganizationBPName1": name, "PayeeBankAccount": acc, "SWIFTCode": swift, "BankAccount": "156001000123456"})
+		return b
+	}
+	vendors := VendorBankLookupFromList([]model.EmployeeVendorMapping{
+		{VendorCode: "E001", Email: "ari.pambudi@ptbpi.co.id", IsActive: true},
+		{VendorCode: "E002", Email: "Muchamat.Hasim@ptbpi.co.id", BankKey: "BRINIDJA", IsActive: true},
+	})
+	data, err := BuildBRIFile([]model.PaymentProposal{
+		{Supplier: "E001", PaymentDocument: "5637331931", Amount: 1200000, Currency: "IDR", Raw: raw("ARI SULISTIYA PAMBUDI", "149126515", "BNINIDJA")},
+		{Supplier: "E002", PaymentDocument: "5637331925", Amount: 1250000, Currency: "IDR", Raw: raw("MUCHAMAT HASIM S. SOS", "156001000999999", "")},
+	}, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), vendors)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "011101000305307|021026|IDR|50000000.00|0000000000|PT. INDO KENCANA LESTARI|JAKARTA|002|011101000305307|PT BHIMASENA POWER INDONESIA|PEMBAYARAN TAGIHAN|1|0|0|0|\r\n"
-	if string(data) != want {
-		t.Fatalf("BRI mismatch\n got: %q\nwant: %q", data, want)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\r\n"), "\r\n")
+	want := "1|BRI5637331931|LLG|202611121430|156001000123456|PT BHIMASENA POWER INDONESIA|BNINIDJA|149126515|ARI SULISTIYA PAMBUDI|BATANG|1200000.00|IDR|ARI SULISTIYA PAMBUDI|ari.pambudi@ptbpi.co.id|OUR|ID||UJUNGNEGORO BATANG INDONESIA|81234567890|ID|ID"
+	if len(lines) != 2 || lines[0] != want {
+		t.Fatalf("BRI mismatch\n got: %q\nwant: %q", lines[0], want)
 	}
-	if n := len(strings.Split(strings.TrimSpace(string(data)), "|")); n != 16 {
-		t.Fatalf("BRI harus 16 kolom, dapat %d", n)
+	if n := len(strings.Split(lines[0], "|")); n != 21 {
+		t.Fatalf("BRI harus 21 kolom, dapat %d", n)
+	}
+	if !strings.HasPrefix(lines[1], "2|BRI5637331925|IFT|") || !strings.Contains(lines[1], "|BRINIDJA|") {
+		t.Fatalf("vendor BRI harus IFT dengan SWIFT dari Vendor Master: %s", lines[1])
 	}
 }
 
 func TestBankFile_RequiresDebitAccount(t *testing.T) {
-	t.Setenv("FIN_BTMU_DEBIT_ACCOUNT", "")
-	if _, err := BuildBTMUFile(nil, time.Time{}); err == nil {
-		t.Fatal("harus error bila rekening debit kosong")
+	t.Setenv("FIN_BRI_DEBIT_ACCOUNT", "")
+	if _, err := BuildBRIFile([]model.PaymentProposal{{Amount: 1}}, time.Time{}, nil); err == nil {
+		t.Fatal("BRI harus error bila rekening BPI kosong")
+	}
+	if _, err := BuildBTMUFile([]model.PaymentProposal{{Amount: 1, Currency: "SGD"}}, time.Time{}, nil); err == nil {
+		t.Fatal("MUFG harus error bila rekening debit mata uang belum diatur")
 	}
 }
 

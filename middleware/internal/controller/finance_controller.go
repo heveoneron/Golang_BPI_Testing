@@ -510,12 +510,18 @@ func (c *FinanceController) DownloadBankFile(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "tidak ada payment proposal untuk filter ini"})
 		return
 	}
+	vendorList, err := c.Svc.PGRepo.ListEmployeeVendors(ctx.Request.Context(), "", 5000)
+	if err != nil {
+		respondFinanceError(ctx, err)
+		return
+	}
+	vendors := service.VendorBankLookupFromList(vendorList)
 	var data []byte
 	switch bank {
-	case "BTMU":
-		data, err = service.BuildBTMUFile(items, valueDate)
+	case "BTMU", "MUFG":
+		data, err = service.BuildBTMUFile(items, valueDate, vendors)
 	case "BRI":
-		data, err = service.BuildBRIFile(items, valueDate)
+		data, err = service.BuildBRIFile(items, valueDate, vendors)
 	default:
 		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "bank harus BTMU atau BRI"})
 		return

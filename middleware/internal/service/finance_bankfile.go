@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,35 @@ func paymentField(p model.PaymentProposal, name string) string {
 	return rawString(p.Raw, paymentFieldKeys(name))
 }
 
+// VendorBankLookup mengembalikan Vendor Master (employee_vendor_mappings) untuk kode supplier payload:
+// email, nama bank (account_holder), bank key, rekening.
+type VendorBankLookup func(supplier string) (model.EmployeeVendorMapping, bool)
+
+func (l VendorBankLookup) get(supplier string) model.EmployeeVendorMapping {
+	if l == nil || strings.TrimSpace(supplier) == "" {
+		return model.EmployeeVendorMapping{}
+	}
+	v, _ := l(strings.TrimSpace(supplier))
+	return v
+}
+
+// VendorBankLookupFromList membuat lookup dari daftar Vendor Master aktif.
+func VendorBankLookupFromList(items []model.EmployeeVendorMapping) VendorBankLookup {
+	m := make(map[string]model.EmployeeVendorMapping, len(items))
+	for _, v := range items {
+		if v.IsActive {
+			m[strings.ToUpper(strings.TrimSpace(v.VendorCode))] = v
+		}
+	}
+	return func(supplier string) (model.EmployeeVendorMapping, bool) {
+		v, ok := m[strings.ToUpper(supplier)]
+		return v, ok
+	}
+}
+
+// bankNow dapat diganti di test agar jam di file BRI deterministik.
+var bankNow = time.Now
+
 func bankValueDate(p model.PaymentProposal, override time.Time) time.Time {
 	if !override.IsZero() {
 		return override
@@ -48,7 +78,7 @@ func bankValueDate(p model.PaymentProposal, override time.Time) time.Time {
 			}
 		}
 	}
-	return time.Now()
+	return bankNow()
 }
 
 func quoteCSV(s string) string {
@@ -62,73 +92,156 @@ func bankAmount(v float64) string {
 	return fmt.Sprintf("%.2f", v)
 }
 
-// BuildBTMUFile menghasilkan file 30 kolom MUFG/BTMU dengan pemisah FIN_BTMU_SEPARATOR (default ";"):
-// kolom 1 tanpa kutip, kolom 2–30 berkutip ganda. Kliring, charge bearer & kode instruksi selalu nilai default.
-func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time) ([]byte, error) {
-	debit := envOr("FIN_BTMU_DEBIT_ACCOUNT", "")
-	if debit == "" {
-		return nil, &ValidationError{Messages: []string{"FIN_BTMU_DEBIT_ACCOUNT belum diisi"}}
+func containsAnyFold(s string, keywords string) bool {
+	s = strings.ToUpper(s)
+	for _, k := range strings.Split(keywords, ",") {
+		if k = strings.ToUpper(strings.TrimSpace(k)); k != "" && strings.Contains(s, k) {
+			return true
+		}
 	}
-	sep := envOr("FIN_BTMU_SEPARATOR", ";")
+	return false
+}
+
+func intDefault(key string, def int) int {
+	if n, err := strconv.Atoi(defaultValue(key)); err == nil && n > 0 {
+		return n
+	}
+	return def
+}
+
+// BuildBTMUFile menghasilkan file MUFG/BTMU 30 kolom (pemisah FIN_BTMU_SEPARATOR, kolom 1 tanpa kutip,
+// kolom 2–30 berkutip ganda) sesuai "BPI - Mapping file bank MUFG". Semua nilai tetap dari menu Default Value:
+//   - 1  cabang + mata uang + tipe + rekening debit BPI per mata uang (contoh 3665IDRCUA5100015546)
+//   - 2  PaymentRunDate (YYMMDD)       - 3  OrganizationBPName1 (maks. FIN_BTMU_NAME_MAX_LEN)
+//   - 4  Book Transfer bila bank vendor MUFG, Domestic untuk IDR, Foreign Remittance untuk mata uang lain
+//   - 5  PaymentCurrency  - 6 PaymentAmountInPaytCurrency
+//   - 11 nama bank vendor: Vendor Master (account_holder) bila supplier ada, selain itu field payload
+//   - 13 PayeeBankAccount - 14 nama vendor/kota - 16 kliring - 17 instruksi - 18 charge bearer
+func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors VendorBankLookup) ([]byte, error) {
+	sep := defaultValue("FIN_BTMU_SEPARATOR")
+	if sep == "" {
+		sep = ";"
+	}
+	nameMax := intDefault("FIN_BTMU_NAME_MAX_LEN", 15)
+	var msgs []string
 	var b strings.Builder
-	for _, p := range items {
-		name := paymentField(p, "PAYEE_NAME")
+	for i, p := range items {
+		cur := strings.ToUpper(firstNonEmpty(p.Currency, "IDR"))
+		var branch, account string
+		switch cur {
+		case "IDR":
+			branch, account = defaultValue("FIN_BTMU_BRANCH_IDR"), defaultValue("FIN_BTMU_ACCOUNT_IDR")
+		case "USD":
+			branch, account = defaultValue("FIN_BTMU_BRANCH_USD"), defaultValue("FIN_BTMU_ACCOUNT_USD")
+		}
+		if branch == "" || account == "" {
+			msgs = append(msgs, fmt.Sprintf("baris %d: cabang/rekening debit MUFG untuk mata uang %s belum diatur di Default Value", i+1, cur))
+			continue
+		}
+		v := vendors.get(p.Supplier)
+		name := firstNonEmpty(paymentField(p, "PAYEE_NAME"), paymentField(p, "SHORT_NAME"), p.Supplier)
+		bankName := firstNonEmpty(v.AccountHolder, paymentField(p, "BANK_NAME"))
+		swift := firstNonEmpty(paymentField(p, "SWIFT_CODE"), v.BankKey)
+
+		transfer := defaultValue("FIN_BTMU_TRANSFER_FOREIGN")
+		switch {
+		case containsAnyFold(bankName+" "+swift, defaultValue("FIN_BTMU_SAME_BANK_KEYWORDS")):
+			transfer = defaultValue("FIN_BTMU_TRANSFER_BOOK")
+		case cur == "IDR":
+			transfer = defaultValue("FIN_BTMU_TRANSFER_DOMESTIC")
+		}
+
 		cols := make([]string, 30)
-		cols[0] = debit
+		cols[0] = branch + cur + defaultValue("FIN_BTMU_ACCOUNT_TYPE") + account
 		cols[1] = bankValueDate(p, valueDate).Format("060102")
-		cols[2] = truncate(firstNonEmpty(paymentField(p, "SHORT_NAME"), name, p.Supplier), 35)
-		cols[3] = envOr("FIN_BTMU_TRANSFER_TYPE", "Domestic")
-		cols[4] = strings.ToUpper(firstNonEmpty(p.Currency, "IDR"))
+		cols[2] = truncate(name, nameMax)
+		cols[3] = transfer
+		cols[4] = cur
 		cols[5] = bankAmount(p.Amount)
-		cols[10] = paymentField(p, "BANK_NAME")
-		cols[12] = paymentField(p, "ACCOUNT")
-		cols[13] = strings.Trim(firstNonEmpty(name, p.Supplier)+"/"+paymentField(p, "CITY"), "/")
-		cols[15] = envOr("FIN_BTMU_CLEARING_CODE", "03")
-		cols[16] = envOr("FIN_BTMU_INSTRUCTION", "RRCR0142+")
-		cols[17] = envOr("FIN_BTMU_CHARGE_BEARER", "OUR")
+		cols[10] = bankName
+		cols[12] = firstNonEmpty(paymentField(p, "ACCOUNT"), v.BankAccount)
+		cols[13] = strings.Trim(name+"/"+paymentField(p, "CITY"), "/")
+		cols[15] = defaultValue("FIN_BTMU_CLEARING_CODE")
+		cols[16] = defaultValue("FIN_BTMU_INSTRUCTION")
+		cols[17] = defaultValue("FIN_BTMU_CHARGE_BEARER")
 		b.WriteString(cols[0])
 		for _, c := range cols[1:] {
 			b.WriteString(sep + quoteCSV(c))
 		}
 		b.WriteString("\r\n")
 	}
+	if len(msgs) > 0 {
+		return nil, &ValidationError{Messages: msgs}
+	}
 	return []byte(b.String()), nil
 }
 
-// BuildBRIFile menghasilkan file CMS BRI 16 kolom (A–P) dengan pemisah FIN_BRI_SEPARATOR (default "|"),
-// kolom P kosong sebagai penutup baris.
-func BuildBRIFile(items []model.PaymentProposal, valueDate time.Time) ([]byte, error) {
-	debit := envOr("FIN_BRI_DEBIT_ACCOUNT", "")
-	if debit == "" {
-		return nil, &ValidationError{Messages: []string{"FIN_BRI_DEBIT_ACCOUNT belum diisi"}}
+// BuildBRIFile menghasilkan file BRI 21 kolom (pemisah FIN_BRI_SEPARATOR) sesuai "BPI - Mapping file bank BRI":
+//   - 1  nomor urut  - 2 FIN_BRI_REF_PREFIX + PaymentDocument (nomor urut bila kosong)
+//   - 3  IFT bila bank vendor BRI (SWIFT FIN_BRI_SAME_BANK_SWIFT / kode FIN_BRI_SAME_BANK_CODE), selain itu LLG
+//   - 4  PaymentRunDate + jam (yyyyMMddHHmm)  - 5 BankAccount (rekening BPI)  - 6 nama pemilik rekening BPI
+//   - 7  SWIFT bank vendor  - 8 PayeeBankAccount  - 9 OrganizationBPName1  - 10 kota
+//   - 11 PaymentAmountInPaytCurrency  - 12 PaymentCurrency  - 13 nama vendor  - 14 email Vendor Master
+//   - 15–21 nilai tetap menu Default Value
+func BuildBRIFile(items []model.PaymentProposal, valueDate time.Time, vendors VendorBankLookup) ([]byte, error) {
+	sep := defaultValue("FIN_BRI_SEPARATOR")
+	if sep == "" {
+		sep = "|"
 	}
-	sep := envOr("FIN_BRI_SEPARATOR", "|")
 	clean := func(s string) string {
 		return strings.NewReplacer(sep, " ", "\r", " ", "\n", " ").Replace(strings.TrimSpace(s))
 	}
-	sameBank := envOr("FIN_BRI_SAME_BANK_CODE", "002")
+	sameSwift := strings.ToUpper(defaultValue("FIN_BRI_SAME_BANK_SWIFT"))
+	sameCode := defaultValue("FIN_BRI_SAME_BANK_CODE")
+	clock := bankNow()
+	var msgs []string
 	var b strings.Builder
-	for _, p := range items {
-		bankCode := paymentField(p, "BANK_CODE")
-		instr := envOr("FIN_BRI_TRANSFER_TYPE_OTHER", "2")
-		if bankCode == sameBank {
-			instr = envOr("FIN_BRI_TRANSFER_TYPE_SAME", "1")
+	for i, p := range items {
+		debit := firstNonEmpty(paymentField(p, "HOUSE_ACCOUNT"), defaultValue("FIN_BRI_DEBIT_ACCOUNT"))
+		if debit == "" {
+			msgs = append(msgs, fmt.Sprintf("baris %d: rekening BPI kosong (field BankAccount payload / FIN_BRI_DEBIT_ACCOUNT)", i+1))
+			continue
 		}
+		v := vendors.get(p.Supplier)
+		swift := strings.ToUpper(firstNonEmpty(paymentField(p, "SWIFT_CODE"), v.BankKey))
+		transfer := defaultValue("FIN_BRI_TRANSFER_OTHER")
+		if (sameSwift != "" && strings.HasPrefix(swift, sameSwift)) || (sameCode != "" && paymentField(p, "BANK_CODE") == sameCode) {
+			transfer = defaultValue("FIN_BRI_TRANSFER_SAME")
+		}
+		d := bankValueDate(p, valueDate)
+		stamp := time.Date(d.Year(), d.Month(), d.Day(), clock.Hour(), clock.Minute(), 0, 0, time.Local)
+		name := firstNonEmpty(paymentField(p, "PAYEE_NAME"), p.Supplier)
+		ref := firstNonEmpty(p.PaymentDocument, paymentField(p, "PAYMENT_DOCUMENT"), strconv.Itoa(i+1))
 		cols := []string{
-			clean(debit),
-			bankValueDate(p, valueDate).Format("020106"),
-			strings.ToUpper(firstNonEmpty(p.Currency, "IDR")),
+			strconv.Itoa(i + 1),
+			defaultValue("FIN_BRI_REF_PREFIX") + ref,
+			transfer,
+			stamp.Format("200601021504"),
+			debit,
+			defaultValue("FIN_BRI_REMITTER_NAME"),
+			swift,
+			firstNonEmpty(paymentField(p, "ACCOUNT"), v.BankAccount),
+			name,
+			defaultValue("FIN_BRI_CITY"),
 			bankAmount(p.Amount),
-			clean(envOr("FIN_BRI_REFERENCE", "0000000000")),
-			clean(firstNonEmpty(paymentField(p, "PAYEE_NAME"), p.Supplier)),
-			clean(firstNonEmpty(paymentField(p, "CITY"), envOr("FIN_BRI_DEFAULT_CITY", "JAKARTA"))),
-			clean(bankCode),
-			clean(paymentField(p, "ACCOUNT")),
-			clean(envOr("FIN_BRI_REMITTER_NAME", "PT BHIMASENA POWER INDONESIA")),
-			clean(firstNonEmpty(paymentField(p, "REMARK"), envOr("FIN_BRI_REMARK", "PEMBAYARAN TAGIHAN"))),
-			instr, "0", "0", "0", "",
+			strings.ToUpper(firstNonEmpty(p.Currency, "IDR")),
+			name,
+			firstNonEmpty(v.Email, paymentField(p, "EMAIL")),
+			defaultValue("FIN_BRI_CHARGE_BEARER"),
+			defaultValue("FIN_BRI_COL16"),
+			defaultValue("FIN_BRI_COL17"),
+			defaultValue("FIN_BRI_REMITTER_ADDRESS"),
+			defaultValue("FIN_BRI_REMITTER_PHONE"),
+			defaultValue("FIN_BRI_COL20"),
+			defaultValue("FIN_BRI_COL21"),
+		}
+		for j := range cols {
+			cols[j] = clean(cols[j])
 		}
 		b.WriteString(strings.Join(cols, sep) + "\r\n")
+	}
+	if len(msgs) > 0 {
+		return nil, &ValidationError{Messages: msgs}
 	}
 	return []byte(b.String()), nil
 }

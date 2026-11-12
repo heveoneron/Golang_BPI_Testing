@@ -11,20 +11,25 @@ import "strings"
 var defaultSAPFieldKeys = map[string]map[string][]string{
 	"PAYMENT": {
 		// file bank (RICEF 5)
-		"PAYEE_NAME": {"PayeeName", "SupplierName", "BeneficiaryName", "BusinessPartnerName", "SupplierFullName"},
-		"SHORT_NAME": {"PayeeShortName", "SupplierShortName", "SearchTerm"},
-		"BANK_NAME":  {"PayeeBankName", "BankName", "BeneficiaryBankName"},
-		"ACCOUNT":    {"PayeeBankAccount", "BankAccount", "BankAccountNumber", "BeneficiaryAccount"},
-		"BANK_CODE":  {"PayeeBankNumber", "BankNumber", "BankKey", "BankCode"},
-		"CITY":       {"PayeeCityName", "CityName", "BankCity", "City"},
-		"REMARK":     {"PaymentReference", "PaymentRemark", "DocumentItemText"},
+		// Mapping file bank BRI & MUFG: nama vendor = OrganizationBPName1, rekening vendor = PayeeBankAccount,
+		// BankAccount = rekening BPI (house bank), BUKAN rekening vendor.
+		"PAYEE_NAME":    {"OrganizationBPName1", "PayeeName", "SupplierName", "BeneficiaryName", "BusinessPartnerName", "SupplierFullName"},
+		"SHORT_NAME":    {"PayeeShortName", "SupplierShortName", "SearchTerm"},
+		"BANK_NAME":     {"PayeeBankName", "BankName", "BeneficiaryBankName"},
+		"ACCOUNT":       {"PayeeBankAccount", "BankAccountNumber", "BeneficiaryAccount"},
+		"HOUSE_ACCOUNT": {"BankAccount", "HouseBankAccount"},
+		"BANK_CODE":     {"PayeeBankNumber", "BankNumber", "BankKey", "BankCode"},
+		"SWIFT_CODE":    {"SWIFTCode", "PayeeSWIFTCode", "PayeeBankSWIFTCode"},
+		"EMAIL":         {"EmailAddress", "PayeeEmailAddress"},
+		"CITY":          {"PayeeCityName", "CityName", "BankCity", "City"},
+		"REMARK":        {"PaymentReference", "PaymentRemark", "DocumentItemText"},
 		// kolom terstruktur sap_payment_proposals
 		"RUN_ID":           {"PaymentRunID", "PaymentRunIdentification", "LAUFI"},
 		"RUN_DATE":         {"PaymentRunDate", "PaymentRunExecutionDate", "LAUFD"},
 		"COMPANY_CODE":     {"CompanyCode", "PayingCompanyCode", "BUKRS"},
 		"SUPPLIER":         {"Supplier", "Vendor", "LIFNR"},
 		"PAYMENT_DOCUMENT": {"PaymentDocument", "AccountingDocument", "VBLNR"},
-		"AMOUNT":           {"PaidAmountInPaytCurrency", "PaymentAmount", "AmountInPaymentCurrency", "RBETR"},
+		"AMOUNT":           {"PaymentAmountInPaytCurrency", "PaidAmountInPaytCurrency","PaymentAmount", "AmountInPaymentCurrency", "RBETR"},
 		"CURRENCY":         {"PaymentCurrency", "Currency", "WAERS"},
 	},
 	"ASSET": {
