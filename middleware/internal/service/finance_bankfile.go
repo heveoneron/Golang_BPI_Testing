@@ -112,7 +112,7 @@ func intDefault(key string, def int) int {
 // BuildBTMUFile menghasilkan file MUFG/BTMU 30 kolom (pemisah FIN_BTMU_SEPARATOR, kolom 1 tanpa kutip,
 // kolom 2–30 berkutip ganda) sesuai "BPI - Mapping file bank MUFG". Semua nilai tetap dari menu Default Value:
 //   - 1  cabang + mata uang + tipe + rekening debit BPI per mata uang (contoh 3665IDRCUA5100015546)
-//   - 2  PaymentRunDate (YYMMDD)       - 3  OrganizationBPName1 (maks. FIN_BTMU_NAME_MAX_LEN)
+//   - 2  PaymentRunDate (YYMMDD)       - 3  OrganizationBPName1 (FIN_BTMU_NAME_MAX_LEN, 0 = tanpa batas)
 //   - 4  Book Transfer bila bank vendor MUFG, Domestic untuk IDR, Foreign Remittance untuk mata uang lain
 //   - 5  PaymentCurrency  - 6 PaymentAmountInPaytCurrency
 //   - 11 nama bank vendor: Vendor Master (account_holder) bila supplier ada, selain itu field payload
@@ -122,7 +122,7 @@ func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors V
 	if sep == "" {
 		sep = ";"
 	}
-	nameMax := intDefault("FIN_BTMU_NAME_MAX_LEN", 15)
+	nameMax, _ := strconv.Atoi(defaultValue("FIN_BTMU_NAME_MAX_LEN")) // 0/kosong = tanpa batas
 	var msgs []string
 	var b strings.Builder
 	for i, p := range items {
@@ -141,7 +141,7 @@ func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors V
 		v := vendors.get(p.Supplier)
 		name := firstNonEmpty(paymentField(p, "PAYEE_NAME"), paymentField(p, "SHORT_NAME"), p.Supplier)
 		bankName := firstNonEmpty(v.AccountHolder, paymentField(p, "BANK_NAME"))
-		swift := firstNonEmpty(paymentField(p, "SWIFT_CODE"), v.BankKey)
+		swift := paymentField(p, "SWIFT_CODE")
 
 		transfer := defaultValue("FIN_BTMU_TRANSFER_FOREIGN")
 		switch {
@@ -154,7 +154,10 @@ func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors V
 		cols := make([]string, 30)
 		cols[0] = branch + cur + defaultValue("FIN_BTMU_ACCOUNT_TYPE") + account
 		cols[1] = bankValueDate(p, valueDate).Format("060102")
-		cols[2] = truncate(name, nameMax)
+		cols[2] = strings.TrimSpace(name)
+		if nameMax > 0 {
+			cols[2] = truncate(name, nameMax)
+		}
 		cols[3] = transfer
 		cols[4] = cur
 		cols[5] = bankAmount(p.Amount)
@@ -177,8 +180,8 @@ func BuildBTMUFile(items []model.PaymentProposal, valueDate time.Time, vendors V
 }
 
 // BuildBRIFile menghasilkan file BRI 21 kolom (pemisah FIN_BRI_SEPARATOR) sesuai "BPI - Mapping file bank BRI":
-//   - 1  nomor urut  - 2 FIN_BRI_REF_PREFIX + PaymentDocument (nomor urut bila kosong)
-//   - 3  IFT bila bank vendor BRI (SWIFT FIN_BRI_SAME_BANK_SWIFT / kode FIN_BRI_SAME_BANK_CODE), selain itu LLG
+//   - 1  nomor urut  - 2 FIN_BRI_REF_PREFIX + nomor urut kolom 1 berisi nol FIN_BRI_REF_DIGITS digit (BRI0000000001)
+//   - 3  IFT bila PayeeSwiftCode = FIN_BRI_SAME_BANK_SWIFT (atau kode FIN_BRI_SAME_BANK_CODE), selain itu LLG
 //   - 4  PaymentRunDate + jam (yyyyMMddHHmm)  - 5 BankAccount (rekening BPI)  - 6 nama pemilik rekening BPI
 //   - 7  SWIFT bank vendor  - 8 PayeeBankAccount  - 9 OrganizationBPName1  - 10 kota
 //   - 11 PaymentAmountInPaytCurrency  - 12 PaymentCurrency  - 13 nama vendor  - 14 email Vendor Master
@@ -194,6 +197,7 @@ func BuildBRIFile(items []model.PaymentProposal, valueDate time.Time, vendors Ve
 	sameSwift := strings.ToUpper(defaultValue("FIN_BRI_SAME_BANK_SWIFT"))
 	sameCode := defaultValue("FIN_BRI_SAME_BANK_CODE")
 	clock := bankNow()
+	refDigits := intDefault("FIN_BRI_REF_DIGITS", 10)
 	var msgs []string
 	var b strings.Builder
 	for i, p := range items {
@@ -203,7 +207,7 @@ func BuildBRIFile(items []model.PaymentProposal, valueDate time.Time, vendors Ve
 			continue
 		}
 		v := vendors.get(p.Supplier)
-		swift := strings.ToUpper(firstNonEmpty(paymentField(p, "SWIFT_CODE"), v.BankKey))
+		swift := strings.ToUpper(paymentField(p, "SWIFT_CODE"))
 		transfer := defaultValue("FIN_BRI_TRANSFER_OTHER")
 		if (sameSwift != "" && strings.HasPrefix(swift, sameSwift)) || (sameCode != "" && paymentField(p, "BANK_CODE") == sameCode) {
 			transfer = defaultValue("FIN_BRI_TRANSFER_SAME")
@@ -211,10 +215,9 @@ func BuildBRIFile(items []model.PaymentProposal, valueDate time.Time, vendors Ve
 		d := bankValueDate(p, valueDate)
 		stamp := time.Date(d.Year(), d.Month(), d.Day(), clock.Hour(), clock.Minute(), 0, 0, time.Local)
 		name := firstNonEmpty(paymentField(p, "PAYEE_NAME"), p.Supplier)
-		ref := firstNonEmpty(p.PaymentDocument, paymentField(p, "PAYMENT_DOCUMENT"), strconv.Itoa(i+1))
 		cols := []string{
 			strconv.Itoa(i + 1),
-			defaultValue("FIN_BRI_REF_PREFIX") + ref,
+			defaultValue("FIN_BRI_REF_PREFIX") + fmt.Sprintf("%0*d", refDigits, i+1),
 			transfer,
 			stamp.Format("200601021504"),
 			debit,

@@ -31,11 +31,11 @@ func TestBuildBTMUFile_MatchesSample(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(data), "\r\n"), "\r\n")
-	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`)
+	want := strings.ReplaceAll(`3665IDRCUA5100015546,"261001","PT. CAHAYA DEWATA NUSANTARA","Domestic","IDR","40090980.00","","","","","PT. BANK CENTRAL ASIA, TBK.","","2886866868","PT. CAHAYA DEWATA NUSANTARA/JAKARTA","","03","RRCR0142+","OUR","","","","","","","","","","","",""`, `,"`, `;"`)
 	if len(lines) != 3 || lines[0] != want {
 		t.Fatalf("BTMU mismatch\n got: %s\nwant: %s", lines[0], want)
 	}
-	if !strings.HasPrefix(lines[1], `3655USDCUA5100015546;"261001";"PT. CAHAYA DEWA";"Foreign Remittance";"USD"`) {
+	if !strings.HasPrefix(lines[1], `3655USDCUA5100015546;"261001";"PT. CAHAYA DEWATA NUSANTARA";"Foreign Remittance";"USD"`) {
 		t.Fatalf("USD row: %s", lines[1])
 	}
 	if !strings.Contains(lines[2], `;"Book Transfer";`) {
@@ -58,30 +58,30 @@ func TestBuildBRIFile_MatchesSample(t *testing.T) {
 	bankNow = func() time.Time { return time.Date(2026, 11, 12, 14, 30, 0, 0, time.Local) }
 	defer func() { bankNow = time.Now }()
 	raw := func(name, acc, swift string) json.RawMessage {
-		b, _ := json.Marshal(map[string]any{"OrganizationBPName1": name, "PayeeBankAccount": acc, "SWIFTCode": swift, "BankAccount": "156001000123456"})
+		b, _ := json.Marshal(map[string]any{"OrganizationBPName1": name, "PayeeBankAccount": acc, "PayeeSwiftCode": swift, "BankAccount": "156001000123456"})
 		return b
 	}
 	vendors := VendorBankLookupFromList([]model.EmployeeVendorMapping{
 		{VendorCode: "E001", Email: "ari.pambudi@ptbpi.co.id", IsActive: true},
-		{VendorCode: "E002", Email: "Muchamat.Hasim@ptbpi.co.id", BankKey: "BRINIDJA", IsActive: true},
+		{VendorCode: "E002", Email: "Muchamat.Hasim@ptbpi.co.id", BankKey: "IGNORED", IsActive: true},
 	})
 	data, err := BuildBRIFile([]model.PaymentProposal{
 		{Supplier: "E001", PaymentDocument: "5637331931", Amount: 1200000, Currency: "IDR", Raw: raw("ARI SULISTIYA PAMBUDI", "149126515", "BNINIDJA")},
-		{Supplier: "E002", PaymentDocument: "5637331925", Amount: 1250000, Currency: "IDR", Raw: raw("MUCHAMAT HASIM S. SOS", "156001000999999", "")},
+		{Supplier: "E002", PaymentDocument: "5637331925", Amount: 1250000, Currency: "IDR", Raw: raw("MUCHAMAT HASIM S. SOS", "156001000999999", "BRINIDJA")},
 	}, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), vendors)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(data), "\r\n"), "\r\n")
-	want := "1|BRI5637331931|LLG|202611121430|156001000123456|PT BHIMASENA POWER INDONESIA|BNINIDJA|149126515|ARI SULISTIYA PAMBUDI|BATANG|1200000.00|IDR|ARI SULISTIYA PAMBUDI|ari.pambudi@ptbpi.co.id|OUR|ID||UJUNGNEGORO BATANG INDONESIA|81234567890|ID|ID"
+	want := "1|BRI0000000001|LLG|202611121430|156001000123456|PT BHIMASENA POWER INDONESIA|BNINIDJA|149126515|ARI SULISTIYA PAMBUDI|BATANG|1200000.00|IDR|ARI SULISTIYA PAMBUDI|ari.pambudi@ptbpi.co.id|OUR|ID||UJUNGNEGORO BATANG INDONESIA|81234567890|ID|ID"
 	if len(lines) != 2 || lines[0] != want {
 		t.Fatalf("BRI mismatch\n got: %q\nwant: %q", lines[0], want)
 	}
 	if n := len(strings.Split(lines[0], "|")); n != 21 {
 		t.Fatalf("BRI harus 21 kolom, dapat %d", n)
 	}
-	if !strings.HasPrefix(lines[1], "2|BRI5637331925|IFT|") || !strings.Contains(lines[1], "|BRINIDJA|") {
-		t.Fatalf("vendor BRI harus IFT dengan SWIFT dari Vendor Master: %s", lines[1])
+	if !strings.HasPrefix(lines[1], "2|BRI0000000002|IFT|") || !strings.Contains(lines[1], "|BRINIDJA|") {
+		t.Fatalf("PayeeSwiftCode BRI harus IFT: %s", lines[1])
 	}
 }
 

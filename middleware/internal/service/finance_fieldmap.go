@@ -19,7 +19,7 @@ var defaultSAPFieldKeys = map[string]map[string][]string{
 		"ACCOUNT":       {"PayeeBankAccount", "BankAccountNumber", "BeneficiaryAccount"},
 		"HOUSE_ACCOUNT": {"BankAccount", "HouseBankAccount"},
 		"BANK_CODE":     {"PayeeBankNumber", "BankNumber", "BankKey", "BankCode"},
-		"SWIFT_CODE":    {"SWIFTCode", "PayeeSWIFTCode", "PayeeBankSWIFTCode"},
+		"SWIFT_CODE":    {"PayeeSwiftCode"},
 		"EMAIL":         {"EmailAddress", "PayeeEmailAddress"},
 		"CITY":          {"PayeeCityName", "CityName", "BankCity", "City"},
 		"REMARK":        {"PaymentReference", "PaymentRemark", "DocumentItemText"},
