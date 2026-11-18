@@ -12,7 +12,8 @@ import (
 )
 
 type SyncService interface {
-	SendToSAPServiceLayer(docType string, documentNo string, token string) error
+	// force=true: kirim ulang dokumen yang sudah terkirim (user sudah konfirmasi peringatan dobel posting).
+	SendToSAPServiceLayer(docType string, documentNo string, token string, force bool) error
 }
 
 type syncService struct {
@@ -24,7 +25,7 @@ func NewSyncService(repo repository.DashboardRepository) SyncService {
 }
 
 // SendToSAPServiceLayer mengirim dokumen langsung ke SAP Grow OData via Middleware Engine.
-func (s *syncService) SendToSAPServiceLayer(docType string, documentNo string, token string) error {
+func (s *syncService) SendToSAPServiceLayer(docType string, documentNo string, token string, force bool) error {
 	fmt.Println("--> Memproses Document (Kirim langsung ke SAP Grow via Middleware Engine):", docType, "/", documentNo)
 
 	// 1. Ambil dokumen menggunakan kombinasi doc_type + document_no
@@ -60,13 +61,16 @@ func (s *syncService) SendToSAPServiceLayer(docType string, documentNo string, t
 		}
 	}
 
-	// 3. Reset status dokumen ke 'pending' agar diproses oleh SAP Push Dispatcher
-	doc.Status = "pending"
-	doc.RetryCount = 0
-	doc.ErrorMessage = nil
-	if err := s.repo.UpdateDocument(&doc); err != nil {
+	// 3. Kembalikan ke antrean 'pending' secara atomik: dokumen yang sedang diproses atau sudah terkirim
+	//    (tanpa force) ditolak agar tidak terjadi posting ganda di SAP.
+	n, err := s.repo.RequeueDocument(docType, documentNo, force)
+	if err != nil {
 		return fmt.Errorf("gagal update status dokumen: %w", err)
 	}
+	if n == 0 {
+		return ErrDocumentLocked
+	}
+	doc.Status = "pending"
 
 	// 4. Picu Middleware Engine untuk mengeksekusi push ke SAP Grow OData langsung
 	middlewareURL := os.Getenv("MIDDLEWARE_API_URL")

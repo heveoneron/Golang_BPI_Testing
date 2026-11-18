@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Close Period - Middleware Panel</title>
+
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; gap: 12px; flex-wrap: wrap; }
+        .top-nav-title h3 { font-weight: 800; margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px; }
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); overflow: hidden; margin-bottom: 24px; }
+        .table-custom th { background-color: #F8FAFC; color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
+        .table-custom td { padding: 10px 16px; font-size: 13.5px; vertical-align: middle; border-bottom: 1px solid var(--border-soft); }
+        .state-badge { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+        .state-closed { background: #FEE2E2; color: #B91C1C; }
+        .state-open { background: #DCFCE7; color: #15803D; }
+        .form-switch .form-check-input { width: 2.6em; height: 1.35em; cursor: pointer; }
+        tr.is-dirty td { background: #FFFBEB; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-4" style="max-width: 100%;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-calendar2-x text-primary"></i> Close Period</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Tutup buku bulanan untuk PostingDate Goods Receipt (GRN POST / PATCH dari AXreceipt / Maximo)</span>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <label for="yearSelect" class="text-muted small fw-bold">Tahun</label>
+                <select id="yearSelect" class="form-select form-select-sm" style="width: 110px;" onchange="location.href='/close-period?year=' + this.value">
+                    {{ range .Years }}<option value="{{ . }}" {{ if eq . $.Year }}selected{{ end }}>{{ . }}</option>{{ end }}
+                </select>
+                <button class="btn btn-primary btn-sm rounded-3" id="btnSave" onclick="saveConfig()">
+                    <i class="bi bi-save me-1"></i> Save Configuration
+                </button>
+            </div>
+        </div>
+
+        {{ if .LoadError }}
+        <div class="alert alert-warning border-0 shadow-sm">{{ .LoadError }}</div>
+        {{ end }}
+
+        <div class="alert alert-info border-0 shadow-sm d-flex align-items-start gap-3 py-2 px-3 mb-4 rounded-3" style="font-size: 13px;">
+            <i class="bi bi-info-circle-fill fs-5 text-primary"></i>
+            <div>
+                Bulan <b>Closed</b>: GRN dengan <code>actualdate</code> di bulan itu memakai <b>PostingDate = tanggal 1 bulan terbuka berikutnya</b>
+                (bulan tutup berikutnya ikut dilewati, termasuk ke tahun berikutnya). Bulan <b>Open</b>: PostingDate = <code>actualdate</code>.
+                Berlaku untuk GRN yang ditransformasi setelah disimpan. <span id="closedSummary">{{ .ClosedCount }}</span> dari 12 bulan tahun {{ .Year }} berstatus Closed.
+            </div>
+        </div>
+
+        <div class="main-card">
+            <div class="table-responsive">
+                <table class="table table-custom mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 70px;">#</th>
+                            <th>Month</th>
+                            <th style="width: 110px;">Year</th>
+                            <th style="width: 140px;">Close Period</th>
+                            <th style="width: 120px;">Status</th>
+                            <th style="width: 220px;">Diubah</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Rows }}
+                        <tr data-month="{{ .Month }}">
+                            <td class="text-muted">{{ .Month }}</td>
+                            <td class="fw-semibold">{{ .Name }}</td>
+                            <td>{{ .Year }}</td>
+                            <td>
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input period-toggle" type="checkbox" role="switch"
+                                           aria-label="Close {{ .Name }} {{ .Year }}" data-initial="{{ .IsClosed }}" {{ if .IsClosed }}checked{{ end }}>
+                                </div>
+                            </td>
+                            <td><span class="state-badge {{ if .IsClosed }}state-closed{{ else }}state-open{{ end }}">{{ if .IsClosed }}Closed{{ else }}Open{{ end }}</span></td>
+                            <td class="text-muted" style="font-size: 12px;">{{ if .UpdatedBy }}{{ .UpdatedBy }}{{ end }}{{ if .UpdatedAt }} &middot; {{ .UpdatedAt.Format "2006-01-02 15:04" }}{{ end }}</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const YEAR = {{ .Year }};
+
+        function showToast(message, isSuccess = true) {
+            const toastEl = document.getElementById('liveToast');
+            toastEl.className = 'toast align-items-center text-white border-0 shadow-lg ' + (isSuccess ? 'bg-success' : 'bg-danger');
+            document.getElementById('toastMessage').textContent = message;
+            new bootstrap.Toast(toastEl, { delay: 4000 }).show();
+        }
+
+        document.querySelectorAll('.period-toggle').forEach(cb => cb.addEventListener('change', () => {
+            const tr = cb.closest('tr');
+            const badge = tr.querySelector('.state-badge');
+            badge.textContent = cb.checked ? 'Closed' : 'Open';
+            badge.className = 'state-badge ' + (cb.checked ? 'state-closed' : 'state-open');
+            tr.classList.toggle('is-dirty', String(cb.checked) !== cb.dataset.initial);
+            document.getElementById('closedSummary').textContent = document.querySelectorAll('.period-toggle:checked').length;
+        }));
+
+        async function saveConfig() {
+            const closed = [...document.querySelectorAll('.period-toggle')]
+                .filter(cb => cb.checked).map(cb => parseInt(cb.closest('tr').dataset.month, 10));
+            const btn = document.getElementById('btnSave');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/close-period', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ year: YEAR, closed_months: closed })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.status !== 'success') throw new Error(data.message || ('HTTP ' + res.status));
+                document.querySelectorAll('.period-toggle').forEach(cb => {
+                    cb.dataset.initial = String(cb.checked);
+                    cb.closest('tr').classList.remove('is-dirty');
+                });
+                showToast(data.message, true);
+            } catch (e) {
+                showToast(e.message, false);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -327,6 +327,18 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="close_period" id="new_menu_close_period" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_close_period"><i class="bi bi-calendar2-x me-1 text-primary"></i> Close Period</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input new-menu-cb" type="checkbox" value="po_outstanding" id="new_menu_po_outstanding" onchange="onCheckboxChange('new')">
+                                        <label class="form-check-label small" for="new_menu_po_outstanding"><i class="bi bi-archive me-1 text-primary"></i> PO Outstanding &lt; 2025</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input new-menu-cb" type="checkbox" value="table_mapping" id="new_menu_table_mapping" onchange="onCheckboxChange('new')">
                                         <label class="form-check-label small" for="new_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
                                     </div>
@@ -476,6 +488,18 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="close_period" id="edit_menu_close_period" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_close_period"><i class="bi bi-calendar2-x me-1 text-primary"></i> Close Period</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
+                                        <input class="form-check-input edit-menu-cb" type="checkbox" value="po_outstanding" id="edit_menu_po_outstanding" onchange="onCheckboxChange('edit')">
+                                        <label class="form-check-label small" for="edit_menu_po_outstanding"><i class="bi bi-archive me-1 text-primary"></i> PO Outstanding &lt; 2025</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-check form-check-sm">
                                         <input class="form-check-input edit-menu-cb" type="checkbox" value="table_mapping" id="edit_menu_table_mapping" onchange="onCheckboxChange('edit')">
                                         <label class="form-check-label small" for="edit_menu_table_mapping"><i class="bi bi-diagram-3-fill me-1 text-info"></i> Table-to-API</label>
                                     </div>
@@ -531,7 +555,7 @@
 
         const allMenuCodes = [
             'dashboard', 'swagger', 'finance', 'exchange_rates', 'uom_mapping',
-            'config', 'sap_endpoints', 'default_values', 'table_mapping', 'scheduler',
+            'config', 'sap_endpoints', 'default_values', 'close_period', 'po_outstanding', 'table_mapping', 'scheduler',
             'backup', 'users'
         ];
 

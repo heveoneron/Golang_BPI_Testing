@@ -70,6 +70,11 @@
                 <i class="bi bi-person-lines-fill"></i> Vendor Master Data
             </a>
         </li>
+        <li class="nav-item" data-menu-item="po_outstanding">
+            <a href="/po-outstanding" class="nav-link {{ if eq .ActiveMenu "po_outstanding" }}active{{ end }}">
+                <i class="bi bi-archive"></i> PO Outstanding &lt; 2025
+            </a>
+        </li>
     </ul>
     <div class="sidebar-section" data-section="config">Configuration</div>
     <ul class="nav flex-column mb-1" data-section-nav="config">
@@ -86,6 +91,11 @@
         <li class="nav-item" data-menu-item="default_values">
             <a href="/default-values" class="nav-link {{ if eq .ActiveMenu "default_values" }}active{{ end }}">
                 <i class="bi bi-ui-checks-grid"></i> Default Value
+            </a>
+        </li>
+        <li class="nav-item" data-menu-item="close_period">
+            <a href="/close-period" class="nav-link {{ if eq .ActiveMenu "close_period" }}active{{ end }}">
+                <i class="bi bi-calendar2-x"></i> Close Period
             </a>
         </li>
         <li class="nav-item" data-menu-item="table_mapping">

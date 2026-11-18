@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"middleware-panel/models"
 	"middleware-panel/repository"
 )
@@ -13,8 +14,11 @@ type DashboardService interface {
 	DeleteDocument(docType string, documentNo string) error
 	BulkDeleteDocuments(items []string) (int64, error)
 	ClearAllDocuments() error
-	UpdatePayload(docType, documentNo, sapPayload string) error
+	UpdatePayload(docType, documentNo string, rawPayload, sapPayload *string) error
 }
+
+// ErrDocumentLocked: dokumen sudah terkirim ke SAP atau sedang diproses Engine (PRD Idempotency).
+var ErrDocumentLocked = errors.New("dokumen sudah terkirim ke SAP atau sedang diproses; perubahan/kirim ulang ditolak untuk mencegah posting ganda")
 
 type dashboardService struct {
 	repo repository.DashboardRepository
@@ -68,14 +72,16 @@ func (s *dashboardService) ClearAllDocuments() error {
 	return s.repo.ClearAllDocuments()
 }
 
-func (s *dashboardService) UpdatePayload(docType, documentNo, sapPayload string) error {
-	doc, err := s.repo.GetDocumentByTypeAndNo(docType, documentNo)
+func (s *dashboardService) UpdatePayload(docType, documentNo string, rawPayload, sapPayload *string) error {
+	if _, err := s.repo.GetDocumentByTypeAndNo(docType, documentNo); err != nil {
+		return err
+	}
+	n, err := s.repo.UpdatePayloads(docType, documentNo, rawPayload, sapPayload)
 	if err != nil {
 		return err
 	}
-	clean := sapPayload
-	doc.SAPPayload = &clean
-	doc.Status = "error_data"
-	doc.RetryCount = 0
-	return s.repo.UpdateDocument(&doc)
+	if n == 0 {
+		return ErrDocumentLocked
+	}
+	return nil
 }

@@ -96,6 +96,10 @@ func getFirstAllowedPath(allowed string) string {
 			return "/sap-endpoints"
 		case "default_values":
 			return "/default-values"
+		case "close_period":
+			return "/close-period"
+		case "po_outstanding":
+			return "/po-outstanding"
 		case "table_mapping":
 			return "/table-api-mapping"
 		case "scheduler":
@@ -212,6 +216,9 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
 	// 14. Default Value (nilai default transform Maximo -> SAP, tabel sap_default_values)
 	defaultValueController := controllers.NewDefaultValueController(repository.NewDefaultValueRepository(db))
+	// 15. Close Period (FSD Close Period Service) & PO Outstanding < 2025 (PRD enhancement)
+	closePeriodController := controllers.NewClosePeriodController(repository.NewClosePeriodRepository(db))
+	poOutstandingController := controllers.NewPOOutstandingController()
 
 	// ==========================================
 	// ROUTES MAPPING
@@ -233,6 +240,7 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.POST("/api/ingest-po", requireMenuGuard("dashboard"), dashController.HandleIngestTestPO)
 	r.GET("/api/documents/:parent_no/children", requireMenuGuard("dashboard"), dashController.GetChildrenAPI)
 	r.POST("/api/documents/update-payload", requireMenuGuard("dashboard"), dashController.HandleUpdatePayload)
+	r.POST("/api/documents/transform-preview", requireMenuGuard("dashboard"), controllers.HandleTransformPreview)
 
 	// Proxy Audit Trail API (Sudah dinamis membaca BACKUP_API_URL dari .env)
 	r.GET("/api/audit-trail", requireMenuGuard("dashboard"), dashController.GetAuditTrailAPI)
@@ -246,6 +254,14 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	r.GET("/default-values", requireMenuGuard("default_values"), defaultValueController.ShowDefaultValues)
 	r.POST("/api/default-values", requireMenuGuard("default_values"), defaultValueController.HandleSave)
 	r.POST("/api/default-values/reset/:key", requireMenuGuard("default_values"), defaultValueController.HandleReset)
+
+	// Close Period (menu: close_period)
+	r.GET("/close-period", requireMenuGuard("close_period"), closePeriodController.ShowClosePeriod)
+	r.POST("/api/close-period", requireMenuGuard("close_period"), closePeriodController.HandleSave)
+
+	// PO Outstanding < 2025 (menu: po_outstanding) — upload & sync diteruskan ke Engine
+	r.GET("/po-outstanding", requireMenuGuard("po_outstanding"), poOutstandingController.ShowPage)
+	r.Any("/api/po-outstanding/*path", requireMenuGuard("po_outstanding"), poOutstandingController.Proxy)
 
 	// SAP Integration Endpoints & Sandbox (menu: sap_endpoints)
 	r.GET("/sap-endpoints", requireMenuGuard("sap_endpoints"), sapEndpointController.ShowEndpoints)

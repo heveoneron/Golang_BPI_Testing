@@ -112,19 +112,7 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 			continue
 		}
 
-		switch strings.ToUpper(stage.DocType) {
-		case "PO", "AXMXPO":
-			sapPayloadBytes, transformErr = s.transformPO(ctx, stage.RawPayload)
-		case "AXVENDOR", "VENDOR", "COMPANIES", "BP":
-			sapPayloadBytes, transformErr = s.transformVendor(ctx, stage.RawPayload)
-		case "GRN", "AXRECEIPT", "MATRECTRANS", "RECEIPT":
-			sapPayloadBytes, transformErr = s.transformGRN(ctx, stage.RawPayload)
-		case "ITEM", "AXITEM", "PRODUCT":
-			sapPayloadBytes, transformErr = s.transformItem(ctx, stage.RawPayload)
-		default:
-			// Generic pass-through
-			sapPayloadBytes = stage.RawPayload
-		}
+		sapPayloadBytes, transformErr = s.transformByDocType(ctx, stage.DocType, stage.RawPayload)
 
 		if transformErr != nil {
 			log.Printf("[ERROR] Transform gagal untuk %s %s: %v", stage.DocType, stage.DocumentNo, transformErr)
@@ -151,6 +139,41 @@ func (s *SyncService) TransformStagingToCore(ctx context.Context) int {
 		}
 	}
 	return transformedCount
+}
+
+// transformByDocType memilih mapping engine Maximo/AX -> SAP OData sesuai tipe dokumen.
+func (s *SyncService) transformByDocType(ctx context.Context, docType string, raw json.RawMessage) ([]byte, error) {
+	switch strings.ToUpper(docType) {
+	case "PO", "AXMXPO":
+		return s.transformPO(ctx, raw)
+	case "AXVENDOR", "VENDOR", "COMPANIES", "BP":
+		return s.transformVendor(ctx, raw)
+	case "GRN", "AXRECEIPT", "MATRECTRANS", "RECEIPT":
+		return s.transformGRN(ctx, raw)
+	case "ITEM", "AXITEM", "PRODUCT":
+		return s.transformItem(ctx, raw)
+	default:
+		// Generic pass-through
+		return raw, nil
+	}
+}
+
+type skipBudgetLockKey struct{}
+
+// withoutBudgetLock: transform tanpa cek/lock pagu (preview & migrasi PO historis).
+func withoutBudgetLock(ctx context.Context) context.Context {
+	return context.WithValue(ctx, skipBudgetLockKey{}, true)
+}
+
+func skipBudgetLock(ctx context.Context) bool {
+	v, _ := ctx.Value(skipBudgetLockKey{}).(bool)
+	return v
+}
+
+// PreviewTransform menjalankan ulang mapping engine untuk payload staging hasil inline edit Panel (Tab 1),
+// tanpa menyimpan apa pun dan tanpa lock budget. Hasilnya ditampilkan di Tab 2 sebelum Save.
+func (s *SyncService) PreviewTransform(ctx context.Context, docType string, raw json.RawMessage) ([]byte, error) {
+	return s.transformByDocType(withoutBudgetLock(ctx), docType, raw)
 }
 
 // TransformPO mengekspor fungsi transformasi PO untuk testing dan controller
@@ -399,7 +422,8 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	}
 
 	// Validasi & Lock Budget: lock lama PO ini dilepas dulu agar revisi baris tidak meninggalkan lock basi.
-	if len(budgetLines) > 0 && s.PGRepo != nil && s.PGRepo.Pool != nil {
+	// Preview (inline edit Panel) dan migrasi PO historis < 2025 tidak menyentuh pagu.
+	if len(budgetLines) > 0 && s.PGRepo != nil && s.PGRepo.Pool != nil && !skipBudgetLock(ctx) {
 		_ = s.PGRepo.ReleaseBudgetLocks(ctx, "PO", cleanPO)
 		for k, amount := range budgetLines {
 			ok, err := s.PGRepo.CheckAndLockBudget(ctx, k.combo, k.year, "PO", cleanPO+"|"+k.combo, math.Round(amount*100)/100)
@@ -528,41 +552,6 @@ func convertSiteIDToPlantMap(siteID, defaultPlant, plantMap string) string {
 		}
 	}
 	return clean
-}
-
-func formatODataV2Date(dateStr string, preventBackdate bool) (string, string) {
-	now := time.Now()
-	docDate := now
-	postingDate := now
-
-	if trimmed := strings.TrimSpace(dateStr); trimmed != "" {
-		formats := []string{
-			"2006-01-02 15:04:05",
-			"2006-01-02",
-			time.RFC3339,
-			"2006/01/02",
-		}
-		for _, f := range formats {
-			if t, err := time.Parse(f, trimmed); err == nil {
-				docDate = t
-				postingDate = t
-				break
-			}
-		}
-	}
-
-	// Larangan backdate: jika tanggal masa lalu, postingDate diset ke hari ini
-	if preventBackdate {
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		if postingDate.Before(todayStart) {
-			postingDate = now
-		}
-	}
-
-	docDateMs := docDate.UnixNano() / int64(time.Millisecond)
-	postingDateMs := postingDate.UnixNano() / int64(time.Millisecond)
-
-	return fmt.Sprintf("/Date(%d)/", docDateMs), fmt.Sprintf("/Date(%d)/", postingDateMs)
 }
 
 // ValidatePOChange memeriksa apakah PO dapat diubah/direvisi berdasarkan dokumen material SAP.
@@ -1161,7 +1150,8 @@ func (s *SyncService) transformGRN(ctx context.Context, raw json.RawMessage) ([]
 	}
 
 	headerSiteID := strings.TrimSpace(maxReceipt.SiteID)
-	docDateStr, postingDateStr := formatODataV2Date(maxReceipt.ActualDate, true)
+	// PostingDate mengikuti menu Close Period (FSD Close Period Service), berlaku untuk RECEIPT & RETURN.
+	docDateStr, postingDateStr := s.grnDates(ctx, maxReceipt.ActualDate)
 	grnPlant, grnPlantMap := s.dv(ctx, "GRN_DEFAULT_PLANT"), s.dv(ctx, "GRN_PLANT_MAP")
 	grnMoveCode, grnPrintVer := s.dv(ctx, "GRN_GOODS_MOVEMENT_CODE"), s.dv(ctx, "GRN_PRINT_VERSION")
 

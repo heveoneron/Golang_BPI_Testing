@@ -49,7 +49,7 @@ func setupIntegration(t *testing.T) (context.Context, *repository.PostgresReposi
 	_, err = pool.Exec(ctx, `
 		TRUNCATE documents, budget_masters, budget_transaction_locks, budget_adjustments, sap_gl_line_items,
 		         sap_payment_proposals, sap_fixed_assets, asset_acquisition_prints, asset_acquisitions, excel_upload_batches, exchange_rates, integration_logs,
-		         employee_vendor_mappings;
+		         employee_vendor_mappings, close_periods, stg_po_outstanding_legacy CASCADE;
 		UPDATE sap_endpoints SET base_url = 'MOCK';
 		UPDATE sap_endpoints SET is_active = true WHERE service_code = 'BUDGET';`)
 	if err != nil {
@@ -357,11 +357,49 @@ func TestIntegration_SkippedAndStaleRecovery(t *testing.T) {
 		t.Fatalf("skipped doc must be retried after endpoint re-activated, got %d", n)
 	}
 
-	// Dokumen macet di 'processing' (worker crash) dipulihkan setelah 10 menit.
+	// Dokumen macet di 'processing' (worker crash) TIDAK dikirim ulang otomatis (bisa jadi sudah terbentuk
+	// di SAP); ditandai error_data agar dicek manual (PRD Idempotency).
 	sup2, _ := fin.SupplementBudget(ctx, model.BudgetSupplementRequest{MainAccount: "CC8", BudgetCode: "B8", Amount: 10})
-	_, _ = repo.Pool.Exec(ctx, `UPDATE documents SET status = 'processing', last_attempt_at = $2 WHERE document_no = $1`, sup2.DocumentNo, time.Now().Add(-15*time.Minute))
-	if n := sync.PushDocumentsToSAP(ctx); n != 1 {
-		t.Fatalf("stale processing doc must be recovered, got %d", n)
+	_, _ = repo.Pool.Exec(ctx, `UPDATE documents SET status = 'processing', is_processing = TRUE, last_attempt_at = $2 WHERE document_no = $1`, sup2.DocumentNo, time.Now().Add(-15*time.Minute))
+	if n := sync.PushDocumentsToSAP(ctx); n != 0 {
+		t.Fatalf("stale processing doc must not be re-sent automatically, got %d", n)
+	}
+	if s := docStatus(t, ctx, repo, model.DocTypeBudget, sup2.DocumentNo); s != "error_data" {
+		t.Fatalf("stale processing doc must become error_data, got %s", s)
+	}
+}
+
+// PRD Idempotency: dokumen yang sudah is_sent tidak pernah diklaim lagi oleh dispatcher, dan klaim atomik
+// tidak bisa diambil dua worker sekaligus.
+func TestIntegration_IdempotencyFlags(t *testing.T) {
+	ctx, repo, _, _ := setupIntegration(t)
+	doc := model.Document{DocType: "GRN", DocumentNo: "GR-IDEM-1", FlowType: "forward", GroupID: "GRP-GRN-GR-IDEM-1",
+		RawPayload: []byte(`{"BPIGRNUMBER":"GR-IDEM-1"}`), SAPPayload: []byte(`{}`), Status: "pending", SyncBackStatus: "pending"}
+	if err := repo.UpsertCoreDocument(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	first, err := repo.FetchAndLockPendingDocuments(ctx, 10)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first claim: %d %v", len(first), err)
+	}
+	if again, _ := repo.FetchAndLockPendingDocuments(ctx, 10); len(again) != 0 {
+		t.Fatalf("document being processed must not be claimed twice, got %d", len(again))
+	}
+	if err := repo.UpdateSAPSuccess(ctx, first[0].ID, "5000000123", []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	var isSent, isProcessing bool
+	var key string
+	if err := repo.Pool.QueryRow(ctx, `SELECT is_sent, is_processing, idempotency_key FROM documents WHERE id = $1`, first[0].ID).Scan(&isSent, &isProcessing, &key); err != nil {
+		t.Fatal(err)
+	}
+	if !isSent || isProcessing || key != "GRN:GR-IDEM-1:forward" {
+		t.Fatalf("flags after success: sent=%v processing=%v key=%q", isSent, isProcessing, key)
+	}
+	// Status dipaksa pending (mis. edit manual) tetap tidak terkirim ulang karena is_sent.
+	_, _ = repo.Pool.Exec(ctx, `UPDATE documents SET status = 'pending' WHERE id = $1`, first[0].ID)
+	if again, _ := repo.FetchAndLockPendingDocuments(ctx, 10); len(again) != 0 {
+		t.Fatal("is_sent document must never be claimed again")
 	}
 }
 
