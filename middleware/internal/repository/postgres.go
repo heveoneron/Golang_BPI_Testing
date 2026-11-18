@@ -113,6 +113,10 @@ func (r *PostgresRepository) UpsertCoreDocument(ctx context.Context, doc model.D
 			status = 'pending',
 			retry_count = 0,
 			error_message = NULL,
+			-- Revisi data (payload berubah) = transaksi baru yang memang harus dikirim.
+			is_sent = FALSE,
+			is_processing = FALSE,
+			sent_at = NULL,
 			updated_at = NOW()
 		-- Dokumen yang sudah sukses di SAP dengan data Maximo yang sama tidak dikirim ulang (cegah GR ganda).
 		WHERE NOT (documents.status = 'success' AND ` + sameRawSQL("documents.raw_payload", "EXCLUDED.raw_payload") + `);
@@ -152,18 +156,31 @@ func (r *PostgresRepository) IsAlreadyPosted(ctx context.Context, docType, docNo
 	return exists, err
 }
 
-// Atomic lock untuk dispatching worker ke SAP Grow
+// staleProcessingMessage dipasang pada dokumen yang tertahan di 'processing' (worker mati di tengah request).
+const staleProcessingMessage = "Status pengiriman tidak pasti: worker berhenti saat request ke SAP berjalan. " +
+	"Cek dokumen di SAP lebih dulu; Retry hanya bila dokumen belum terbentuk (cegah posting ganda)."
+
+// FetchAndLockPendingDocuments mengklaim dokumen secara atomik (status 'processing' + is_processing) untuk
+// dispatcher. Dokumen is_sent tidak pernah diambil lagi. Dokumen yang tertahan di 'processing' > 10 menit
+// TIDAK dikirim ulang otomatis (SAP mungkin sudah membuat dokumennya); statusnya diubah ke error_data agar
+// dicek manual dari Panel.
 func (r *PostgresRepository) FetchAndLockPendingDocuments(ctx context.Context, limit int) ([]model.Document, error) {
+	if _, err := r.Pool.Exec(ctx, `
+		UPDATE documents SET status = 'error_data', is_processing = FALSE, error_message = $1, updated_at = NOW()
+		WHERE status = 'processing' AND is_sent = FALSE AND last_attempt_at < NOW() - INTERVAL '10 minutes'`,
+		staleProcessingMessage); err != nil {
+		return nil, err
+	}
 	query := `
 		UPDATE documents
-		SET status = 'processing', last_attempt_at = NOW()
+		SET status = 'processing', is_processing = TRUE, last_attempt_at = NOW()
 		WHERE id IN (
 			SELECT id FROM documents
-			WHERE (status = 'pending'
+			WHERE is_sent = FALSE AND is_processing = FALSE
+			  AND (status = 'pending'
 			       OR (status = 'error_conn' AND retry_count < 5)
-			       -- Pemulihan: dokumen tertahan di 'processing' (worker crash) atau 'skipped'
-			       -- (mapping/endpoint nonaktif) dicoba lagi setelah 10 menit.
-			       OR (status IN ('processing', 'skipped') AND last_attempt_at < NOW() - INTERVAL '10 minutes'))
+			       -- 'skipped' (mapping/endpoint nonaktif) dicoba lagi setelah 10 menit.
+			       OR (status = 'skipped' AND last_attempt_at < NOW() - INTERVAL '10 minutes'))
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
@@ -190,7 +207,8 @@ func (r *PostgresRepository) FetchAndLockPendingDocuments(ctx context.Context, l
 func (r *PostgresRepository) UpdateSAPSuccess(ctx context.Context, id uuid.UUID, sapDocNo string, sapResponse json.RawMessage) error {
 	_, err := r.Pool.Exec(ctx, `
 		UPDATE documents 
-		SET status = 'success', sap_document_no = $1, sap_response = $2, error_message = NULL, updated_at = NOW()
+		SET status = 'success', sap_document_no = $1, sap_response = $2, error_message = NULL,
+		    is_sent = TRUE, is_processing = FALSE, sent_at = NOW(), updated_at = NOW()
 		WHERE id = $3
 	`, sapDocNo, sapResponse, id)
 	return err
@@ -199,7 +217,7 @@ func (r *PostgresRepository) UpdateSAPSuccess(ctx context.Context, id uuid.UUID,
 func (r *PostgresRepository) UpdateSAPError(ctx context.Context, id uuid.UUID, status, errMsg string, sapResponse json.RawMessage) error {
 	_, err := r.Pool.Exec(ctx, `
 		UPDATE documents 
-		SET status = $1, error_message = $2, sap_response = $3, retry_count = retry_count + 1, updated_at = NOW()
+		SET status = $1, error_message = $2, sap_response = $3, retry_count = retry_count + 1, is_processing = FALSE, updated_at = NOW()
 		WHERE id = $4
 	`, status, errMsg, sapResponse, id)
 	return err

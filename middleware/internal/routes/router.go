@@ -73,6 +73,12 @@ func SetupRouter(ctrl *controller.WebController) *gin.Engine {
 		api.GET("/exchange-rates", ctrl.GetExchangeRates)
 		api.GET("/uom-mappings", ctrl.GetUOMMappings)
 		api.GET("/sap/material-document/:doc_no", ctrl.GetSAPMaterialDocumentDetail)
+		// PRD enhancement: inline edit payload & migrasi PO Outstanding < 2025
+		api.POST("/documents/transform-preview", ctrl.PreviewTransform)
+		api.GET("/po-outstanding", ctrl.ListPOOutstanding)
+		api.GET("/po-outstanding/template", ctrl.POOutstandingTemplate)
+		api.POST("/po-outstanding/upload", ctrl.UploadPOOutstanding)
+		api.POST("/po-outstanding/sync", ctrl.SyncPOOutstanding)
 	}
 
 	// Kompatibilitas dengan endpoint ShoeTown /admin/integration-logs

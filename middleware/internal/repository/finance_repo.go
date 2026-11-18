@@ -20,6 +20,9 @@ import (
 //go:embed migrations/finance.sql
 var financeMigrationSQL string
 
+//go:embed migrations/enhancement.sql
+var enhancementMigrationSQL string
+
 // ErrAlreadyPosted dikembalikan saat dokumen dengan kunci yang sama sudah sukses diposting ke SAP.
 var ErrAlreadyPosted = errors.New("dokumen dengan nomor yang sama sudah sukses diposting ke SAP")
 
@@ -46,6 +49,9 @@ func (r *PostgresRepository) MigrateFinance(ctx context.Context) error {
 	}
 	if _, err := r.Pool.Exec(ctx, financeMigrationSQL); err != nil {
 		return fmt.Errorf("finance migration: %w", err)
+	}
+	if _, err := r.Pool.Exec(ctx, enhancementMigrationSQL); err != nil {
+		return fmt.Errorf("enhancement migration: %w", err)
 	}
 
 	baseURL := strings.TrimSpace(os.Getenv("SAP_BASE_URL"))
@@ -213,7 +219,7 @@ func (r *PostgresRepository) MarkDocumentSkipped(ctx context.Context, id uuid.UU
 	if r.Pool == nil {
 		return nil
 	}
-	_, err := r.Pool.Exec(ctx, `UPDATE documents SET status = 'skipped', error_message = $1, updated_at = NOW() WHERE id = $2`, reason, id)
+	_, err := r.Pool.Exec(ctx, `UPDATE documents SET status = 'skipped', is_processing = FALSE, error_message = $1, updated_at = NOW() WHERE id = $2`, reason, id)
 	return err
 }
 

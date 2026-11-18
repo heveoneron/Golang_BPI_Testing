@@ -1784,15 +1784,32 @@
                                         <div class="text-muted" style="font-size: 11.5px;">Payload mentah (Raw JSON)
                                             ditarik dari database SQL Server Maximo ke PostgreSQL staging</div>
                                     </div>
-                                    <div class="btn-group btn-group-sm">
-                                        <button type="button" class="btn btn-outline-secondary active"
-                                            id="btnMaximoForm" onclick="switchMaximoView('form')"><i
-                                                class="bi bi-layout-text-window-reverse me-1"></i> Form View</button>
-                                        <button type="button" class="btn btn-outline-secondary" id="btnMaximoJson"
-                                            onclick="switchMaximoView('json')"><i class="bi bi-code-slash me-1"></i>
-                                            JSON View</button>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <span id="stgPreviewStatus" class="small text-muted" role="status" aria-live="polite"></span>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" id="btnStgSave"
+                                            onclick="saveStagingEdits(false)" disabled><i class="bi bi-save me-1"></i> Save Changes</button>
+                                        <button type="button" class="btn btn-sm btn-primary" id="btnStgSaveRetry"
+                                            onclick="saveStagingEdits(true)" disabled><i class="bi bi-send me-1"></i> Save &amp; Retry Push to SAP</button>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-secondary active"
+                                                id="btnMaximoForm" onclick="switchMaximoView('form')"><i
+                                                    class="bi bi-layout-text-window-reverse me-1"></i> Form View</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="btnMaximoJson"
+                                                onclick="switchMaximoView('json')"><i class="bi bi-code-slash me-1"></i>
+                                                JSON View</button>
+                                        </div>
                                     </div>
                                 </div>
+                                <style>
+                                    .stg-grid-wrap { overflow: auto; max-height: 360px; border: 1px solid #E2E8F0; border-radius: 10px; }
+                                    .stg-grid { font-size: 12px; white-space: nowrap; margin: 0; }
+                                    .stg-grid thead th { position: sticky; top: 0; z-index: 2; background: #F8FAFC; color: #64748B; font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #E2E8F0; }
+                                    .stg-grid td { padding: 3px 4px; vertical-align: middle; }
+                                    .stg-grid td:first-child, .stg-grid th:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
+                                    .stg-grid thead th:first-child { z-index: 3; background: #F8FAFC; }
+                                    .stg-grid .stg-input { min-width: 110px; font-size: 12px; padding: 2px 6px; }
+                                    .stg-input.is-edited { border-color: #F59E0B; background: #FFFBEB; }
+                                </style>
                                 <div class="card-body p-4 bg-white">
                                     <div id="fiori-view-container" class="fiori-container"></div>
                                     <div id="maximo-json-wrapper" style="display: none;" class="position-relative">
@@ -2643,7 +2660,9 @@
                 document.getElementById('maximo-json-container').innerHTML = syntaxHighlight(rawJson || '{}');
             }
             const fioriContainer = document.getElementById('fiori-view-container');
-            fioriContainer.innerHTML = maximoObj ? buildFioriPreview(maximoObj) : `<div class="alert alert-secondary m-3">Data payload mentah Maximo kosong atau tidak valid.</div>`;
+            initStagingEditor(docType, docNo, maximoObj, sapJson);
+            fioriContainer.innerHTML = maximoObj ? buildEditableStaging(maximoObj, stgEdit.locked) : `<div class="alert alert-secondary m-3">Data payload mentah Maximo kosong atau tidak valid.</div>`;
+            fioriContainer.querySelectorAll('.stg-input').forEach(inp => inp.addEventListener('input', onStagingEdit));
             switchMaximoView('form');
 
             // Tab 2: Render Outbound ke SAP
@@ -2823,6 +2842,201 @@
             }).catch(err => {
                 console.error('Failed to copy: ', err);
             });
+        }
+
+        // ===== PRD Fitur 1: Inline Editing Payload Staging (Tab 1) + auto-regenerate SAP OData (Tab 2) =====
+        let stgEdit = null;
+        let stgPreviewTimer = null, stgPreviewSeq = 0;
+
+        function stgBlank(v) { return (v === null || v === undefined || v === '-') ? '' : String(v); }
+
+        function docRowStatus(docType, docNo) {
+            const el = [...document.querySelectorAll('.btn-view-log')].find(b => b.dataset.doctype === docType && b.dataset.docno === docNo);
+            return el ? (el.dataset.status || '') : '';
+        }
+
+        function initStagingEditor(docType, docNo, obj, sapJson) {
+            const status = docRowStatus(docType, docNo);
+            stgEdit = {
+                docType, docNo,
+                original: obj ? JSON.parse(JSON.stringify(obj)) : null,
+                current: obj,
+                sapPayload: (sapJson && sapJson !== 'null') ? sapJson : null,
+                dirty: false,
+                previewOk: true,
+                // Dokumen terkirim / sedang diproses tidak boleh diedit (PRD Idempotency).
+                locked: status === 'success' || status === 'processing' || status === 'sent'
+            };
+            setStagingButtons();
+            setPreviewStatus(stgEdit.locked ? 'locked' : '');
+        }
+
+        function setStagingButtons() {
+            const can = stgEdit && stgEdit.original && !stgEdit.locked && stgEdit.dirty && stgEdit.previewOk;
+            document.getElementById('btnStgSave').disabled = !can;
+            document.getElementById('btnStgSaveRetry').disabled = !can;
+        }
+
+        function setPreviewStatus(state, msg) {
+            const el = document.getElementById('stgPreviewStatus');
+            if (!el) return;
+            const map = {
+                '': '',
+                locked: '<i class="bi bi-lock-fill me-1"></i>Dokumen sudah terkirim / sedang diproses: hanya baca',
+                loading: '<span class="spinner-border spinner-border-sm me-1"></span>Menyusun ulang payload SAP...',
+                ok: '<i class="bi bi-check-circle-fill text-success me-1"></i>Payload SAP (Tab 2) diperbarui',
+                error: '<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Mapping gagal: ' + escapeHtml(msg || '')
+            };
+            el.innerHTML = map[state] || '';
+        }
+
+        function buildEditableStaging(obj, locked) {
+            const dis = locked ? 'disabled' : '';
+            const prims = [], arrays = [], others = [];
+            for (const k in obj) {
+                const v = obj[k];
+                if (Array.isArray(v)) arrays.push(k);
+                else if (v === null || typeof v !== 'object') prims.push(k);
+                else others.push(k);
+            }
+            let html = `<div class="fiori-section-title">HEADER DATA</div><div class="row g-2 mb-3">`;
+            if (!prims.length) html += `<div class="col-12 text-muted fst-italic">No header data available</div>`;
+            prims.forEach((k, i) => {
+                const v = obj[k];
+                html += `<div class="col-md-6"><label class="fiori-label d-block mb-1" for="stg-h-${i}">${escapeHtml(k)}</label>
+                    <input id="stg-h-${i}" class="form-control form-control-sm stg-input" data-scope="header" data-key="${escapeHtml(k)}"
+                        data-type="${v === null ? 'null' : typeof v}" value="${escapeHtml(stgBlank(v))}" placeholder="-" ${dis}></div>`;
+            });
+            html += `</div>`;
+            if (others.length) html += `<div class="small text-muted mb-2">Field bertingkat tidak bisa diedit di sini: ${others.map(escapeHtml).join(', ')} (tetap dikirim apa adanya).</div>`;
+
+            arrays.forEach(ak => {
+                const items = obj[ak];
+                html += `<div class="fiori-section-title mt-3 text-uppercase">ITEMS: ${escapeHtml(ak)}</div>`;
+                if (!items.length) { html += `<div class="text-muted fst-italic mb-3">Empty list</div>`; return; }
+                const cols = [], colType = {};
+                items.forEach(it => {
+                    if (!it || typeof it !== 'object') return;
+                    for (const c in it) {
+                        const v = it[c];
+                        if (v !== null && typeof v === 'object') continue;
+                        if (!cols.includes(c)) cols.push(c);
+                        if (v !== null && v !== undefined && !colType[c]) colType[c] = typeof v;
+                    }
+                });
+                html += `<div class="stg-grid-wrap mb-2"><table class="table table-sm stg-grid"><thead><tr><th>#</th>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead><tbody>`;
+                items.forEach((it, i) => {
+                    html += `<tr><td class="text-muted fw-bold">${i + 1}</td>` + cols.map(c => {
+                        const has = it && Object.prototype.hasOwnProperty.call(it, c);
+                        const v = has ? it[c] : '';
+                        return `<td><input class="form-control form-control-sm stg-input" data-scope="array" data-array="${escapeHtml(ak)}"
+                            data-index="${i}" data-key="${escapeHtml(c)}" data-type="${colType[c] || 'string'}" data-missing="${has ? '0' : '1'}"
+                            data-orignull="${v === null ? '1' : '0'}" value="${escapeHtml(stgBlank(v))}" placeholder="-"
+                            aria-label="${escapeHtml(ak)} baris ${i + 1} ${escapeHtml(c)}" ${dis}></td>`;
+                    }).join('') + `</tr>`;
+                });
+                html += `</tbody></table></div>`;
+            });
+            return html;
+        }
+
+        function stgValue(inp) {
+            const raw = inp.value;
+            const t = inp.dataset.type;
+            if (t === 'number') {
+                if (raw.trim() === '') return null;
+                const n = Number(raw.trim().replace(',', '.'));
+                return Number.isFinite(n) ? n : raw;
+            }
+            if (t === 'boolean') return raw.trim().toLowerCase() === 'true';
+            if (raw === '' && (t === 'null' || inp.dataset.orignull === '1')) return null;
+            return raw;
+        }
+
+        function readStagingEdits() {
+            const obj = JSON.parse(JSON.stringify(stgEdit.original));
+            document.querySelectorAll('#fiori-view-container .stg-input').forEach(inp => {
+                const v = stgValue(inp);
+                if (inp.dataset.scope === 'header') { obj[inp.dataset.key] = v; return; }
+                const arr = obj[inp.dataset.array];
+                const idx = parseInt(inp.dataset.index, 10);
+                if (!arr || !arr[idx] || typeof arr[idx] !== 'object') return;
+                if (inp.dataset.missing === '1' && inp.value === '') return; // kolom tidak ada di baris ini & tetap kosong
+                arr[idx][inp.dataset.key] = v;
+            });
+            return obj;
+        }
+
+        function onStagingEdit(e) {
+            if (!stgEdit || stgEdit.locked) return;
+            const inp = e.target;
+            inp.classList.toggle('is-edited', inp.value !== inp.defaultValue);
+            stgEdit.dirty = true;
+            stgEdit.previewOk = false;
+            setStagingButtons();
+            clearTimeout(stgPreviewTimer);
+            stgPreviewTimer = setTimeout(runStagingPreview, 400);
+        }
+
+        async function runStagingPreview() {
+            clearTimeout(stgPreviewTimer);
+            const obj = readStagingEdits();
+            stgEdit.current = obj;
+            document.getElementById('maximo-json-container').innerHTML = syntaxHighlight(JSON.stringify(obj, null, 4));
+            const seq = ++stgPreviewSeq;
+            setPreviewStatus('loading');
+            try {
+                const res = await fetch('/api/documents/transform-preview', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ doc_type: stgEdit.docType, raw_payload: obj })
+                });
+                const data = await res.json().catch(() => ({ message: 'HTTP ' + res.status }));
+                if (seq !== stgPreviewSeq) return;
+                if (!res.ok || data.status !== 'success') throw new Error(data.message || ('HTTP ' + res.status));
+                const formatted = JSON.stringify(organizeJsonHeaderFirst(data.sap_payload), null, 4);
+                stgEdit.sapPayload = formatted;
+                stgEdit.previewOk = true;
+                document.getElementById('sap-json-container').innerHTML = syntaxHighlight(formatted);
+                const editor = document.getElementById('sap-json-editor');
+                if (editor) editor.value = formatted;
+                const btnEdit = document.getElementById('btnEditSapJson');
+                if (btnEdit) btnEdit.style.display = 'inline-block';
+                setPreviewStatus('ok');
+            } catch (err) {
+                if (seq !== stgPreviewSeq) return;
+                stgEdit.previewOk = false;
+                setPreviewStatus('error', err.message);
+            }
+            setStagingButtons();
+        }
+
+        async function saveStagingEdits(repost) {
+            if (!stgEdit || stgEdit.locked || !stgEdit.dirty) return;
+            if (stgPreviewTimer) await runStagingPreview();
+            if (!stgEdit.previewOk || !stgEdit.sapPayload) { alert('Payload SAP belum valid. Perbaiki data sampai mapping berhasil.'); return; }
+            const msg = repost
+                ? 'Simpan perubahan staging & payload SAP, lalu kirim ulang dokumen ini ke SAP?'
+                : 'Simpan perubahan staging & payload SAP ke database? (Dokumen tidak dikirim sampai Retry.)';
+            if (!confirm(msg)) return;
+            const rawStr = JSON.stringify(stgEdit.current);
+            try {
+                const res = await fetch('/api/documents/update-payload', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ doc_type: stgEdit.docType, document_no: stgEdit.docNo, raw_payload: rawStr, sap_payload: stgEdit.sapPayload, repost: repost })
+                });
+                const data = await res.json().catch(() => ({ message: 'HTTP ' + res.status }));
+                if (!res.ok || data.status !== 'success') throw new Error(data.message || ('HTTP ' + res.status));
+                const rawEl = document.getElementById(`raw-payload-${stgEdit.docType}-${stgEdit.docNo}`);
+                if (rawEl) rawEl.innerText = rawStr;
+                const sapEl = document.getElementById(`sap-payload-${stgEdit.docType}-${stgEdit.docNo}`);
+                if (sapEl) sapEl.innerText = stgEdit.sapPayload;
+                alert(repost ? 'Perubahan tersimpan dan dokumen dikirim ulang ke SAP.' : 'Perubahan tersimpan.');
+                const modalInstance = bootstrap.Modal.getInstance(document.getElementById('globalPayloadModal'));
+                if (modalInstance) modalInstance.hide();
+                loadDashboardSPA(window.location.href);
+            } catch (err) {
+                alert('Gagal menyimpan: ' + err.message);
+            }
         }
 
         function buildFioriPreview(obj) {
@@ -3715,10 +3929,23 @@
                 const originalBtnHtml = btn.html();
                 btn.html('<span class="spinner-border spinner-border-sm"></span>').prop('disabled', true);
 
-                fetch('/sync/send', {
+                const sendDoc = (force) => fetch('/sync/send', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ doc_type: form.attr('data-doctype'), doc_id: form.attr('data-docno') })
-                }).then(res => res.json()).then(data => {
+                    body: JSON.stringify({ doc_type: form.attr('data-doctype'), doc_id: form.attr('data-docno'), force: force })
+                }).then(async res => {
+                    const data = await res.json().catch(() => ({ status: 'error', message: 'HTTP ' + res.status }));
+                    // PRD Idempotency: dokumen sudah terkirim / sedang diproses. Kirim paksa hanya dengan
+                    // konfirmasi keras (ketik ulang nomor dokumen).
+                    if (res.status === 409 && !force) {
+                        const docNo = form.attr('data-docno');
+                        const typed = prompt('PERINGATAN: ' + data.message + '\n\nMengirim ulang dapat membuat dokumen GANDA di SAP. ' +
+                            'Ketik nomor dokumen "' + docNo + '" untuk tetap mengirim paksa:');
+                        if (typed !== null && typed.trim() === docNo) return sendDoc(true);
+                        return { status: 'cancelled' };
+                    }
+                    return data;
+                });
+                sendDoc(false).then(data => {
                     const toastEl = document.getElementById('syncToast');
                     if (toastEl) {
                         const t = bootstrap.Toast.getInstance(toastEl);
@@ -3728,7 +3955,7 @@
                     btn.html(originalBtnHtml).prop('disabled', false);
                     if (data.status === 'success' || data.status === 'ok') {
                         loadDashboardSPA(window.location.href);
-                    } else {
+                    } else if (data.status !== 'cancelled') {
                         alert(data.message || "Gagal mengirim dokumen.");
                     }
                 }).catch(err => {

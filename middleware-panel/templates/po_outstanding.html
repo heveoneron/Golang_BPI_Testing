@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PO Outstanding &lt; 2025 - Middleware Panel</title>
+
+    <link href="/static/css/fonts.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/sidebar.css?v=6" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #F8FAFC;
+            --border-soft: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+        html { background-color: var(--bg-body); overscroll-behavior: none; }
+        body { background-color: var(--bg-body); overflow-x: hidden; font-family: 'Inter', sans-serif; color: var(--text-main); overscroll-behavior: none; }
+        .top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+        .top-nav-title h3 { font-weight: 800; margin: 0; font-size: 24px; display: flex; align-items: center; gap: 8px; }
+        .main-card { background-color: #ffffff; border-radius: 12px; box-shadow: var(--shadow-card); border: 1px solid var(--border-soft); margin-bottom: 20px; }
+        .stat-card { background: #fff; border-radius: 12px; border: 1px solid var(--border-soft); padding: 14px 18px; box-shadow: var(--shadow-card); cursor: pointer; }
+        .stat-card.active { outline: 2px solid #2563EB; }
+        .stat-val { font-size: 24px; font-weight: 800; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+        .grid-wrap { max-height: 60vh; overflow: auto; }
+        .grid { font-size: 12.5px; white-space: nowrap; }
+        .grid th { position: sticky; top: 0; z-index: 2; background: #F8FAFC; color: #64748B; font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid var(--border-soft); }
+        .grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .grid td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+        .grid td.err { max-width: 320px; white-space: normal; color: #B91C1C; font-size: 12px; }
+        .st { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+        .st-PENDING { background: #FEF3C7; color: #92400E; }
+        .st-PROCESSING { background: #EDE9FE; color: #5B21B6; }
+        .st-SYNCED { background: #DCFCE7; color: #15803D; }
+        .st-FAILED { background: #FEE2E2; color: #B91C1C; }
+        .upload-errors { max-height: 220px; overflow: auto; font-size: 12.5px; }
+    </style>
+</head>
+<body class="d-flex">
+
+    <div class="toast-container position-fixed top-0 end-0 p-4" style="z-index: 1080;">
+        <div id="liveToast" class="toast align-items-center text-white border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body" id="toastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    {{ template "sidebar" . }}
+
+    <div class="flex-grow-1 p-4" style="min-width: 0;">
+        <div class="top-nav">
+            <div class="top-nav-title">
+                <h3><i class="bi bi-archive text-primary"></i> PO Outstanding &lt; 2025</h3>
+                <span class="text-muted" style="font-size: 13.5px;">Migrasi PO terbuka historis (orderdate sebelum 2025) dari Maximo &amp; AX ke SAP</span>
+            </div>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-secondary btn-sm rounded-3" href="/api/po-outstanding/template"><i class="bi bi-download me-1"></i> Download Template</a>
+                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadList()"><i class="bi bi-arrow-clockwise me-1"></i> Refresh</button>
+            </div>
+        </div>
+
+        <div class="main-card p-3 mb-3">
+            <form id="uploadForm" class="row g-2 align-items-end" onsubmit="upload(event)">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-muted mb-1" for="sourceSystem">Sumber</label>
+                    <select id="sourceSystem" name="source_system" class="form-select form-select-sm" required>
+                        <option value="MAXIMO">Maximo</option>
+                        <option value="AX">AX (Dynamics)</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold text-muted mb-1" for="fileInput">File template (.xlsx / .csv)</label>
+                    <input id="fileInput" name="file" type="file" accept=".xlsx,.csv" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" id="btnUpload" class="btn btn-primary btn-sm w-100"><i class="bi bi-upload me-1"></i> Upload Excel/CSV</button>
+                </div>
+            </form>
+            <div class="text-muted mt-2" style="font-size: 12px;">
+                Semua baris divalidasi dulu (format, orderdate &lt; 2025-01-01, duplikat PO/line, header satu PO harus sama). Bila ada error, tidak ada baris yang disimpan.
+                PO yang sudah SYNCED tidak bisa diubah atau ditambah barisnya.
+            </div>
+            <div id="uploadResult" class="mt-2"></div>
+        </div>
+
+        <div class="row g-3 mb-3" id="statCards">
+            <div class="col-6 col-md"><div class="stat-card active" data-status=""><div class="text-muted small fw-bold text-uppercase">All</div><div class="stat-val" id="stat-ALL">0</div></div></div>
+            <div class="col-6 col-md"><div class="stat-card" data-status="PENDING"><div class="text-muted small fw-bold text-uppercase">Pending</div><div class="stat-val text-warning" id="stat-PENDING">0</div></div></div>
+            <div class="col-6 col-md"><div class="stat-card" data-status="PROCESSING"><div class="text-muted small fw-bold text-uppercase">Processing</div><div class="stat-val" style="color:#6D28D9" id="stat-PROCESSING">0</div></div></div>
+            <div class="col-6 col-md"><div class="stat-card" data-status="SYNCED"><div class="text-muted small fw-bold text-uppercase">Synced</div><div class="stat-val text-success" id="stat-SYNCED">0</div></div></div>
+            <div class="col-6 col-md"><div class="stat-card" data-status="FAILED"><div class="text-muted small fw-bold text-uppercase">Failed</div><div class="stat-val text-danger" id="stat-FAILED">0</div></div></div>
+        </div>
+
+        <div class="main-card">
+            <div class="d-flex flex-wrap gap-2 align-items-center p-3 border-bottom">
+                <input type="search" id="searchBox" class="form-control form-control-sm" style="max-width: 280px;" placeholder="Cari PO / vendor / item...">
+                <span class="text-muted small ms-1" id="selInfo">0 baris dipilih</span>
+                <div class="ms-auto d-flex gap-2">
+                    <button class="btn btn-outline-primary btn-sm" id="btnSyncSel" onclick="syncSelected()" disabled><i class="bi bi-cloud-upload me-1"></i> Sync Selected to SAP</button>
+                    <button class="btn btn-primary btn-sm" id="btnSyncAll" onclick="syncAllPending()"><i class="bi bi-cloud-upload-fill me-1"></i> Sync All Pending</button>
+                </div>
+            </div>
+            <div class="grid-wrap">
+                <table class="table table-hover grid mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" class="form-check-input" id="chkAll" aria-label="Pilih semua"></th>
+                            <th>Status</th><th>Source</th><th>PONUM</th><th>Line</th><th>Order Date</th><th>Vendor</th><th>Site</th>
+                            <th>Item</th><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Curr</th><th>Tax</th>
+                            <th>Budget</th><th>DP %</th><th>SAP PO</th><th>Error</th><th>Batch</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gridBody"><tr><td colspan="20" class="text-center text-muted py-4">Memuat...</td></tr></tbody>
+                </table>
+            </div>
+            <div class="p-2 px-3 text-muted small border-top">
+                Sync bekerja per PO: memilih satu baris mengirim seluruh baris PO tersebut. PO dikunci atomik selama dikirim; baris SYNCED tidak dapat dikirim ulang.
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentStatus = '';
+        let rows = [];
+
+        function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+        function fmtNum(n, d) { return Number(n || 0).toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+        function showToast(message, ok = true) {
+            const el = document.getElementById('liveToast');
+            el.className = 'toast align-items-center text-white border-0 shadow-lg ' + (ok ? 'bg-success' : 'bg-danger');
+            document.getElementById('toastMessage').textContent = message;
+            new bootstrap.Toast(el, { delay: 5000 }).show();
+        }
+
+        async function api(url, opts) {
+            const res = await fetch(url, opts);
+            const data = await res.json().catch(() => ({ status: 'error', message: 'HTTP ' + res.status }));
+            return { ok: res.ok && data.status === 'success', status: res.status, data };
+        }
+
+        async function loadList() {
+            const q = encodeURIComponent(document.getElementById('searchBox').value.trim());
+            const r = await api(`/api/po-outstanding/list?status=${currentStatus}&q=${q}`);
+            if (!r.ok) {
+                document.getElementById('gridBody').innerHTML = `<tr><td colspan="20" class="text-center text-danger py-4">${esc(r.data.message)}</td></tr>`;
+                return;
+            }
+            rows = r.data.data || [];
+            const stats = r.data.stats || {};
+            let all = 0;
+            ['PENDING', 'PROCESSING', 'SYNCED', 'FAILED'].forEach(s => { document.getElementById('stat-' + s).textContent = stats[s] || 0; all += stats[s] || 0; });
+            document.getElementById('stat-ALL').textContent = all;
+            renderGrid();
+        }
+
+        function renderGrid() {
+            const body = document.getElementById('gridBody');
+            if (!rows.length) { body.innerHTML = `<tr><td colspan="20" class="text-center text-muted py-4">Belum ada data. Upload template untuk memulai.</td></tr>`; updateSel(); return; }
+            body.innerHTML = rows.map(r => {
+                const locked = r.is_sent || r.is_processing;
+                return `<tr>
+                    <td><input type="checkbox" class="form-check-input row-chk" value="${r.id}" ${locked ? 'disabled title="Sudah terkirim / sedang diproses"' : ''} aria-label="Pilih ${esc(r.ponum)} line ${r.polinenum}"></td>
+                    <td><span class="st st-${esc(r.sync_status)}">${esc(r.sync_status)}</span></td>
+                    <td>${esc(r.source_system)}</td><td class="fw-semibold">${esc(r.ponum)}</td><td class="num">${r.polinenum}</td>
+                    <td>${esc(r.orderdate)}</td><td>${esc(r.vendor)}</td><td>${esc(r.siteid)}</td><td>${esc(r.itemnum)}</td>
+                    <td class="desc" title="${esc(r.pol_desc_ld)}">${esc(r.pol_desc_ld)}</td>
+                    <td class="num">${fmtNum(r.orderqty, 2)}</td><td>${esc(r.orderunit)}</td><td class="num">${fmtNum(r.unitcost, 2)}</td>
+                    <td>${esc(r.currencycode)}</td><td>${esc(r.taxcode1)}</td><td>${esc(r.bpibudgetcode)}</td><td class="num">${fmtNum(r.dp_percentage, 0)}</td>
+                    <td class="fw-semibold text-success">${esc(r.sap_po_number)}</td><td class="err">${esc(r.error_message)}</td><td class="text-muted">${esc(r.batch_id)}</td>
+                </tr>`;
+            }).join('');
+            document.querySelectorAll('.row-chk').forEach(c => c.addEventListener('change', updateSel));
+            document.getElementById('chkAll').checked = false;
+            updateSel();
+        }
+
+        function selectedIds() { return [...document.querySelectorAll('.row-chk:checked')].map(c => parseInt(c.value, 10)); }
+        function updateSel() {
+            const n = selectedIds().length;
+            document.getElementById('selInfo').textContent = n + ' baris dipilih';
+            document.getElementById('btnSyncSel').disabled = n === 0;
+        }
+        document.getElementById('chkAll').addEventListener('change', e => {
+            document.querySelectorAll('.row-chk:not(:disabled)').forEach(c => c.checked = e.target.checked);
+            updateSel();
+        });
+        document.querySelectorAll('.stat-card').forEach(card => card.addEventListener('click', () => {
+            document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            currentStatus = card.dataset.status;
+            loadList();
+        }));
+        let searchTimer;
+        document.getElementById('searchBox').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadList, 350); });
+
+        async function upload(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnUpload');
+            const out = document.getElementById('uploadResult');
+            btn.disabled = true; out.innerHTML = '';
+            try {
+                const r = await api('/api/po-outstanding/upload', { method: 'POST', body: new FormData(document.getElementById('uploadForm')) });
+                const d = r.data.data || {};
+                if (r.ok) {
+                    out.innerHTML = `<div class="alert alert-success py-2 mb-0 small">Batch <b>${esc(d.batch_id)}</b>: ${d.saved} baris (${d.po_count} PO) tersimpan sebagai PENDING.</div>`;
+                    document.getElementById('fileInput').value = '';
+                    loadList();
+                } else {
+                    const errs = (d.errors || []).map(x => `<li>Baris ${x.row} &middot; <b>${esc(x.field)}</b>: ${esc(x.message)}</li>`).join('');
+                    out.innerHTML = `<div class="alert alert-danger py-2 mb-0 small"><div class="fw-bold mb-1">${esc(r.data.message)}</div>${errs ? `<ul class="upload-errors mb-0 ps-3">${errs}</ul>` : ''}</div>`;
+                }
+            } catch (err) { showToast(err.message, false); }
+            finally { btn.disabled = false; }
+        }
+
+        async function runSync(body, label) {
+            const btns = [document.getElementById('btnSyncSel'), document.getElementById('btnSyncAll')];
+            btns.forEach(b => b.disabled = true);
+            showToast(label + ' sedang diproses...', true);
+            try {
+                const r = await api('/api/po-outstanding/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (!r.ok) { showToast(r.data.message || 'Sync gagal', false); return; }
+                const d = r.data.data;
+                showToast(`Selesai: ${d.synced} PO synced, ${d.failed} gagal, ${d.skipped} dilewati (sudah terkirim / sedang diproses).`, d.failed === 0);
+            } catch (err) { showToast(err.message, false); }
+            finally { btns[1].disabled = false; loadList(); }
+        }
+
+        function syncSelected() {
+            const ids = selectedIds();
+            const pos = new Set(rows.filter(r => ids.includes(r.id)).map(r => r.source_system + '|' + r.ponum));
+            if (!confirm(`Kirim ${pos.size} PO (seluruh baris PO tersebut) ke SAP?`)) return;
+            runSync({ ids: ids }, 'Sync Selected');
+        }
+        function syncAllPending() {
+            const pending = document.getElementById('stat-PENDING').textContent;
+            if (!confirm(`Kirim semua baris PENDING (${pending} baris) ke SAP? Maksimal 200 PO per proses.`)) return;
+            runSync({ all_pending: true }, 'Sync All Pending');
+        }
+
+        loadList();
+    </script>
+</body>
+</html>

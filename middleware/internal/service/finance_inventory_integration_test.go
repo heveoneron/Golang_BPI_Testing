@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,6 +164,58 @@ func TestIntegration_DefaultValuesFromPanel(t *testing.T) {
 	repo.InvalidateDefaultValues()
 	if _, err := sync.TransformPO(ctx, []byte(`{"PONUM":"4500000778","LINES":[{"QTY":1,"UNITCOST":10,"DEPARTMENT":"CC1"}]}`)); err == nil {
 		t.Fatal("empty PO_DEFAULT_MATERIAL must reject a line without ITEMNUM")
+	}
+}
+
+// PRD Fitur 2: GRN memakai PostingDate tanggal 1 bulan terbuka berikutnya bila bulan actualdate ditutup.
+func TestIntegration_ClosePeriodGRNPostingDate(t *testing.T) {
+	ctx, repo, _, sync := setupIntegration(t)
+	if err := repo.SetClosePeriods(ctx, []repository.ClosePeriod{{Year: 2026, Month: 4, IsClosed: true}, {Year: 2026, Month: 5, IsClosed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"BPIGRNUMBER":"GR-CP-1","ISSUETYPE":"RECEIPT","ACTUALDATE":"2026-04-20","PONUM":"4500000001","LINES":[{"ITEMNUM":"SP001","QTY":1,"POLINENUM":1}]}`)
+	docDate, postingDate := sync.grnDates(ctx, "2026-04-20")
+	if docDate != "/Date(1776643200000)/" || postingDate != "/Date(1780272000000)/" { // 2026-04-20, 2026-06-01
+		t.Fatalf("dates: %s %s", docDate, postingDate)
+	}
+	out, err := sync.PreviewTransform(ctx, "GRN", raw)
+	if err != nil || !strings.Contains(string(out), `"PostingDate":"/Date(1780272000000)/"`) {
+		t.Fatalf("GRN payload must use 1 Juni: %s %v", out, err)
+	}
+	if _, p := sync.grnDates(ctx, "2026-06-15"); p != "/Date(1781481600000)/" {
+		t.Fatalf("open month must keep actualdate: %s", p)
+	}
+}
+
+// PRD Fitur 3: upload template -> staging -> Sync (SAP MOCK); PO yang sudah SYNCED tidak terkirim dua kali.
+func TestIntegration_POOutstandingUploadAndSync(t *testing.T) {
+	ctx, repo, _, sync := setupIntegration(t)
+	csv := "currencycode;orderdate;DP Percentage;ponum;siteid;vendor;bpibudgetcode;pol_desc_ld;itemnum;orderqty;orderunit;polinenum;taxcode1;unitcost\r\n" +
+		"IDR;2024-01-08;0;4500010135;BTNG;VND-2721;16011;Subscription;92-00016;3;MONTH;1;11PPN;3410000\r\n" +
+		"IDR;2024-01-08;0;4500010135;BTNG;VND-2721;16011;Subscription;92-00016;3;MONTH;3;;100\r\n"
+	res, err := sync.UploadPOOutstanding(ctx, "po.csv", []byte(csv), "MAXIMO", "tester")
+	if err != nil || len(res.Errors) != 0 || res.Saved != 2 || res.POCount != 1 {
+		t.Fatalf("upload: %+v %v", res, err)
+	}
+	items, _ := repo.ListPOOutstanding(ctx, "PENDING", "", 100)
+	if len(items) != 2 {
+		t.Fatalf("pending rows: %d", len(items))
+	}
+	sr, err := sync.SyncPOOutstanding(ctx, []int64{items[0].ID}, false) // satu baris dipilih -> seluruh PO terkirim
+	if err != nil || sr.Synced != 1 || sr.Details[0].SAPPONumber == "" {
+		t.Fatalf("sync: %+v %v", sr, err)
+	}
+	synced, _ := repo.ListPOOutstanding(ctx, "SYNCED", "", 100)
+	if len(synced) != 2 || !synced[0].IsSent || synced[0].IsProcessing {
+		t.Fatalf("both lines must be SYNCED: %+v", synced)
+	}
+	again, _ := sync.SyncPOOutstanding(ctx, []int64{items[0].ID}, false)
+	if again.Synced != 0 || again.Skipped != 1 {
+		t.Fatalf("already synced PO must be skipped: %+v", again)
+	}
+	reup, _ := sync.UploadPOOutstanding(ctx, "po.csv", []byte(csv), "MAXIMO", "tester")
+	if len(reup.Errors) == 0 {
+		t.Fatal("re-upload of a synced PO must be rejected")
 	}
 }
 

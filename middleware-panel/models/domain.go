@@ -31,6 +31,12 @@ type Document struct {
 	WorkflowInstanceID *string    `gorm:"column:workflow_instance_id;type:text"`
 	SAPDocumentNo      *string    `gorm:"column:sap_document_no;type:text"`
 
+	// Flag idempotency (dikelola Engine, enhancement.sql). Read-only di Panel; kirim ulang memakai
+	// RequeueDocument yang atomik.
+	IsSent       bool       `gorm:"->;-:migration;column:is_sent"`
+	IsProcessing bool       `gorm:"->;-:migration;column:is_processing"`
+	SentAt       *time.Time `gorm:"->;-:migration;column:sent_at"`
+
 	// --- FIELD VIRTUAL UNTUK UI ---
 	// Tidak ada di struktur tabel asli, diisi lewat Sub-Query / Select tambahan
 	// pada query GORM. Kolom-kolom ini TIDAK pernah ditulis ke database (gorm:"->"

@@ -14,6 +14,8 @@ type DashboardRepository interface {
 	GetChildDocuments(parentNo string) ([]models.Document, error)
 	GetDocumentByTypeAndNo(docType string, documentNo string) (models.Document, error)
 	UpdateDocument(doc *models.Document) error
+	RequeueDocument(docType, documentNo string, force bool) (int64, error)
+	UpdatePayloads(docType, documentNo string, rawPayload, sapPayload *string) (int64, error)
 	GetDocumentStats(docType string, startDate string, endDate string) (int64, int64, int64, int64, int64)
 	GetDistinctDocTypes() ([]string, error)
 	GetTrendStats(docType string, startDate string, endDate string) map[string][]int
@@ -145,6 +147,39 @@ func (r *dashboardRepo) UpdateDocument(doc *models.Document) error {
 	return r.db.Model(&models.Document{}).
 		Where("UPPER(doc_type) = UPPER(?) AND document_no = ?", doc.DocType, doc.DocumentNo).
 		Updates(updates).Error
+}
+
+// RequeueDocument mengembalikan dokumen ke antrean 'pending' secara atomik (PRD Idempotency). Dokumen yang
+// sedang diproses tidak pernah disentuh; dokumen yang sudah terkirim (is_sent / success) hanya bila force,
+// dan flag is_sent-nya di-reset agar Engine mau mengirim. Mengembalikan jumlah baris yang berubah (0 = ditolak).
+func (r *dashboardRepo) RequeueDocument(docType, documentNo string, force bool) (int64, error) {
+	res := r.db.Exec(`
+		UPDATE documents
+		SET status = 'pending', retry_count = 0, error_message = NULL, blocked_reason = NULL,
+		    is_sent = CASE WHEN ? THEN FALSE ELSE is_sent END, updated_at = NOW()
+		WHERE UPPER(doc_type) = UPPER(?) AND document_no = ?
+		  AND is_processing = FALSE AND status <> 'processing'
+		  AND (? OR (is_sent = FALSE AND status <> 'success'))`,
+		force, docType, documentNo, force)
+	return res.RowsAffected, res.Error
+}
+
+// UpdatePayloads menyimpan hasil edit payload (raw staging dan/atau SAP OData) lalu menandai dokumen
+// error_data agar tidak dikirim otomatis sebelum user menekan Retry. Dokumen yang sudah terkirim atau sedang
+// diproses ditolak (0 baris).
+func (r *dashboardRepo) UpdatePayloads(docType, documentNo string, rawPayload, sapPayload *string) (int64, error) {
+	updates := map[string]interface{}{"status": "error_data", "retry_count": 0, "updated_at": time.Now()}
+	if rawPayload != nil {
+		updates["raw_payload"] = gorm.Expr("?::jsonb", *rawPayload)
+	}
+	if sapPayload != nil {
+		updates["sap_payload"] = gorm.Expr("?::jsonb", *sapPayload)
+	}
+	res := r.db.Model(&models.Document{}).
+		Where("UPPER(doc_type) = UPPER(?) AND document_no = ?", docType, documentNo).
+		Where("is_processing = FALSE AND status <> 'processing' AND is_sent = FALSE AND status <> 'success'").
+		Updates(updates)
+	return res.RowsAffected, res.Error
 }
 
 func (r *dashboardRepo) GetDocumentStats(docType, startDate, endDate string) (int64, int64, int64, int64, int64) {

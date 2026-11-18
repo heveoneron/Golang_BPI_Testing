@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -131,6 +132,7 @@ func (c *DashboardController) HandleSendToSAP(ctx *gin.Context) {
 	var requestBody struct {
 		DocType string `json:"doc_type"`
 		DocId   string `json:"doc_id"`
+		Force   bool   `json:"force"`
 	}
 
 	if err := ctx.ShouldBindJSON(&requestBody); err != nil {
@@ -141,7 +143,14 @@ func (c *DashboardController) HandleSendToSAP(ctx *gin.Context) {
 		return
 	}
 
-	c.syncService.SendToSAPServiceLayer(requestBody.DocType, requestBody.DocId, tokenStr)
+	if err := c.syncService.SendToSAPServiceLayer(requestBody.DocType, requestBody.DocId, tokenStr, requestBody.Force); err != nil {
+		code := http.StatusUnprocessableEntity
+		if errors.Is(err, services.ErrDocumentLocked) {
+			code = http.StatusConflict
+		}
+		ctx.JSON(code, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"status":  "success",
@@ -163,7 +172,8 @@ func (c *DashboardController) HandleBulkSendToSAP(ctx *gin.Context) {
 		if len(parts) != 2 {
 			continue
 		}
-		c.syncService.SendToSAPServiceLayer(parts[0], parts[1], tokenStr)
+		// Bulk tidak pernah memaksa: dokumen yang sudah terkirim / sedang diproses dilewati.
+		_ = c.syncService.SendToSAPServiceLayer(parts[0], parts[1], tokenStr, false)
 	}
 
 	redirectTo := ctx.PostForm("redirect_to")
@@ -445,6 +455,8 @@ func (c *DashboardController) HandleUpdatePayload(ctx *gin.Context) {
 		DocType    string `json:"doc_type"`
 		DocumentNo string `json:"document_no"`
 		SAPPayload string `json:"sap_payload"`
+		// RawPayload: hasil inline edit Tab 1 (staging Maximo/AX); opsional.
+		RawPayload string `json:"raw_payload"`
 		Repost     bool   `json:"repost"`
 	}
 
@@ -453,15 +465,34 @@ func (c *DashboardController) HandleUpdatePayload(ctx *gin.Context) {
 		return
 	}
 
-	// Validasi bahwa string sap_payload adalah JSON valid
-	var testJSON interface{}
-	if err := json.Unmarshal([]byte(req.SAPPayload), &testJSON); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Format JSON tidak valid: " + err.Error()})
+	var rawPtr, sapPtr *string
+	for _, p := range []struct {
+		name string
+		val  string
+		dst  **string
+	}{{"sap_payload", req.SAPPayload, &sapPtr}, {"raw_payload", req.RawPayload, &rawPtr}} {
+		if strings.TrimSpace(p.val) == "" {
+			continue
+		}
+		var testJSON interface{}
+		if err := json.Unmarshal([]byte(p.val), &testJSON); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Format JSON " + p.name + " tidak valid: " + err.Error()})
+			return
+		}
+		v := p.val
+		*p.dst = &v
+	}
+	if rawPtr == nil && sapPtr == nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "raw_payload atau sap_payload wajib diisi"})
 		return
 	}
 
-	if err := c.dashService.UpdatePayload(req.DocType, req.DocumentNo, req.SAPPayload); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal menyimpan payload: " + err.Error()})
+	if err := c.dashService.UpdatePayload(req.DocType, req.DocumentNo, rawPtr, sapPtr); err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, services.ErrDocumentLocked) {
+			code = http.StatusConflict
+		}
+		ctx.JSON(code, gin.H{"status": "error", "message": "Gagal menyimpan payload: " + err.Error()})
 		return
 	}
 
@@ -471,7 +502,10 @@ func (c *DashboardController) HandleUpdatePayload(ctx *gin.Context) {
 		if token := session.Get("token"); token != nil {
 			tokenStr = token.(string)
 		}
-		_ = c.syncService.SendToSAPServiceLayer(req.DocType, req.DocumentNo, tokenStr)
+		if err := c.syncService.SendToSAPServiceLayer(req.DocType, req.DocumentNo, tokenStr, false); err != nil {
+			ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Payload tersimpan, tetapi kirim ulang gagal: " + err.Error()})
+			return
+		}
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Payload berhasil diperbarui"})
