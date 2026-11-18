@@ -143,14 +143,76 @@ ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS bank_key VARCHAR(1
 ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS bank_account VARCHAR(100);
 ALTER TABLE employee_vendor_mappings ADD COLUMN IF NOT EXISTS account_holder VARCHAR(150);
 
--- Seed Outbound Master Data Vendor
+-- Outbound Master Data Vendor: multiple bank accounts per vendor (11 Field OData to_BusinessPartnerBank)
+CREATE TABLE IF NOT EXISTS vendor_bank_accounts (
+    id BIGSERIAL PRIMARY KEY,
+    vendor_code VARCHAR(50) NOT NULL REFERENCES employee_vendor_mappings(vendor_code) ON DELETE CASCADE,
+    bank_identification VARCHAR(20) NOT NULL,        -- 4. <d:BankIdentification>
+    bank_country_key VARCHAR(10),                    -- 5. <d:BankCountryKey>
+    bank_number VARCHAR(50),                         -- 1. d:BankNumber (Bank Key)
+    bank_account VARCHAR(100) NOT NULL,              -- 2. d:BankAccount (Bank Account)
+    swift_code VARCHAR(50),                          -- 6. <d:SWIFTCode>
+    bank_name VARCHAR(150),                          -- 7. <d:BankName>
+    bank_control_key VARCHAR(20),                    -- 8. <d:BankControlKey>
+    iban VARCHAR(50),                                -- 9. <d:IBAN>
+    bank_account_reference_text VARCHAR(255),        -- 10. <d:BankAccountReferenceText>
+    bank_account_holder_name VARCHAR(150),           -- 3. d:BankAccountHolderName
+    bank_account_name VARCHAR(150),                  -- 11. <d:BankAccountName>
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_vendor_bank_account UNIQUE (vendor_code, bank_identification)
+);
+CREATE INDEX IF NOT EXISTS idx_vendor_bank_vendor ON vendor_bank_accounts(vendor_code);
+
+-- Seed Outbound Master Data Vendor Header
 INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
-VALUES ('VND-0009', 'CIP', 'mrauff341@gmail.com', 'bank key1', '1010101', 'Mandiri', 'Vendor Sample Mandiri', true)
+VALUES ('VND-0009', 'CIP', 'mrauff341@gmail.com', 'bank key1', '1010101', 'Mandiri', 'Vendor Sample Multi-Bank Mandiri/BNI/Muamalat', true)
 ON CONFLICT (vendor_code) DO NOTHING;
 
 INSERT INTO employee_vendor_mappings (vendor_code, cip_flag, email, bank_key, bank_account, account_holder, description, is_active)
 VALUES ('VND-0061', 'NON_CIP', 'soltius@gmail.com', 'MGAJKT001', '1202228837', 'PT.BANK MUAMALAT INDONESIA TBK', 'PT Chevron Indonesia', true)
 ON CONFLICT (vendor_code) DO NOTHING;
+
+-- Seed Multiple Bank Accounts untuk VND-0009 (sesuai contoh data)
+INSERT INTO vendor_bank_accounts (
+    vendor_code, bank_identification, bank_country_key, bank_number, bank_account,
+    swift_code, bank_name, bank_control_key, iban, bank_account_reference_text,
+    bank_account_holder_name, bank_account_name, is_default
+) VALUES 
+('VND-0009', '0001', 'ID', 'bank key1', '1010101', 'BMRIIDJASTL', 'Bank 2 - SAMPLE BANK', 'CO', '', 'Reference', 'Mandiri', 'PT. Chevron', true),
+('VND-0009', '0002', 'ID', 'BK2', '20202020', 'BMRIIDJASTL', 'Bank 2 - SAMPLE BANK', 'CO', '', 'Reference 2', 'BNI', 'PT. Bhimasena', false),
+('VND-0009', '0003', 'ID', 'BK3', '3030303', 'BMRIIDJASTL', 'Bank 2 - SAMPLE BANK', 'CO', '', 'Reference 3', 'Muamalat', 'PT. Oligarki', false),
+('VND-0061', '0001', 'ID', 'MGAJKT001', '1202228837', 'MEGAIDJA', 'PT.BANK MUAMALAT INDONESIA TBK', 'CO', '', 'Ref Chevron', 'PT.BANK MUAMALAT INDONESIA TBK', 'PT Chevron Indonesia', true)
+ON CONFLICT (vendor_code, bank_identification) DO UPDATE SET
+    bank_country_key = EXCLUDED.bank_country_key,
+    bank_number = EXCLUDED.bank_number,
+    bank_account = EXCLUDED.bank_account,
+    swift_code = EXCLUDED.swift_code,
+    bank_name = EXCLUDED.bank_name,
+    bank_control_key = EXCLUDED.bank_control_key,
+    iban = EXCLUDED.iban,
+    bank_account_reference_text = EXCLUDED.bank_account_reference_text,
+    bank_account_holder_name = EXCLUDED.bank_account_holder_name,
+    bank_account_name = EXCLUDED.bank_account_name,
+    is_default = EXCLUDED.is_default,
+    updated_at = NOW();
+
+-- Seed Sample GL Document & 7 Line Items (Gambar 3 & 4)
+INSERT INTO sap_gl_line_items (
+    gl_line_item_key, company_code, fiscal_year, accounting_document, ledger_gl_line_item,
+    accounting_document_type, posting_date, document_date, gl_account, cost_center, profit_center,
+    supplier, debit_credit_code, amount_in_company_code_currency, company_code_currency,
+    amount_in_transaction_currency, transaction_currency, document_item_text, raw, synced_at
+) VALUES 
+('1000~2026~1500000017~000001', '1000', '2026', '1500000017', '1', 'KZ', '2026-10-11', '2026-10-11', '11020101', '1030', '', '', 'S', 15000000.00, 'IDR', 15000000.00, 'IDR', 'pop up item 1', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"1","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"11020101","CostCenter":"1030","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":15000000.00,"AmountInCompanyCodeCurrency":15000000.00,"AmountInGlobalCurrency":15000000.00,"DebitCreditCode":"S","AssignmentReference":"pop up","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"pop up item 1","Supplier":"","Customer":"","FinancialAccountType":"S","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000002', '1000', '2026', '1500000017', '2', 'KZ', '2026-10-11', '2026-10-11', '11020101', '1038', '', '', 'H', 5000000.00, 'IDR', 5000000.00, 'IDR', 'pop up item 2', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"2","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"11020101","CostCenter":"1038","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":5000000.00,"AmountInCompanyCodeCurrency":5000000.00,"AmountInGlobalCurrency":5000000.00,"DebitCreditCode":"H","AssignmentReference":"pop up","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"pop up item 2","Supplier":"","Customer":"","FinancialAccountType":"S","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000003', '1000', '2026', '1500000017', '3', 'KZ', '2026-10-11', '2026-10-11', '11020101', '1039', '', '', 'H', 10000000.00, 'IDR', 10000000.00, 'IDR', 'pop up item 3', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"3","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"11020101","CostCenter":"1039","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":10000000.00,"AmountInCompanyCodeCurrency":10000000.00,"AmountInGlobalCurrency":10000000.00,"DebitCreditCode":"H","AssignmentReference":"pop up","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"pop up item 3","Supplier":"","Customer":"","FinancialAccountType":"S","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000004', '1000', '2026', '1500000017', '4', 'KZ', '2026-10-11', '2026-10-11', '21010101', '1030', '', '1000006', 'H', 20000000.00, 'IDR', 20000000.00, 'IDR', 'copy dan p', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"4","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"21010101","CostCenter":"1030","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":20000000.00,"AmountInCompanyCodeCurrency":20000000.00,"AmountInGlobalCurrency":20000000.00,"DebitCreditCode":"H","AssignmentReference":"pop up","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"copy dan p","Supplier":"1000006","Customer":"","FinancialAccountType":"K","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000005', '1000', '2026', '1500000017', '5', 'KZ', '2026-10-11', '2026-10-11', '21010101', '1038', '', '1000000', 'S', 8000000.00, 'IDR', 8000000.00, 'IDR', 'Pop Up', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"5","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"21010101","CostCenter":"1038","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":8000000.00,"AmountInCompanyCodeCurrency":8000000.00,"AmountInGlobalCurrency":8000000.00,"DebitCreditCode":"S","AssignmentReference":"","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"Pop Up","Supplier":"1000000","Customer":"","FinancialAccountType":"K","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000006', '1000', '2026', '1500000017', '6', 'KZ', '2026-10-11', '2026-10-11', '21010101', '1039', '', '1000000', 'S', 12000000.00, 'IDR', 12000000.00, 'IDR', 'Pop Up', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"6","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"21010101","CostCenter":"1039","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":12000000.00,"AmountInCompanyCodeCurrency":12000000.00,"AmountInGlobalCurrency":12000000.00,"DebitCreditCode":"S","AssignmentReference":"","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"Pop Up","Supplier":"1000000","Customer":"","FinancialAccountType":"K","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW()),
+('1000~2026~1500000017~000007', '1000', '2026', '1500000017', '7', 'KZ', '2026-10-11', '2026-10-11', '21010101', '1030', '', '1000006', 'S', 10000000.00, 'IDR', 10000000.00, 'IDR', 'Pop Up', '{"CompanyCode":"1000","FiscalYear":"2026","AccountingDocument":"1500000017","AccountingDocumentItem":"7","CompanyCodeCurrency":"IDR","GlobalCurrency":"IDR","BaseUnit":"","Quantity":0,"Product":"","GLAccount":"21010101","CostCenter":"1030","ProfitCenter":"","FunctionalArea":"","AmountInTransactionCurrency":10000000.00,"AmountInCompanyCodeCurrency":10000000.00,"AmountInGlobalCurrency":10000000.00,"DebitCreditCode":"S","AssignmentReference":"","ReversalReferenceDocument":"","ReversalReferenceDocumentItem":"","DocumentItemText":"Pop Up","Supplier":"1000006","Customer":"","FinancialAccountType":"K","SpecialGLCode":"","HouseBank":"","HouseBankAccount":"","MasterFixedAsset":"","FixedAsset":"","WithholdingTaxCode":"","FiscalPeriod":"10","PostingDate":"/Date(1791676800000)/","DocumentDate":"/Date(1791676800000)/","AccountingDocumentType":"KZ","AccountingDocumentHeaderText":"Pembayaran Vendor","Reference":"REF-1500000017","AccountingDocCreatedByUser":"SAPUSER","CreationDateTime":"11/10/2026 10:04","FlaggingSendToMaximo":"X","TimeStampSendToMaximo":""}'::jsonb, NOW())
+ON CONFLICT (gl_line_item_key) DO NOTHING;
 
 -- SAP -> Maximo: supplier invoice yang ditarik dari SAP (API_SUPPLIERINVOICE_PROCESS_SRV)
 CREATE TABLE IF NOT EXISTS sap_supplier_invoices (
@@ -188,6 +250,37 @@ CREATE TABLE IF NOT EXISTS excel_upload_batches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- RICEF 7: Staging penampung Reimbursement & Business Trip
+CREATE TABLE IF NOT EXISTS reimbursement_requests (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id BIGINT REFERENCES excel_upload_batches(id) ON DELETE SET NULL,
+    doc_type VARCHAR(30) NOT NULL,              -- 'REIMBURSEMENT' / 'BUSINESS_TRIP'
+    transaction_id VARCHAR(50) NOT NULL,        -- Transaction Id atau Trip ID
+    employee_id VARCHAR(50) NOT NULL,           -- Employee ID atau vendor code
+    employee_name VARCHAR(150),                 -- Full Name atau Requested By Name
+    policy_or_trip_type VARCHAR(100),           -- Policy Name atau Trip Type (Domestic/International)
+    benefit_or_destination VARCHAR(150),        -- Benefit Name 1..7 / Destination
+    description_or_notes TEXT,                  -- Notes / Keterangan
+    effective_date DATE,                        -- Document / Effective Date
+    posting_date DATE,                          -- Posting Date
+    currency VARCHAR(10) DEFAULT 'IDR',
+    gross_amount NUMERIC(18, 2) NOT NULL,
+    paid_amount NUMERIC(18, 2) NOT NULL,
+    cip_flag VARCHAR(20),                       -- CIP / NON_CIP
+    gl_account VARCHAR(20),                     -- Akun GL dari mapping
+    cost_center VARCHAR(20),                    -- Budget Code / Cost Center dari mapping
+    status VARCHAR(30) DEFAULT 'PENDING',       -- PENDING, QUEUED, SUCCESS, ERROR
+    sap_document_no VARCHAR(50),
+    error_message TEXT,
+    raw_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_tx ON reimbursement_requests(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_emp ON reimbursement_requests(employee_id);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_type ON reimbursement_requests(doc_type);
+
+
 
 -- DJ-MM-ENH-ZME003: Pemetaan Valuation Class ke Akun GL & Cost Center (Goods Issue & Stock Adjustment)
 CREATE TABLE IF NOT EXISTS valuation_class_gl_mappings (
@@ -204,6 +297,20 @@ CREATE TABLE IF NOT EXISTS valuation_class_gl_mappings (
 );
 CREATE INDEX IF NOT EXISTS idx_val_class_gl ON valuation_class_gl_mappings(valuation_class);
 
+-- Sinkronisasi kolom financial ke material_config_mappings untuk Panel UI
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS inventory_posting_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS goods_issue_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS stock_adj_gl VARCHAR(50);
+ALTER TABLE material_config_mappings ADD COLUMN IF NOT EXISTS cost_center VARCHAR(50);
+
+UPDATE material_config_mappings SET inventory_posting_gl = '114001', goods_issue_gl = '512033', stock_adj_gl = '512033', cost_center = '71098' WHERE UPPER(sap_value) = 'S001' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114004', goods_issue_gl = '512030', stock_adj_gl = '512030', cost_center = '71099' WHERE UPPER(sap_value) = 'S002' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114009', goods_issue_gl = '512031', stock_adj_gl = '512031', cost_center = '71099' WHERE UPPER(sap_value) = 'S003' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114012', goods_issue_gl = '512032', stock_adj_gl = '512032', cost_center = '71099' WHERE UPPER(sap_value) = 'S004' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114006', goods_issue_gl = '512034', stock_adj_gl = '512034', cost_center = '71099' WHERE UPPER(sap_value) = 'S006' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114017', goods_issue_gl = '512028', stock_adj_gl = '512028', cost_center = '71099' WHERE UPPER(sap_value) = 'S009' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+UPDATE material_config_mappings SET inventory_posting_gl = '114016', goods_issue_gl = '512023', stock_adj_gl = '512023', cost_center = '71099' WHERE UPPER(sap_value) = 'S011' AND (inventory_posting_gl IS NULL OR inventory_posting_gl = '');
+
 -- RICEF 9: AssetAdditionalDescription
 ALTER TABLE sap_fixed_assets ADD COLUMN IF NOT EXISTS additional_description VARCHAR(100);
 
@@ -215,3 +322,44 @@ CREATE TABLE IF NOT EXISTS asset_acquisition_prints (
     printed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_asset_acq_prints ON asset_acquisition_prints(acquisition_id);
+
+-- TABEL APP CONFIGS (Runtime System Configuration / Panel System)
+CREATE TABLE IF NOT EXISTS configs (
+    key VARCHAR(100) PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+INSERT INTO configs (key, value, description, updated_at) VALUES
+('bot_base_url', 'http://localhost:8085/api/v1', 'Base URL untuk Bot Poller / Ingestion Engine integrasi Maximo', NOW()),
+('bpa_base_url', 'https://spa-api.eu10.process-automation.sap.biz', 'Base URL SAP Build Process Automation (BPA) trigger API', NOW()),
+('sap_base_url', 'https://my445160-api.s4hana.cloud.sap', 'Host sentral SAP S/4HANA Grow Cloud untuk seluruh layanan OData', NOW()),
+('sap_username', 'CU_SAP_COM_0053', 'Communication User default untuk koneksi SAP S/4HANA', NOW()),
+('sap_password', 'PowerofOne@123456789', 'Communication Password default untuk koneksi SAP S/4HANA', NOW()),
+('erp_callback_url', 'http://host.docker.internal:1433/maximo/api/webhook/status', 'Webhook callback URL ke IBM Maximo untuk update status dokumen SAP', NOW()),
+('prefix_bot_mapping', '{"45": "BPA_PO_NORMAL_TRIGGER", "47": "BPA_PO_CONTRACT_TRIGGER"}', 'Mapping prefix nomor PO Maximo ke BPA Workflow Trigger ID', NOW()),
+('doc_type_bot_mapping', '{"NB": "WF_STANDARD_PO", "ZPRC": "WF_PROJECT_PO", "ZCTR": "WF_CONTRACT_PO"}', 'Mapping Document Type Maximo ke Workflow Definition ID', NOW())
+ON CONFLICT (key) DO NOTHING;
+
+-- Sinkronisasi default value PRODUCT_PLANTS ke 1000, 2000
+UPDATE sap_default_values 
+SET value = '1000,2000', default_value = '1000,2000' 
+WHERE key = 'PRODUCT_PLANTS' AND (value = '5110,BTNG' OR value = '');
+
+-- Sinkronisasi default value PO ke 1000, BPI, ZBPI
+UPDATE sap_default_values 
+SET value = '1000', default_value = '1000' 
+WHERE key = 'PO_COMPANY_CODE' AND (value = '5110' OR value = '' OR default_value = '5110');
+
+UPDATE sap_default_values 
+SET value = 'BPI', default_value = 'BPI' 
+WHERE key = 'PO_PURCHASING_ORG' AND (value = '5110' OR value = '' OR default_value = '5110');
+
+UPDATE sap_default_values 
+SET value = 'ZBPI', default_value = 'ZBPI' 
+WHERE key IN ('PO_TYPE_DEFAULT', 'PO_TYPE_PREFIX_45', 'PO_TYPE_PREFIX_47') AND value IN ('ZPRC', 'ZCTR', 'NB', '');
+
+UPDATE sap_default_values 
+SET value = '1000', default_value = '1000' 
+WHERE key = 'PO_DEFAULT_PLANT' AND (value = '5110' OR value = '' OR default_value = '5110');

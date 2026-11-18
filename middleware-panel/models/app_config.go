@@ -10,5 +10,5 @@ type Config struct {
 }
 
 func (Config) TableName() string {
-	return "config"
+	return "configs"
 }

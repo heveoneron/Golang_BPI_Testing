@@ -51,7 +51,9 @@ func (c *VendorMasterController) ShowVendorMaster(ctx *gin.Context) {
 		} else {
 			nonCipCount++
 		}
-		if strings.TrimSpace(v.BankAccount) != "" {
+		if len(v.BankAccounts) > 0 {
+			bankCount += len(v.BankAccounts)
+		} else if strings.TrimSpace(v.BankAccount) != "" {
 			bankCount++
 		}
 	}
@@ -77,14 +79,15 @@ func (c *VendorMasterController) HandleSave(ctx *gin.Context) {
 	}
 
 	var req struct {
-		VendorCode    string `json:"vendor_code" binding:"required"`
-		CIPFlag       string `json:"cip_flag" binding:"required"`
-		Email         string `json:"email"`
-		BankKey       string `json:"bank_key"`
-		BankAccount   string `json:"bank_account"`
-		AccountHolder string `json:"account_holder"`
-		Description   string `json:"description"`
-		IsActive      bool   `json:"is_active"`
+		VendorCode    string                     `json:"vendor_code" binding:"required"`
+		CIPFlag       string                     `json:"cip_flag" binding:"required"`
+		Email         string                     `json:"email"`
+		BankKey       string                     `json:"bank_key"`
+		BankAccount   string                     `json:"bank_account"`
+		AccountHolder string                     `json:"account_holder"`
+		Description   string                     `json:"description"`
+		IsActive      bool                       `json:"is_active"`
+		BankAccounts  []models.VendorBankAccount `json:"bank_accounts"`
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -97,15 +100,43 @@ func (c *VendorMasterController) HandleSave(ctx *gin.Context) {
 		cip = "NON_CIP"
 	}
 
+	bankKey := strings.TrimSpace(req.BankKey)
+	bankAccount := strings.TrimSpace(req.BankAccount)
+	accountHolder := strings.TrimSpace(req.AccountHolder)
+
+	// Jika ada multiple bank accounts, ambil data default/pertama untuk kolom fallback
+	if len(req.BankAccounts) > 0 {
+		first := req.BankAccounts[0]
+		for _, b := range req.BankAccounts {
+			if b.IsDefault {
+				first = b
+				break
+			}
+		}
+		if bankKey == "" {
+			bankKey = first.BankName
+			if bankKey == "" {
+				bankKey = first.BankNumber
+			}
+		}
+		if bankAccount == "" {
+			bankAccount = first.BankAccount
+		}
+		if accountHolder == "" {
+			accountHolder = first.BankAccountHolderName
+		}
+	}
+
 	vm := models.VendorMaster{
 		VendorCode:    strings.TrimSpace(req.VendorCode),
 		CIPFlag:       cip,
 		Email:         strings.TrimSpace(req.Email),
-		BankKey:       strings.TrimSpace(req.BankKey),
-		BankAccount:   strings.TrimSpace(req.BankAccount),
-		AccountHolder: strings.TrimSpace(req.AccountHolder),
+		BankKey:       bankKey,
+		BankAccount:   bankAccount,
+		AccountHolder: accountHolder,
 		Description:   strings.TrimSpace(req.Description),
 		IsActive:      req.IsActive,
+		BankAccounts:  req.BankAccounts,
 	}
 
 	if err := c.svc.SaveVendor(&vm); err != nil {
@@ -114,6 +145,28 @@ func (c *VendorMasterController) HandleSave(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Vendor berhasil disimpan", "data": vm})
+}
+
+func (c *VendorMasterController) HandleGetByCode(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized"})
+		return
+	}
+
+	code := ctx.Param("code")
+	if strings.TrimSpace(code) == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Vendor code wajib diisi"})
+		return
+	}
+
+	vm, err := c.svc.GetVendorByCode(code)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Vendor tidak ditemukan: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": vm})
 }
 
 func (c *VendorMasterController) HandleDelete(ctx *gin.Context) {

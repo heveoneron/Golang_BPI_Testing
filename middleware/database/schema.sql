@@ -361,6 +361,17 @@ CREATE TABLE IF NOT EXISTS configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+INSERT INTO configs (key, value, description, updated_at) VALUES
+('bot_base_url', 'http://localhost:8085/api/v1', 'Base URL untuk Bot Poller / Ingestion Engine integrasi Maximo', NOW()),
+('bpa_base_url', 'https://spa-api.eu10.process-automation.sap.biz', 'Base URL SAP Build Process Automation (BPA) trigger API', NOW()),
+('sap_base_url', 'https://my445160-api.s4hana.cloud.sap', 'Host sentral SAP S/4HANA Grow Cloud untuk seluruh layanan OData', NOW()),
+('sap_username', 'CU_SAP_COM_0053', 'Communication User default untuk koneksi SAP S/4HANA', NOW()),
+('sap_password', 'PowerofOne@123456789', 'Communication Password default untuk koneksi SAP S/4HANA', NOW()),
+('erp_callback_url', 'http://host.docker.internal:1433/maximo/api/webhook/status', 'Webhook callback URL ke IBM Maximo untuk update status dokumen SAP', NOW()),
+('prefix_bot_mapping', '{"45": "BPA_PO_NORMAL_TRIGGER", "47": "BPA_PO_CONTRACT_TRIGGER"}', 'Mapping prefix nomor PO Maximo ke BPA Workflow Trigger ID', NOW()),
+('doc_type_bot_mapping', '{"NB": "WF_STANDARD_PO", "ZPRC": "WF_PROJECT_PO", "ZCTR": "WF_CONTRACT_PO"}', 'Mapping Document Type Maximo ke Workflow Definition ID', NOW())
+ON CONFLICT (key) DO NOTHING;
+
 -- 15b. TABEL DEFAULT VALUE (Panel > Configuration > Default Value)
 -- Nilai default transform Maximo -> SAP (CompanyCode, TaxCode V0, PurchasingGroup, dll).
 -- Baris di-seed oleh Engine saat start (repository.DefaultValueSpecs); nilai yang diubah dari Panel
@@ -775,3 +786,81 @@ INSERT INTO material_config_mappings (config_type, maximo_value, sap_value, desc
 INSERT INTO material_config_mappings (config_type, maximo_value, sap_value, description, is_active, created_at, updated_at) VALUES ('ITEM_GROUP', 'SO-228', 'O228', 'ITEM_GROUP Mapping: SO-228 -> O228', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (config_type, maximo_value) DO UPDATE SET sap_value = EXCLUDED.sap_value, updated_at = CURRENT_TIMESTAMP;
 INSERT INTO material_config_mappings (config_type, maximo_value, sap_value, description, is_active, created_at, updated_at) VALUES ('ITEM_TYPE', 'Service', 'ZSVC', 'ITEM_TYPE Mapping: Service -> ZSVC', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (config_type, maximo_value) DO UPDATE SET sap_value = EXCLUDED.sap_value, updated_at = CURRENT_TIMESTAMP;
 INSERT INTO material_config_mappings (config_type, maximo_value, sap_value, description, is_active, created_at, updated_at) VALUES ('STOCK_TYPE', 'Service', 'ZSVC', 'STOCK_TYPE Mapping: Service -> ZSVC', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (config_type, maximo_value) DO UPDATE SET sap_value = EXCLUDED.sap_value, updated_at = CURRENT_TIMESTAMP;
+
+-- 20. TABEL MASTER VENDOR & MULTIPLE REKENING BANK (Outbound Master Data Vendor)
+CREATE TABLE IF NOT EXISTS employee_vendor_mappings (
+    vendor_code VARCHAR(50) PRIMARY KEY,
+    cip_flag VARCHAR(20) NOT NULL,
+    email VARCHAR(150),
+    bank_key VARCHAR(100),
+    bank_account VARCHAR(100),
+    account_holder VARCHAR(150),
+    description VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS vendor_bank_accounts (
+    id BIGSERIAL PRIMARY KEY,
+    vendor_code VARCHAR(50) NOT NULL REFERENCES employee_vendor_mappings(vendor_code) ON DELETE CASCADE,
+    bank_identification VARCHAR(20) NOT NULL,
+    bank_country_key VARCHAR(10),
+    bank_number VARCHAR(50),
+    bank_account VARCHAR(100) NOT NULL,
+    swift_code VARCHAR(50),
+    bank_name VARCHAR(150),
+    bank_control_key VARCHAR(20),
+    iban VARCHAR(50),
+    bank_account_reference_text VARCHAR(255),
+    bank_account_holder_name VARCHAR(150),
+    bank_account_name VARCHAR(150),
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_schema_vendor_bank UNIQUE (vendor_code, bank_identification)
+);
+CREATE INDEX IF NOT EXISTS idx_schema_vendor_bank_code ON vendor_bank_accounts(vendor_code);
+
+-- RICEF 7: Riwayat upload Excel
+CREATE TABLE IF NOT EXISTS excel_upload_batches (
+    id BIGSERIAL PRIMARY KEY,
+    file_name VARCHAR(255),
+    uploaded_by VARCHAR(100),
+    total_rows INT DEFAULT 0,
+    total_invoices INT DEFAULT 0,
+    status VARCHAR(20) NOT NULL,
+    errors JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RICEF 7: Staging penampung Reimbursement & Business Trip
+CREATE TABLE IF NOT EXISTS reimbursement_requests (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id BIGINT REFERENCES excel_upload_batches(id) ON DELETE SET NULL,
+    doc_type VARCHAR(30) NOT NULL,
+    transaction_id VARCHAR(50) NOT NULL,
+    employee_id VARCHAR(50) NOT NULL,
+    employee_name VARCHAR(150),
+    policy_or_trip_type VARCHAR(100),
+    benefit_or_destination VARCHAR(150),
+    description_or_notes TEXT,
+    effective_date DATE,
+    posting_date DATE,
+    currency VARCHAR(10) DEFAULT 'IDR',
+    gross_amount NUMERIC(18, 2) NOT NULL,
+    paid_amount NUMERIC(18, 2) NOT NULL,
+    cip_flag VARCHAR(20),
+    gl_account VARCHAR(20),
+    cost_center VARCHAR(20),
+    status VARCHAR(30) DEFAULT 'PENDING',
+    sap_document_no VARCHAR(50),
+    error_message TEXT,
+    raw_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_tx ON reimbursement_requests(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_emp ON reimbursement_requests(employee_id);
+CREATE INDEX IF NOT EXISTS idx_reimb_req_type ON reimbursement_requests(doc_type);
+

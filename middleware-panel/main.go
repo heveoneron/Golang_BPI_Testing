@@ -22,6 +22,7 @@ func main() {
     	&models.BackupSchedule{},
     	&models.Config{},
     	&models.MaterialGLMapping{},
+    	&models.MaterialConfigMapping{},
     	&models.SystemLog{},
     	&models.IntegrationLog{},
     	&models.SAPEndpoint{},
@@ -32,6 +33,9 @@ func main() {
     	&models.BPGroupMapping{},
     	&models.ReconAccountMapping{},
     	&models.ValuationClassGLMapping{},
+    	&models.VendorMaster{},
+    	&models.VendorBankAccount{},
+    	&models.DefaultValue{},
     )
 
     // Seed default record BackupSchedule jika belum ada untuk mencegah error template
@@ -50,64 +54,28 @@ func main() {
         })
     }
 
-    // Seed SAP Endpoints (PO, BP, Product Master)
+    // Seed default records Config (System Target Integration Configuration) jika belum ada
+    defaultConfigs := []models.Config{
+        {Key: "bot_base_url", Value: "http://localhost:8085/api/v1", Description: "Base URL untuk Bot Poller / Ingestion Engine integrasi Maximo"},
+        {Key: "bpa_base_url", Value: "https://spa-api.eu10.process-automation.sap.biz", Description: "Base URL SAP Build Process Automation (BPA) trigger API"},
+        {Key: "sap_base_url", Value: "https://my445160-api.s4hana.cloud.sap", Description: "Host sentral SAP S/4HANA Grow Cloud untuk seluruh layanan OData"},
+        {Key: "sap_username", Value: "CU_SAP_COM_0053", Description: "Communication User default untuk koneksi SAP S/4HANA"},
+        {Key: "sap_password", Value: "PowerofOne@123456789", Description: "Communication Password default untuk koneksi SAP S/4HANA"},
+        {Key: "erp_callback_url", Value: "http://host.docker.internal:1433/maximo/api/webhook/status", Description: "Webhook callback URL ke IBM Maximo untuk update status dokumen SAP"},
+        {Key: "prefix_bot_mapping", Value: `{"45": "BPA_PO_NORMAL_TRIGGER", "47": "BPA_PO_CONTRACT_TRIGGER"}`, Description: "Mapping prefix nomor PO Maximo ke BPA Workflow Trigger ID"},
+        {Key: "doc_type_bot_mapping", Value: `{"NB": "WF_STANDARD_PO", "ZPRC": "WF_PROJECT_PO", "ZCTR": "WF_CONTRACT_PO"}`, Description: "Mapping Document Type Maximo ke Workflow Definition ID"},
+    }
+    for _, cfg := range defaultConfigs {
+        var count int64
+        config.DB.Model(&models.Config{}).Where("key = ?", cfg.Key).Count(&count)
+        if count == 0 {
+            config.DB.Create(&cfg)
+        }
+    }
+
+    // Seed SAP Endpoints (hanya insert yang belum ada di database, TIDAK menimpa konfigurasi yang sudah diedit user)
     sapRepo := repository.NewSAPEndpointRepository(config.DB)
-    _ = sapRepo.Save(&models.SAPEndpoint{
-        ServiceCode:  "PO",
-        ServiceName:  "Purchase Order Integration (OData v4)",
-        ScenarioID:   "SAP_COM_0053",
-        ODataVersion: "v4",
-        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-        EndpointPath: "/sap/opu/odata4/sap/api_purchaseorder_2/srvd_a2x/sap/purchaseorder/0001/PurchaseOrder",
-        Username:     "CU_SAP_COM_0053",
-        Password:     "PowerofOne@123456789",
-        IsActive:     true,
-    })
-    _ = sapRepo.Save(&models.SAPEndpoint{
-        ServiceCode:  "BP",
-        ServiceName:  "Business Partner Integration (OData v2)",
-        ScenarioID:   "SAP_COM_0008",
-        ODataVersion: "v2",
-        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-        EndpointPath: "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartner",
-        Username:     "CU_SAP_COM_0008",
-        Password:     "PowerofOne@123456789",
-        IsActive:     true,
-    })
-    _ = sapRepo.Save(&models.SAPEndpoint{
-        ServiceCode:  "PRODUCT",
-        ServiceName:  "Product / Material Master Integration (OData v2)",
-        ScenarioID:   "SAP_COM_0009",
-        ODataVersion: "v2",
-        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-        EndpointPath: "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product",
-        Username:     "CU_SAP_COM_0009",
-        Password:     "PowerofOne@123456789",
-        IsActive:     true,
-    })
-    _ = sapRepo.Save(&models.SAPEndpoint{
-        ServiceCode:  "GRN",
-        ServiceName:  "Material Document / Goods Movement (OData v2)",
-        ScenarioID:   "SAP_COM_0108",
-        ODataVersion: "v2",
-        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-        EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
-        Username:     "Y_BPI_CU_SAP_COM_0108",
-        Password:     "PowerofOne@123456789",
-        IsActive:     true,
-    })
-    _ = sapRepo.Save(&models.SAPEndpoint{
-        ServiceCode:  "CANCEL_GR",
-        ServiceName:  "Cancel Goods Movement / Material Document (OData v2)",
-        ScenarioID:   "SAP_COM_0108",
-        ODataVersion: "v2",
-        BaseURL:      "https://my445160-api.s4hana.cloud.sap",
-        EndpointPath: "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/Cancel",
-        CSRFPath:     "/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV/A_MaterialDocumentHeader",
-        Username:     "Y_BPI_CU_SAP_COM_0108",
-        Password:     "PowerofOne@123456789",
-        IsActive:     true,
-    })
+    _ = sapRepo.SeedDefaults()
 
     // Seed Table-to-API Mappings & Default Admin User
     tableMappingRepo := repository.NewTableAPIMappingRepository(config.DB)

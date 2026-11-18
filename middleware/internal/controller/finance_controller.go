@@ -341,7 +341,7 @@ func (c *FinanceController) listDocuments(ctx *gin.Context, docType string) {
 // ===================== RICEF 3/4, 5, 9 =====================
 
 // ListGLLineItems godoc
-// @Summary      [RICEF 3/4] Daftar GL line item tersimpan
+// @Summary      [RICEF 3/4] Daftar header dokumen GL Line Item (Gambar 3 - 15 Kolom)
 // @Tags         Finance - SAP Pull
 // @Produce      json
 // @Param        category      query  string  false  "journal (RICEF 3) / invoice (RICEF 4)"
@@ -355,7 +355,7 @@ func (c *FinanceController) ListGLLineItems(ctx *gin.Context) {
 	if !c.ready(ctx) {
 		return
 	}
-	items, err := c.Svc.PGRepo.ListGLLineItems(ctx.Request.Context(), repository.GLLineItemFilter{
+	headers, err := c.Svc.PGRepo.ListGLDocumentHeaders(ctx.Request.Context(), repository.GLLineItemFilter{
 		CompanyCode: ctx.Query("company_code"),
 		FromDate:    ctx.Query("from"),
 		ToDate:      ctx.Query("to"),
@@ -367,26 +367,55 @@ func (c *FinanceController) ListGLLineItems(ctx *gin.Context) {
 		respondFinanceError(ctx, err)
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
+	ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": headers, "count": len(headers)})
 }
 
 // GetGLLineItemDetail godoc
-// @Summary      [RICEF 3/4] Detail GL line item langsung dari SAP
+// @Summary      [RICEF 3/4] Detail line items dokumen GL (Gambar 4 - 30 Kolom)
 // @Tags         Finance - SAP Pull
 // @Produce      json
-// @Param        key  query  string  true  "Composite key GLAccountLineItem"
+// @Param        doc           query  string  false  "Accounting Document Number"
+// @Param        key           query  string  false  "Composite key GLAccountLineItem"
+// @Param        company_code  query  string  false  "Company Code"
+// @Param        fiscal_year   query  string  false  "Fiscal Year"
 // @Success      200  {object}  map[string]interface{}
 // @Router       /finance/gl-line-items/detail [get]
 func (c *FinanceController) GetGLLineItemDetail(ctx *gin.Context) {
 	if !c.ready(ctx) {
 		return
 	}
-	body, err := c.Svc.GetGLLineItemDetail(ctx.Request.Context(), ctx.Query("key"))
-	if err != nil {
-		respondFinanceError(ctx, err)
+
+	doc := strings.TrimSpace(ctx.Query("doc"))
+	key := strings.TrimSpace(ctx.Query("key"))
+	companyCode := strings.TrimSpace(ctx.Query("company_code"))
+	fiscalYear := strings.TrimSpace(ctx.Query("fiscal_year"))
+
+	targetDoc := doc
+	if targetDoc == "" && key != "" {
+		targetDoc = key
+	}
+
+	// 1. Coba ambil seluruh 30 kolom line items dari database lokal
+	if targetDoc != "" {
+		items, err := c.Svc.PGRepo.GetGLDocumentLineItems(ctx.Request.Context(), companyCode, fiscalYear, targetDoc)
+		if err == nil && len(items) > 0 {
+			ctx.JSON(http.StatusOK, gin.H{"status": "success", "data": items, "count": len(items)})
+			return
+		}
+	}
+
+	// 2. Jika tidak ditemukan di database dan key tersedia, fallback ambil langsung ke SAP OData
+	if key != "" {
+		body, err := c.Svc.GetGLLineItemDetail(ctx.Request.Context(), key)
+		if err != nil {
+			respondFinanceError(ctx, err)
+			return
+		}
+		ctx.Data(http.StatusOK, "application/json", body)
 		return
 	}
-	ctx.Data(http.StatusOK, "application/json", body)
+
+	ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Line item dokumen tidak ditemukan"})
 }
 
 // ListPaymentProposals godoc

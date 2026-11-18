@@ -7,6 +7,7 @@ import (
 	"middleware-panel/models"
 	"middleware-panel/services"
 	"net/http"
+	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -32,16 +33,49 @@ func (c *SAPEndpointController) ShowEndpoints(ctx *gin.Context) {
 		endpoints = []models.SAPEndpoint{}
 	}
 
+	globalBase, _ := c.svc.GetGlobalBaseURL()
+
 	username := "Admin"
 	if u := session.Get("user_id"); u != nil {
 		username = u.(string)
 	}
 
 	ctx.HTML(http.StatusOK, "sap_endpoints.html", gin.H{
-		"Title":     "SAP Grow Integration Endpoints",
-		"Username":  username,
-		"Endpoints": endpoints,
-		"ActiveTab": "sap-endpoints",
+		"Title":         "SAP Grow Integration Endpoints",
+		"Username":      username,
+		"Endpoints":     endpoints,
+		"GlobalBaseURL": globalBase,
+		"ActiveTab":     "sap-endpoints",
+	})
+}
+
+func (c *SAPEndpointController) HandleUpdateGlobalBaseURL(ctx *gin.Context) {
+	session := sessions.Default(ctx)
+	if session.Get("user_id") == nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		BaseURL string `json:"base_url" binding:"required"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.BaseURL) == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Base URL wajib diisi"})
+		return
+	}
+
+	cleanBase := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
+	n, err := c.svc.UpdateGlobalBaseURL(cleanBase)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal update global base URL: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":        "success",
+		"message":       fmt.Sprintf("Base URL berhasil diperbarui untuk seluruh layanan (%d endpoint)", n),
+		"updated_count": n,
+		"base_url":      cleanBase,
 	})
 }
 

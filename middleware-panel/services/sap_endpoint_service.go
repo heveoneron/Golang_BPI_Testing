@@ -15,6 +15,8 @@ import (
 type SAPEndpointService interface {
 	GetEndpoints() ([]models.SAPEndpoint, error)
 	GetEndpointByCode(code string) (models.SAPEndpoint, error)
+	GetGlobalBaseURL() (string, error)
+	UpdateGlobalBaseURL(baseURL string) (int64, error)
 	SaveEndpoint(ep *models.SAPEndpoint) error
 	TestHandshake(code string) (map[string]interface{}, error)
 	ExecuteSandbox(code, method, customPath string, payload interface{}) (map[string]interface{}, error)
@@ -36,6 +38,14 @@ func (s *sapEndpointService) GetEndpoints() ([]models.SAPEndpoint, error) {
 
 func (s *sapEndpointService) GetEndpointByCode(code string) (models.SAPEndpoint, error) {
 	return s.repo.GetByCode(code)
+}
+
+func (s *sapEndpointService) GetGlobalBaseURL() (string, error) {
+	return s.repo.GetGlobalBaseURL()
+}
+
+func (s *sapEndpointService) UpdateGlobalBaseURL(baseURL string) (int64, error) {
+	return s.repo.UpdateGlobalBaseURL(baseURL)
 }
 
 func (s *sapEndpointService) SaveEndpoint(ep *models.SAPEndpoint) error {

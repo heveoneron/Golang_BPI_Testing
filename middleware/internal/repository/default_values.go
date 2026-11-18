@@ -23,14 +23,14 @@ type DefaultValueSpec struct {
 // DefaultValueSpecs adalah daftar nilai default beserta nilai awalnya (= perilaku lama).
 var DefaultValueSpecs = []DefaultValueSpec{
 	// Purchase Order (API_PURCHASEORDER_2)
-	{Key: "PO_COMPANY_CODE", Value: "5110", Category: "PO", Description: "CompanyCode header PO"},
-	{Key: "PO_PURCHASING_ORG", Value: "5110", Category: "PO", Description: "PurchasingOrganization header PO"},
+	{Key: "PO_COMPANY_CODE", Value: "1000", Category: "PO", Description: "CompanyCode header PO (hardcode 1000)"},
+	{Key: "PO_PURCHASING_ORG", Value: "BPI", Category: "PO", Description: "PurchasingOrganization header PO (BPI)"},
 	{Key: "PO_PURCHASING_GROUP", Value: "001", Category: "PO", Description: "PurchasingGroup header PO"},
-	{Key: "PO_TYPE_DEFAULT", Value: "ZBPI", Category: "PO", Description: "PurchaseOrderType bila nomor PO bukan prefix 45/47"},
-	{Key: "PO_TYPE_PREFIX_45", Value: "ZPRC", Category: "PO", Description: "PurchaseOrderType untuk PO Maximo prefix 45"},
-	{Key: "PO_TYPE_PREFIX_47", Value: "ZCTR", Category: "PO", Description: "PurchaseOrderType untuk PO Maximo prefix 47"},
+	{Key: "PO_TYPE_DEFAULT", Value: "ZBPI", Category: "PO", Description: "PurchaseOrderType default ZBPI"},
+	{Key: "PO_TYPE_PREFIX_45", Value: "ZBPI", Category: "PO", Description: "PurchaseOrderType untuk PO Maximo prefix 45 (ZBPI)"},
+	{Key: "PO_TYPE_PREFIX_47", Value: "ZBPI", Category: "PO", Description: "PurchaseOrderType untuk PO Maximo prefix 47 (ZBPI)"},
 	{Key: "PO_DEFAULT_CURRENCY", Value: "IDR", Category: "PO", Description: "DocumentCurrency bila CURRENCYCODE Maximo kosong"},
-	{Key: "PO_DEFAULT_PLANT", Value: "5110", Category: "PO", Description: "Plant bila SITEID baris & header kosong"},
+	{Key: "PO_DEFAULT_PLANT", Value: "1000", Category: "PO", Description: "Plant bila SITEID baris & header kosong (default 1000)"},
 	{Key: "PO_DEFAULT_COST_CENTER", Value: "51101101", Category: "PO", Description: "CostCenter account assignment bila kosong. Kosongkan = dokumen ditolak (error data)"},
 	{Key: "PO_DEFAULT_MATERIAL", Value: "SP006", Category: "PO", Description: "Material bila ITEMNUM baris kosong. Kosongkan = dokumen ditolak (error data)"},
 	{Key: "PO_DEFAULT_UOM", Value: "PC", Category: "PO", Description: "Satuan order bila ORDERUNIT kosong"},
@@ -59,8 +59,9 @@ var DefaultValueSpecs = []DefaultValueSpec{
 	{Key: "PRODUCT_DEFAULT_BASE_UNIT", Value: "PC", Category: "PRODUCT", Description: "BaseUnit bila ISSUEUNIT kosong"},
 	{Key: "PRODUCT_DEFAULT_VALUATION_CLASS", Value: "3000", Category: "PRODUCT", Description: "ValuationClass bila ITEMGROUPID tidak ada di Material Config"},
 	{Key: "PRODUCT_VALUATION_PROCEDURE", Value: "V", Category: "PRODUCT", Description: "InventoryValuationProcedure (V = moving average, S = standard)"},
-	{Key: "PRODUCT_PLANTS", Value: "5110,BTNG", Category: "PRODUCT", Description: "Plant/valuation area tempat material dibuat (dipisah koma)", SeedEnv: "SAP_PRODUCT_PLANTS"},
+	{Key: "PRODUCT_PLANTS", Value: "1000,2000", Category: "PRODUCT", Description: "Plant/valuation area tempat material dibuat (dipisah koma)", SeedEnv: "SAP_PRODUCT_PLANTS"},
 	{Key: "PRODUCT_LANGUAGE", Value: "EN", Category: "PRODUCT", Description: "Bahasa deskripsi produk"},
+	{Key: "PRODUCT_PURCHASING_GROUP", Value: "001", Category: "PRODUCT", Description: "PurchasingGroup pada to_Plant produk"},
 	// Goods Receipt (API_MATERIAL_DOCUMENT_SRV)
 	{Key: "GRN_DEFAULT_PLANT", Value: "5110", Category: "GRN", Description: "Plant bila SITEID kosong"},
 	{Key: "GRN_PLANT_MAP", Value: "JKT=1000,1000=1000,BTNG=2000,2000=2000", Category: "GRN", Description: "Pemetaan SITEID Maximo ke Plant SAP (SITE=PLANT, dipisah koma); SITEID lain dikirim apa adanya"},
@@ -153,6 +154,31 @@ func (r *PostgresRepository) EnsureDefaultValues(ctx context.Context) error {
 			s.Key, seed, s.Value, s.Category, s.Description); err != nil {
 			return err
 		}
+
+		// Jika ada SeedEnv yang eksplisit di-set di environment (misal SAP_PRODUCT_PLANTS=1000,2000),
+		// otomatis sinkronkan nilainya ke database agar tidak tertahan oleh nilai lama.
+		if s.SeedEnv != "" {
+			if envVal := strings.TrimSpace(os.Getenv(s.SeedEnv)); envVal != "" {
+				_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = $1 WHERE key = $2`, envVal, s.Key)
+			}
+		}
+
+		// Migrasi otomatis nilai legacy 5110,BTNG untuk PRODUCT_PLANTS ke 1000,2000
+		if s.Key == "PRODUCT_PLANTS" {
+			_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = $1, default_value = $1 WHERE key = 'PRODUCT_PLANTS' AND (value = '5110,BTNG' OR value = '' OR default_value = '5110,BTNG')`, s.Value)
+		}
+		if s.Key == "PO_COMPANY_CODE" {
+			_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = $1, default_value = $1 WHERE key = 'PO_COMPANY_CODE' AND (value = '5110' OR value = '' OR default_value = '5110')`, s.Value)
+		}
+		if s.Key == "PO_PURCHASING_ORG" {
+			_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = $1, default_value = $1 WHERE key = 'PO_PURCHASING_ORG' AND (value = '5110' OR value = '' OR default_value = '5110')`, s.Value)
+		}
+		if s.Key == "PO_TYPE_DEFAULT" {
+			_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = 'ZBPI', default_value = 'ZBPI' WHERE key IN ('PO_TYPE_DEFAULT', 'PO_TYPE_PREFIX_45', 'PO_TYPE_PREFIX_47') AND value IN ('ZPRC', 'ZCTR', 'NB', '')`)
+		}
+		if s.Key == "PO_DEFAULT_PLANT" {
+			_, _ = r.Pool.Exec(ctx, `UPDATE sap_default_values SET value = $1, default_value = $1 WHERE key = 'PO_DEFAULT_PLANT' AND (value = '5110' OR value = '' OR default_value = '5110')`, s.Value)
+		}
 	}
 	r.InvalidateDefaultValues()
 	return nil
@@ -189,7 +215,17 @@ func (r *PostgresRepository) Default(ctx context.Context, key string) string {
 		}
 	}
 	if v, ok := r.defaults.values[key]; ok {
-		return strings.TrimSpace(v)
+		clean := strings.TrimSpace(v)
+		// Prioritaskan SeedEnv jika diisi di environment sistem, atau jika nilai DB masih default lama 5110,BTNG
+		if spec.SeedEnv != "" {
+			if envVal := strings.TrimSpace(os.Getenv(spec.SeedEnv)); envVal != "" && (clean == "5110,BTNG" || clean == "") {
+				return envVal
+			}
+		}
+		if key == "PRODUCT_PLANTS" && (clean == "5110,BTNG" || clean == "") {
+			return spec.seedValue()
+		}
+		return clean
 	}
 	return spec.seedValue()
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,38 +10,38 @@ import (
 
 // StagingDocument menampung data raw dari SQL Server Maximo (Tier 1)
 type StagingDocument struct {
-	ID               uuid.UUID       `json:"id"`
-	DocType          string          `json:"doc_type"`
-	DocumentNo       string          `json:"document_no"`
-	FlowType         string          `json:"flow_type"`
-	RawPayload       json.RawMessage `json:"raw_payload"`
-	Status           string          `json:"status"` // PENDING, PROCESSED, FAILED
-	ErrorMsg         string          `json:"error_msg"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+	ID         uuid.UUID       `json:"id"`
+	DocType    string          `json:"doc_type"`
+	DocumentNo string          `json:"document_no"`
+	FlowType   string          `json:"flow_type"`
+	RawPayload json.RawMessage `json:"raw_payload"`
+	Status     string          `json:"status"` // PENDING, PROCESSED, FAILED
+	ErrorMsg   string          `json:"error_msg"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // Document adalah State Machine Core (Tier 2, ala ShoeTown)
 type Document struct {
-	ID                 uuid.UUID       `json:"id"`
-	DocType            string          `json:"doc_type"`
-	DocumentNo         string          `json:"document_no"`
-	FlowType           string          `json:"flow_type"`
-	GroupID            string          `json:"group_id"`
-	ParentDocType      *string         `json:"parent_doc_type"`
-	ParentDocumentNo   *string         `json:"parent_document_no"`
-	RawPayload         json.RawMessage `json:"raw_payload"`
-	SAPPayload         json.RawMessage `json:"sap_payload"`
-	Status             string          `json:"status"` // pending, processing, success, error_data, error_conn
-	RetryCount         int             `json:"retry_count"`
-	LastAttemptAt      *time.Time      `json:"last_attempt_at"`
-	SAPDocumentNo      *string         `json:"sap_document_no"`
-	SAPResponse        json.RawMessage `json:"sap_response"`
-	ErrorMessage       *string         `json:"error_message"`
-	SyncBackStatus     string          `json:"sync_back_status"`
-	DocumentDate       *time.Time      `json:"document_date"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	ID               uuid.UUID       `json:"id"`
+	DocType          string          `json:"doc_type"`
+	DocumentNo       string          `json:"document_no"`
+	FlowType         string          `json:"flow_type"`
+	GroupID          string          `json:"group_id"`
+	ParentDocType    *string         `json:"parent_doc_type"`
+	ParentDocumentNo *string         `json:"parent_document_no"`
+	RawPayload       json.RawMessage `json:"raw_payload"`
+	SAPPayload       json.RawMessage `json:"sap_payload"`
+	Status           string          `json:"status"` // pending, processing, success, error_data, error_conn
+	RetryCount       int             `json:"retry_count"`
+	LastAttemptAt    *time.Time      `json:"last_attempt_at"`
+	SAPDocumentNo    *string         `json:"sap_document_no"`
+	SAPResponse      json.RawMessage `json:"sap_response"`
+	ErrorMessage     *string         `json:"error_message"`
+	SyncBackStatus   string          `json:"sync_back_status"`
+	DocumentDate     *time.Time      `json:"document_date"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 // BudgetMaster menampung pagu anggaran. BudgetCombination berformat [MainAccount]-[BudgetCode].
@@ -82,35 +83,86 @@ type SchedulerConfig struct {
 
 // Payload Struktur Maximo (Contoh PO)
 type MaximoPOHeader struct {
-	PONum                       string         `json:"PONUM" example:"PO-BPI-2026-001"`
-	Vendor                      string         `json:"VENDOR" example:"VEND-PLTU-01"`
-	OrderDate                   string         `json:"ORDERDATE" example:"2026-10-12"`
-	CurrencyCode                string         `json:"CURRENCYCODE" example:"IDR"`
-	Status                      string         `json:"STATUS" example:"APPR"`
-	RevisionNum                 int            `json:"REVISIONNUM" example:"0"`
-	SiteID                      string         `json:"SITEID,omitempty"`
-	DownPaymentType             string         `json:"DOWNPAYMENTTYPE,omitempty"`
-	DownPaymentPercentageOfTotAmt float64      `json:"DOWNPAYMENTPERCENTAGE,omitempty"`
-	DownPaymentDueDate          string         `json:"DOWNPAYMENTDUEDATE,omitempty"`
-	Lines                       []MaximoPOLine `json:"LINES"`
+	PONum                         string         `json:"PONUM" example:"PO-BPI-2026-001"`
+	Vendor                        string         `json:"VENDOR" example:"VEND-PLTU-01"`
+	OrderDate                     string         `json:"ORDERDATE" example:"2026-10-12"`
+	CurrencyCode                  string         `json:"CURRENCYCODE" example:"IDR"`
+	Status                        string         `json:"STATUS" example:"APPR"`
+	RevisionNum                   int            `json:"REVISIONNUM" example:"0"`
+	SiteID                        string         `json:"SITEID,omitempty"`
+	DownPaymentType               string         `json:"DOWNPAYMENTTYPE,omitempty"`
+	DownPaymentPercentageOfTotAmt float64        `json:"DOWNPAYMENTPERCENTAGE,omitempty"`
+	DownPaymentDueDate            string         `json:"DOWNPAYMENTDUEDATE,omitempty"`
+	Lines                         []MaximoPOLine `json:"LINES"`
 }
 
 type MaximoPOLine struct {
-	POLineNum    int     `json:"POLINENUM" example:"1"`
-	PRNum        string  `json:"PRNUM,omitempty" example:"PR-2026-001"`
-	PRLineNum    int     `json:"PRLINENUM,omitempty" example:"1"`
-	LineType     string  `json:"LINETYPE,omitempty" example:"ITEM"`
-	ItemNum      string  `json:"ITEMNUM" example:"BEARING-TURBINE-6204"`
-	Description  string  `json:"DESCRIPTION,omitempty"`
-	OrderUnit    string  `json:"ORDERUNIT" example:"PCS"`
-	OrderQty     float64 `json:"QTY" example:"5"`
-	UnitCost     float64 `json:"UNITCOST" example:"150000"`
-	BudgetCode   string  `json:"BUDGETCODE" example:"10081"`
-	CostCenter   string  `json:"DEPARTMENT" example:"3000"`
-	MainAccount  string  `json:"MAINACCOUNT" example:"513043"`
-	BudgetYear   string  `json:"BUDGETYEAR,omitempty" example:"2026"`
-	TaxCodePPN   string  `json:"TAXCODE1,omitempty" example:"V1"`
-	SiteID       string  `json:"SITEID,omitempty"`
+	POLineNum     int     `json:"POLINENUM" example:"1"`
+	PRNum         string  `json:"PRNUM,omitempty" example:"PR-2026-001"`
+	PRLineNum     int     `json:"PRLINENUM,omitempty" example:"1"`
+	LineType      string  `json:"LINETYPE,omitempty" example:"ITEM"`
+	ItemNum       string  `json:"ITEMNUM" example:"BEARING-TURBINE-6204"`
+	Description   string  `json:"DESCRIPTION,omitempty"`
+	POLDescLD     string  `json:"POL_DESC_LD,omitempty"`
+	OrderUnit     string  `json:"ORDERUNIT" example:"PCS"`
+	OrderQty      float64 `json:"QTY" example:"5"`
+	UnitCost      float64 `json:"UNITCOST" example:"150000"`
+	BudgetCode    string  `json:"BUDGETCODE" example:"10081"`
+	BPIBudgetCode string  `json:"BPIBUDGETCODE,omitempty"`
+	CostCenter    string  `json:"DEPARTMENT" example:"3000"`
+	MainAccount   string  `json:"MAINACCOUNT" example:"513043"`
+	BudgetYear    string  `json:"BUDGETYEAR,omitempty" example:"2026"`
+	TaxCodePPN    string  `json:"TAXCODE1,omitempty" example:"V1"`
+	SiteID        string  `json:"SITEID,omitempty"`
+}
+
+type maximoPOLineAlias MaximoPOLine
+
+// UnmarshalJSON mendukung variasi casing/field name seperti pol_desc_ld dan BPIBUDGETCODE
+func (l *MaximoPOLine) UnmarshalJSON(data []byte) error {
+	var alias maximoPOLineAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*l = MaximoPOLine(alias)
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if l.POLDescLD == "" {
+			for k, v := range raw {
+				if s, ok := v.(string); ok && s != "" {
+					kl := strings.ToLower(k)
+					if kl == "pol_desc_ld" || kl == "pol_desc" || kl == "poldescld" || kl == "longdescription" || kl == "description_longdescription" {
+						l.POLDescLD = s
+						break
+					}
+				}
+			}
+		}
+		if l.BPIBudgetCode == "" {
+			for k, v := range raw {
+				if s, ok := v.(string); ok && s != "" {
+					kl := strings.ToLower(k)
+					if kl == "bpibudgetcode" || kl == "bpi_budgetcode" || kl == "bpi_budget_code" {
+						l.BPIBudgetCode = s
+						break
+					}
+				}
+			}
+		}
+		if l.SiteID == "" {
+			for k, v := range raw {
+				if s, ok := v.(string); ok && s != "" {
+					kl := strings.ToLower(k)
+					if kl == "siteid" || kl == "site_id" || kl == "plant" {
+						l.SiteID = s
+						break
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // SAPEndpoint merepresentasikan registry service endpoint & kredensial SAP
@@ -135,43 +187,43 @@ type SAPEndpoint struct {
 
 // Payload Struktur Target SAP Grow OData v4 Purchase Order
 type SAPGrowPOPayload struct {
-	PurchaseOrder                string          `json:"PurchaseOrder,omitempty"`
-	PurchaseOrderType            string          `json:"PurchaseOrderType"`
-	PurchaseOrderDate            string          `json:"PurchaseOrderDate"`
-	CompanyCode                  string          `json:"CompanyCode"`
-	PurchasingOrganization       string          `json:"PurchasingOrganization"`
-	PurchasingGroup              string          `json:"PurchasingGroup"`
-	Supplier                     string          `json:"Supplier"`
-	SupplierRespSalesPersonName  string          `json:"SupplierRespSalesPersonName,omitempty"`
-	DocumentCurrency             string          `json:"DocumentCurrency"`
-	Language                     string          `json:"Language,omitempty"`
-	PaymentTerms                 string          `json:"PaymentTerms,omitempty"`
-	IncotermsClassification      string          `json:"IncotermsClassification,omitempty"`
-	IncotermsLocation1           string          `json:"IncotermsLocation1,omitempty"`
-	DownPaymentType              string          `json:"DownPaymentType,omitempty"`
-	DownPaymentPercentageOfTotAmt *float64       `json:"DownPaymentPercentageOfTotAmt,omitempty"`
-	DownPaymentDueDate           string          `json:"DownPaymentDueDate,omitempty"`
-	PurchaseOrderItem            []SAPGrowPOItem `json:"_PurchaseOrderItem"`
+	PurchaseOrder                 string          `json:"PurchaseOrder,omitempty"`
+	PurchaseOrderType             string          `json:"PurchaseOrderType"`
+	PurchaseOrderDate             string          `json:"PurchaseOrderDate"`
+	CompanyCode                   string          `json:"CompanyCode"`
+	PurchasingOrganization        string          `json:"PurchasingOrganization"`
+	PurchasingGroup               string          `json:"PurchasingGroup"`
+	Supplier                      string          `json:"Supplier"`
+	SupplierRespSalesPersonName   string          `json:"SupplierRespSalesPersonName,omitempty"`
+	DocumentCurrency              string          `json:"DocumentCurrency"`
+	Language                      string          `json:"Language,omitempty"`
+	PaymentTerms                  string          `json:"PaymentTerms,omitempty"`
+	IncotermsClassification       string          `json:"IncotermsClassification,omitempty"`
+	IncotermsLocation1            string          `json:"IncotermsLocation1,omitempty"`
+	DownPaymentType               string          `json:"DownPaymentType,omitempty"`
+	DownPaymentPercentageOfTotAmt *float64        `json:"DownPaymentPercentageOfTotAmt,omitempty"`
+	DownPaymentDueDate            string          `json:"DownPaymentDueDate,omitempty"`
+	PurchaseOrderItem             []SAPGrowPOItem `json:"_PurchaseOrderItem"`
 }
 
 type SAPGrowPOItem struct {
-	PurchaseOrderItem         string                           `json:"PurchaseOrderItem"`
-	Material                  string                           `json:"Material"`
-	Plant                     string                           `json:"Plant"`
-	AccountAssignmentCategory string                           `json:"AccountAssignmentCategory,omitempty"`
-	PurchaseOrderItemText     string                           `json:"PurchaseOrderItemText"`
-	PurchaseOrderQuantityUnit string                           `json:"PurchaseOrderQuantityUnit"`
-	OrderPriceUnit            string                           `json:"OrderPriceUnit"`
-	NetPriceAmount            float64                          `json:"NetPriceAmount"`
-	DocumentCurrency          string                           `json:"DocumentCurrency"`
-	OrderQuantity             float64                          `json:"OrderQuantity"`
-	NetPriceQuantity          int                              `json:"NetPriceQuantity,omitempty"`
-	TaxCode                   string                           `json:"TaxCode,omitempty"`
-	InvoiceIsGoodsReceiptBased bool                            `json:"InvoiceIsGoodsReceiptBased"`
-	StorageLocation           string                           `json:"StorageLocation,omitempty"`
-	PurOrdAccountAssignment   []SAPGrowPurOrdAccountAssignment `json:"_PurOrdAccountAssignment,omitempty"`
-	PurchaseOrderItemNote     []SAPGrowPurchaseOrderItemNote   `json:"_PurchaseOrderItemNote,omitempty"`
-	PurOrdPricingElement      []SAPGrowPurOrdPricingElement    `json:"_PurOrdPricingElement,omitempty"`
+	PurchaseOrderItem          string                           `json:"PurchaseOrderItem"`
+	Material                   string                           `json:"Material"`
+	Plant                      string                           `json:"Plant"`
+	AccountAssignmentCategory  string                           `json:"AccountAssignmentCategory,omitempty"`
+	PurchaseOrderItemText      string                           `json:"PurchaseOrderItemText"`
+	PurchaseOrderQuantityUnit  string                           `json:"PurchaseOrderQuantityUnit"`
+	OrderPriceUnit             string                           `json:"OrderPriceUnit"`
+	NetPriceAmount             float64                          `json:"NetPriceAmount"`
+	DocumentCurrency           string                           `json:"DocumentCurrency"`
+	OrderQuantity              float64                          `json:"OrderQuantity"`
+	NetPriceQuantity           int                              `json:"NetPriceQuantity,omitempty"`
+	TaxCode                    string                           `json:"TaxCode,omitempty"`
+	InvoiceIsGoodsReceiptBased bool                             `json:"InvoiceIsGoodsReceiptBased"`
+	StorageLocation            string                           `json:"StorageLocation,omitempty"`
+	PurOrdAccountAssignment    []SAPGrowPurOrdAccountAssignment `json:"_PurOrdAccountAssignment,omitempty"`
+	PurchaseOrderItemNote      []SAPGrowPurchaseOrderItemNote   `json:"_PurchaseOrderItemNote,omitempty"`
+	PurOrdPricingElement       []SAPGrowPurOrdPricingElement    `json:"_PurOrdPricingElement,omitempty"`
 }
 
 type SAPGrowPurOrdAccountAssignment struct {
@@ -217,19 +269,19 @@ type MaximoVendorRecord struct {
 
 // Payload Struktur Target SAP Grow OData v2 Business Partner (A_BusinessPartner Deep Insert)
 type SAPGrowBPPayload struct {
-	BusinessPartner          string                   `json:"BusinessPartner,omitempty"`
-	BusinessPartnerCategory  string                   `json:"BusinessPartnerCategory"`
-	BusinessPartnerGrouping  string                   `json:"BusinessPartnerGrouping"`
-	OrganizationBPName1      string                   `json:"OrganizationBPName1"`
-	OrganizationBPName2      string                   `json:"OrganizationBPName2"`
-	OrganizationBPName3      string                   `json:"OrganizationBPName3"`
-	OrganizationBPName4      string                   `json:"OrganizationBPName4"`
-	SearchTerm1              string                   `json:"SearchTerm1"`
-	FormOfAddress            string                   `json:"FormOfAddress"`
-	BusinessPartnerIsBlocked bool                     `json:"BusinessPartnerIsBlocked"`
-	ToBusinessPartnerRole    []SAPBPRole              `json:"to_BusinessPartnerRole,omitempty"`
-	ToBusinessPartnerAddress []SAPBPAddress           `json:"to_BusinessPartnerAddress,omitempty"`
-	ToSupplier               *SAPBPSupplier           `json:"to_Supplier,omitempty"`
+	BusinessPartner          string         `json:"BusinessPartner,omitempty"`
+	BusinessPartnerCategory  string         `json:"BusinessPartnerCategory"`
+	BusinessPartnerGrouping  string         `json:"BusinessPartnerGrouping"`
+	OrganizationBPName1      string         `json:"OrganizationBPName1"`
+	OrganizationBPName2      string         `json:"OrganizationBPName2"`
+	OrganizationBPName3      string         `json:"OrganizationBPName3"`
+	OrganizationBPName4      string         `json:"OrganizationBPName4"`
+	SearchTerm1              string         `json:"SearchTerm1"`
+	FormOfAddress            string         `json:"FormOfAddress"`
+	BusinessPartnerIsBlocked bool           `json:"BusinessPartnerIsBlocked"`
+	ToBusinessPartnerRole    []SAPBPRole    `json:"to_BusinessPartnerRole,omitempty"`
+	ToBusinessPartnerAddress []SAPBPAddress `json:"to_BusinessPartnerAddress,omitempty"`
+	ToSupplier               *SAPBPSupplier `json:"to_Supplier,omitempty"`
 }
 
 type SAPBPRole struct {
@@ -438,18 +490,18 @@ type MaximoItemPayload struct {
 
 // SAPProductPayload mewakili payload OData v2 A_Product untuk Deep Insert ke SAP Grow
 type SAPProductPayload struct {
-	Product                   string                        `json:"Product"`
-	ProductType               string                        `json:"ProductType"`
-	CrossPlantStatus          string                        `json:"CrossPlantStatus"`
-	CrossPlantStatusValidity  *string                       `json:"CrossPlantStatusValidityDate"`
-	IsMarkedForDeletion       bool                          `json:"IsMarkedForDeletion"`
-	PurchaseOrderQuantityUnit string                        `json:"PurchaseOrderQuantityUnit,omitempty"`
-	ProductGroup              string                        `json:"ProductGroup"`
-	BaseUnit                  string                        `json:"BaseUnit"`
-	ToDescription             SAPProductDescriptionWrapper  `json:"to_Description"`
-	ToPlant                   SAPProductPlantWrapper        `json:"to_Plant"`
-	ToProductUnitsOfMeasure   *SAPProductUOMWrapper         `json:"to_ProductUnitsOfMeasure,omitempty"`
-	ToValuation               SAPProductValuationWrapper    `json:"to_Valuation"`
+	Product                   string                       `json:"Product"`
+	ProductType               string                       `json:"ProductType"`
+	CrossPlantStatus          string                       `json:"CrossPlantStatus"`
+	CrossPlantStatusValidity  *string                      `json:"CrossPlantStatusValidityDate"`
+	IsMarkedForDeletion       bool                         `json:"IsMarkedForDeletion"`
+	PurchaseOrderQuantityUnit string                       `json:"PurchaseOrderQuantityUnit"`
+	ProductGroup              string                       `json:"ProductGroup"`
+	BaseUnit                  string                       `json:"BaseUnit"`
+	ToDescription             SAPProductDescriptionWrapper `json:"to_Description"`
+	ToPlant                   SAPProductPlantWrapper       `json:"to_Plant"`
+	ToProductUnitsOfMeasure   *SAPProductUOMWrapper        `json:"to_ProductUnitsOfMeasure,omitempty"`
+	ToValuation               SAPProductValuationWrapper   `json:"to_Valuation"`
 }
 
 type SAPProductDescriptionWrapper struct {
@@ -467,8 +519,9 @@ type SAPProductPlantWrapper struct {
 }
 
 type SAPProductPlant struct {
-	Product string `json:"Product"`
-	Plant   string `json:"Plant"`
+	Product         string `json:"Product"`
+	Plant           string `json:"Plant"`
+	PurchasingGroup string `json:"PurchasingGroup"`
 }
 
 type SAPProductUOMWrapper struct {

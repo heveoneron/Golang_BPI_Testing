@@ -403,6 +403,9 @@ func ParseSupplierInvoiceFile(fileName string, data []byte) ([]model.SupplierInv
 			row.AssignmentRef = get(r, "assignmentreference")
 		}
 		row.PaymentTerms = strings.ToUpper(get(r, "paymentterms"))
+		row.DocCategory = strings.ToUpper(get(r, "doccategory"))
+		row.EmployeeID = get(r, "employeeid")
+		row.EmployeeName = get(r, "employeename")
 		if row.TaxCode == "" {
 			row.TaxCode = envOr("FIN_INVOICE_DEFAULT_TAX_CODE", "V0")
 		}
@@ -732,20 +735,62 @@ func (f *FinanceService) UploadSupplierInvoices(ctx context.Context, fileName, u
 	batch.Status = "QUEUED"
 	_ = f.PGRepo.InsertUploadBatch(ctx, &batch)
 	res.Batch = batch
+
+	var reqs []model.ReimbursementRequest
+	for _, r := range rows {
+		cat := r.DocCategory
+		if cat == "" {
+			if strings.HasPrefix(r.InvoiceRef, "BT") {
+				cat = "BUSINESS_TRIP"
+			} else {
+				cat = "REIMBURSEMENT"
+			}
+		}
+		rawJSON, _ := json.Marshal(r)
+		reqs = append(reqs, model.ReimbursementRequest{
+			BatchID:              &batch.ID,
+			DocType:              cat,
+			TransactionID:        r.InvoiceRef,
+			EmployeeID:           firstNonEmpty(r.EmployeeID, r.InvoicingParty),
+			EmployeeName:         r.EmployeeName,
+			PolicyOrTripType:     r.PolicyName,
+			BenefitOrDestination: r.AssignmentRef,
+			DescriptionOrNotes:   r.ItemText,
+			EffectiveDate:        r.DocumentDate,
+			PostingDate:          r.PostingDate,
+			Currency:             r.Currency,
+			GrossAmount:          r.GrossAmount,
+			PaidAmount:           r.Amount,
+			CIPFlag:              r.CIPFlag,
+			GLAccount:            r.GLAccount,
+			CostCenter:           r.CostCenter,
+			Status:               "QUEUED",
+			RawData:              string(rawJSON),
+		})
+	}
+	_ = f.PGRepo.SaveReimbursementRequests(ctx, reqs)
 	return res, nil
 }
 
 // SupplierInvoiceView adalah ringkasan monitoring invoice hasil upload.
 type SupplierInvoiceView struct {
-	InvoiceRef     string  `json:"invoice_ref"`
-	InvoicingParty string  `json:"invoicing_party"`
-	DocumentDate   string  `json:"document_date"`
-	GrossAmount    string  `json:"gross_amount"`
-	Currency       string  `json:"currency"`
-	Status         string  `json:"status"`
-	SAPDocumentNo  *string `json:"sap_document_no"`
-	ErrorMessage   *string `json:"error_message"`
-	UpdatedAt      string  `json:"updated_at"`
+	InvoiceRef           string  `json:"invoice_ref"`
+	DocCategory          string  `json:"doc_category"` // REIMBURSEMENT / BUSINESS_TRIP
+	EmployeeID           string  `json:"employee_id"`
+	EmployeeName         string  `json:"employee_name"`
+	PolicyOrTripType     string  `json:"policy_or_trip_type"`
+	BenefitOrDestination string  `json:"benefit_or_destination"`
+	ItemText             string  `json:"item_text"`
+	GLAccount            string  `json:"gl_account"`
+	CostCenter           string  `json:"cost_center"`
+	InvoicingParty       string  `json:"invoicing_party"`
+	DocumentDate         string  `json:"document_date"`
+	GrossAmount          string  `json:"gross_amount"`
+	Currency             string  `json:"currency"`
+	Status               string  `json:"status"`
+	SAPDocumentNo        *string `json:"sap_document_no"`
+	ErrorMessage         *string `json:"error_message"`
+	UpdatedAt            string  `json:"updated_at"`
 }
 
 func (f *FinanceService) ListSupplierInvoices(ctx context.Context, limit int) ([]SupplierInvoiceView, error) {
@@ -757,16 +802,58 @@ func (f *FinanceService) ListSupplierInvoices(ctx context.Context, limit int) ([
 	for _, d := range docs {
 		var p model.SAPSupplierInvoicePayload
 		_ = json.Unmarshal(d.SAPPayload, &p)
+		var raw struct {
+			Rows []model.SupplierInvoiceRow `json:"rows"`
+		}
+		_ = json.Unmarshal(d.RawPayload, &raw)
+		cat := "REIMBURSEMENT"
+		empID := p.InvoicingParty
+		empName := ""
+		policy := ""
+		benefit := ""
+		itemText := ""
+		gl := ""
+		cc := ""
+		if len(raw.Rows) > 0 {
+			r0 := raw.Rows[0]
+			if r0.DocCategory != "" {
+				cat = r0.DocCategory
+			} else if strings.HasPrefix(d.DocumentNo, "BT") {
+				cat = "BUSINESS_TRIP"
+			}
+			if r0.EmployeeID != "" {
+				empID = r0.EmployeeID
+			}
+			empName = r0.EmployeeName
+			policy = r0.PolicyName
+			benefit = r0.AssignmentRef
+			itemText = r0.ItemText
+			gl = r0.GLAccount
+			cc = r0.CostCenter
+		} else if len(p.ToSupplierInvoiceItemGLAcct) > 0 {
+			gl = p.ToSupplierInvoiceItemGLAcct[0].GLAccount
+			cc = p.ToSupplierInvoiceItemGLAcct[0].CostCenter
+			itemText = p.ToSupplierInvoiceItemGLAcct[0].SupplierInvoiceItemText
+			benefit = p.ToSupplierInvoiceItemGLAcct[0].AssignmentReference
+		}
 		out = append(out, SupplierInvoiceView{
-			InvoiceRef:     d.DocumentNo,
-			InvoicingParty: p.InvoicingParty,
-			DocumentDate:   strings.SplitN(p.DocumentDate, "T", 2)[0],
-			GrossAmount:    p.InvoiceGrossAmount,
-			Currency:       p.DocumentCurrency,
-			Status:         d.Status,
-			SAPDocumentNo:  d.SAPDocumentNo,
-			ErrorMessage:   d.ErrorMessage,
-			UpdatedAt:      d.UpdatedAt.Format(time.RFC3339),
+			InvoiceRef:           d.DocumentNo,
+			DocCategory:          cat,
+			EmployeeID:           empID,
+			EmployeeName:         empName,
+			PolicyOrTripType:     policy,
+			BenefitOrDestination: benefit,
+			ItemText:             itemText,
+			GLAccount:            gl,
+			CostCenter:           cc,
+			InvoicingParty:       p.InvoicingParty,
+			DocumentDate:         strings.SplitN(p.DocumentDate, "T", 2)[0],
+			GrossAmount:          p.InvoiceGrossAmount,
+			Currency:             p.DocumentCurrency,
+			Status:               d.Status,
+			SAPDocumentNo:        d.SAPDocumentNo,
+			ErrorMessage:         d.ErrorMessage,
+			UpdatedAt:            d.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 	return out, nil

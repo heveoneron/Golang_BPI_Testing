@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"golang-bpi-testing/internal/model"
@@ -11,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// defaultReimbursementMappings berasal dari dokumen "Mapping Table Reimbers & Business trip to golang"
+// DefaultReimbursementMappings berasal dari dokumen "Mapping Table Reimbers & Business trip to golang"
 // (sheet BT): kebijakan reimbursement x CIP/Non CIP -> GL account & budget code.
-var defaultReimbursementMappings = []model.ReimbursementGLMapping{
+var DefaultReimbursementMappings = []model.ReimbursementGLMapping{
 	{PolicyName: "Medical Claim - Outpatient", CIPFlag: "CIP", GLAccount: "511006", BudgetCode: "10081"},
 	{PolicyName: "Medical Claim - Outpatient", CIPFlag: "NON_CIP", GLAccount: "522108", BudgetCode: "10081"},
 	{PolicyName: "Medical Claim - Inpatient", CIPFlag: "CIP", GLAccount: "511006", BudgetCode: "10081"},
@@ -41,14 +42,14 @@ var defaultReimbursementMappings = []model.ReimbursementGLMapping{
 // seedReimbursementMappings mengisi mapping default tanpa menimpa perubahan dari Panel.
 func (r *PostgresRepository) seedReimbursementMappings(ctx context.Context) error {
 	batch := &pgx.Batch{}
-	for _, m := range defaultReimbursementMappings {
+	for _, m := range DefaultReimbursementMappings {
 		batch.Queue(`
 			INSERT INTO reimbursement_gl_mappings (policy_name, policy_key, cip_flag, gl_account, budget_code)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (policy_key, cip_flag) DO NOTHING
 		`, m.PolicyName, model.NormalizePolicyName(m.PolicyName), m.CIPFlag, m.GLAccount, m.BudgetCode)
 	}
-	_, err := execBatch(ctx, r, batch, len(defaultReimbursementMappings))
+	_, err := execBatch(ctx, r, batch, len(DefaultReimbursementMappings))
 	return err
 }
 
@@ -147,6 +148,34 @@ func (r *PostgresRepository) ListEmployeeVendors(ctx context.Context, search str
 		}
 		out = append(out, m)
 	}
+
+	// Ambil seluruh rekening bank vendor (1-to-N) jika tabel vendor_bank_accounts tersedia
+	bankRows, err := r.Pool.Query(ctx, `
+		SELECT vendor_code, bank_identification, COALESCE(bank_country_key, ''), COALESCE(bank_number, ''),
+		       bank_account, COALESCE(swift_code, ''), COALESCE(bank_name, ''), COALESCE(bank_control_key, ''),
+		       COALESCE(iban, ''), COALESCE(bank_account_reference_text, ''), COALESCE(bank_account_holder_name, ''),
+		       COALESCE(bank_account_name, ''), is_default
+		FROM vendor_bank_accounts
+		ORDER BY vendor_code, bank_identification ASC
+	`)
+	if err == nil {
+		defer bankRows.Close()
+		bankMap := make(map[string][]model.VendorBankAccount)
+		for bankRows.Next() {
+			var b model.VendorBankAccount
+			if err := bankRows.Scan(&b.VendorCode, &b.BankIdentification, &b.BankCountryKey, &b.BankNumber,
+				&b.BankAccount, &b.SWIFTCode, &b.BankName, &b.BankControlKey, &b.IBAN,
+				&b.BankAccountReferenceText, &b.BankAccountHolderName, &b.BankAccountName, &b.IsDefault); err == nil {
+				bankMap[b.VendorCode] = append(bankMap[b.VendorCode], b)
+			}
+		}
+		for i := range out {
+			if banks, ok := bankMap[out[i].VendorCode]; ok {
+				out[i].BankAccounts = banks
+			}
+		}
+	}
+
 	return out, rows.Err()
 }
 
@@ -166,6 +195,31 @@ func (r *PostgresRepository) UpsertEmployeeVendors(ctx context.Context, items []
 			ON CONFLICT (vendor_code) DO UPDATE SET
 				cip_flag = EXCLUDED.cip_flag, email = EXCLUDED.email, bank_key = EXCLUDED.bank_key, bank_account = EXCLUDED.bank_account, account_holder = EXCLUDED.account_holder, description = EXCLUDED.description, is_active = EXCLUDED.is_active, updated_at = NOW()
 		`, strings.TrimSpace(m.VendorCode), m.CIPFlag, m.Email, m.BankKey, m.BankAccount, m.AccountHolder, m.Description, m.IsActive)
+
+		for _, b := range m.BankAccounts {
+			batch.Queue(`
+				INSERT INTO vendor_bank_accounts (
+					vendor_code, bank_identification, bank_country_key, bank_number, bank_account,
+					swift_code, bank_name, bank_control_key, iban, bank_account_reference_text,
+					bank_account_holder_name, bank_account_name, is_default, created_at, updated_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+				ON CONFLICT (vendor_code, bank_identification) DO UPDATE SET
+					bank_country_key = EXCLUDED.bank_country_key,
+					bank_number = EXCLUDED.bank_number,
+					bank_account = EXCLUDED.bank_account,
+					swift_code = EXCLUDED.swift_code,
+					bank_name = EXCLUDED.bank_name,
+					bank_control_key = EXCLUDED.bank_control_key,
+					iban = EXCLUDED.iban,
+					bank_account_reference_text = EXCLUDED.bank_account_reference_text,
+					bank_account_holder_name = EXCLUDED.bank_account_holder_name,
+					bank_account_name = EXCLUDED.bank_account_name,
+					is_default = EXCLUDED.is_default,
+					updated_at = NOW()
+			`, strings.TrimSpace(m.VendorCode), strings.TrimSpace(b.BankIdentification), b.BankCountryKey,
+				b.BankNumber, strings.TrimSpace(b.BankAccount), b.SWIFTCode, b.BankName, b.BankControlKey,
+				b.IBAN, b.BankAccountReferenceText, b.BankAccountHolderName, b.BankAccountName, b.IsDefault)
+		}
 	}
 	return execBatch(ctx, r, batch, len(items))
 }
@@ -186,12 +240,21 @@ func (r *PostgresRepository) LookupEmployeeVendorCIP(ctx context.Context, vendor
 	if r.Pool == nil {
 		return "", false, fmt.Errorf("postgres pool not available")
 	}
+	code := strings.TrimSpace(vendorCode)
+	cleanCode := strings.TrimPrefix(code, "VND-")
 	var flag string
 	err := r.Pool.QueryRow(ctx, `
-		SELECT cip_flag FROM employee_vendor_mappings WHERE vendor_code = $1 AND is_active = true
-	`, strings.TrimSpace(vendorCode)).Scan(&flag)
+		SELECT cip_flag FROM employee_vendor_mappings 
+		WHERE (vendor_code = $1 OR vendor_code = $2 OR vendor_code = 'VND-' || $2) AND is_active = true
+		LIMIT 1
+	`, code, cleanCode).Scan(&flag)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		// Fallback ke default NON_CIP agar vendor baru / belum tercatat tidak memblokir upload
+		def := os.Getenv("FIN_DEFAULT_VENDOR_CIP")
+		if def == "" {
+			def = "NON_CIP"
+		}
+		return def, true, nil
 	}
 	if err != nil {
 		return "", false, err

@@ -79,6 +79,60 @@
             </div>
         </div>
 
+        <!-- Section 0: Global SAP Base URL Configuration (Sentralisasi Host Server) -->
+        <div class="main-card mb-4 border-primary-subtle shadow-sm">
+            <div class="p-3 border-bottom bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h5 class="m-0 fw-bold" style="font-size: 15px;">
+                        <i class="bi bi-globe2 me-2 text-primary"></i>Global SAP Base URL (Sentralisasi Host Server)
+                    </h5>
+                    <span class="text-muted" style="font-size: 12px;">
+                        Host server sentral untuk seluruh layanan SAP S/4HANA Grow (PO, GRN, BP, Product, GL, dll). Cukup ubah Base URL di sini jika berpindah server/tenant agar seluruh endpoint otomatis mengikuti.
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-3 py-1" id="currentGlobalBaseBadge">
+                        {{ if .GlobalBaseURL }}{{ .GlobalBaseURL }}{{ else }}https://my445160-api.s4hana.cloud.sap{{ end }}
+                    </span>
+                </div>
+            </div>
+            <div class="p-4 bg-white">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-7">
+                        <label class="form-label fw-bold small text-muted">
+                            Base URL SAP Server Sentral <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-link-45deg"></i></span>
+                            <input type="text" id="globalBaseURLInput" class="form-control font-monospace" 
+                                value="{{ if .GlobalBaseURL }}{{ .GlobalBaseURL }}{{ else }}https://my445160-api.s4hana.cloud.sap{{ end }}" 
+                                placeholder="https://my445160-api.s4hana.cloud.sap">
+                        </div>
+                    </div>
+                    <div class="col-md-5 d-flex gap-2">
+                        <button type="button" class="btn btn-primary fw-bold flex-grow-1 shadow-sm d-flex align-items-center justify-content-center gap-1" id="btnUpdateGlobalBase" onclick="updateGlobalBaseURL()">
+                            <i class="bi bi-check2-circle"></i> Terapkan ke Semua Layanan
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="resetGlobalBaseURLInput()" title="Kembalikan ke nilai awal">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center flex-wrap gap-2 mt-3 pt-2 border-top">
+                    <span class="text-muted small fw-bold"><i class="bi bi-lightning-charge me-1"></i>Pilih Cepat Server:</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 font-monospace" style="font-size: 11.5px;" onclick="setPresetBaseURL('https://my445160-api.s4hana.cloud.sap')">
+                        my445160 (Tenant Utama)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 font-monospace" style="font-size: 11.5px;" onclick="setPresetBaseURL('https://my446174-api.s4hana.cloud.sap')">
+                        my446174 (Tenant Secondary/QA)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning text-dark py-0 px-2 font-monospace" style="font-size: 11.5px;" onclick="setPresetBaseURL('MOCK')">
+                        MOCK (Simulasi Offline)
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Section 1: Endpoints Table -->
         <div class="main-card">
             <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
@@ -394,8 +448,12 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label fw-bold small">Base URL</label>
-                            <input type="text" id="editBaseURL" class="form-control" placeholder="https://my445160-api.s4hana.cloud.sap" required>
+                            <label class="form-label fw-bold small d-flex justify-content-between">
+                                <span>Base URL</span>
+                                <a href="javascript:void(0)" class="text-primary text-decoration-none small" onclick="useGlobalBaseURLInModal()"><i class="bi bi-magic me-1"></i>Gunakan Global Base URL</a>
+                            </label>
+                            <input type="text" id="editBaseURL" class="form-control font-monospace" placeholder="https://my445160-api.s4hana.cloud.sap" required>
+                            <div class="form-text" style="font-size: 11px;">Default mengikuti Global Base URL. Ubah di sini hanya jika service ini memiliki host khusus.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Endpoint Path</label>
@@ -679,6 +737,57 @@
             }
         }
 
+        function useGlobalBaseURLInModal() {
+            const globalBase = document.getElementById('globalBaseURLInput')?.value || 'https://my445160-api.s4hana.cloud.sap';
+            document.getElementById('editBaseURL').value = globalBase;
+            showToast('Base URL diatur ke Global Base URL', true);
+        }
+
+        function setPresetBaseURL(val) {
+            document.getElementById('globalBaseURLInput').value = val;
+        }
+
+        function resetGlobalBaseURLInput() {
+            document.getElementById('globalBaseURLInput').value = "{{ if .GlobalBaseURL }}{{ .GlobalBaseURL }}{{ else }}https://my445160-api.s4hana.cloud.sap{{ end }}";
+        }
+
+        async function updateGlobalBaseURL() {
+            const urlInput = document.getElementById('globalBaseURLInput');
+            const baseURL = (urlInput?.value || '').trim();
+            if (!baseURL) {
+                showToast('Base URL tidak boleh kosong', false);
+                return;
+            }
+
+            const btn = document.getElementById('btnUpdateGlobalBase');
+            const origHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Menerapkan...`;
+
+            try {
+                const resp = await fetch('/api/sap-endpoints/global-base-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: baseURL })
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message, true);
+                    const badge = document.getElementById('currentGlobalBaseBadge');
+                    if (badge) badge.innerText = res.base_url;
+                    setTimeout(() => location.reload(), 700);
+                } else {
+                    showToast(res.message || 'Gagal memperbarui Base URL', false);
+                    btn.disabled = false;
+                    btn.innerHTML = origHTML;
+                }
+            } catch (err) {
+                showToast('Terjadi kesalahan jaringan: ' + err.message, false);
+                btn.disabled = false;
+                btn.innerHTML = origHTML;
+            }
+        }
+
         function openAddEndpointModal() {
             document.getElementById('editModalTitle').innerHTML = '<i class="bi bi-plus-circle me-1 text-primary"></i> Tambah Layanan SAP Baru';
             const codeInput = document.getElementById('editServiceCode');
@@ -686,10 +795,12 @@
             codeInput.removeAttribute('readonly');
             codeInput.classList.remove('bg-light');
             
+            const globalBase = document.getElementById('globalBaseURLInput')?.value || 'https://my445160-api.s4hana.cloud.sap';
+
             document.getElementById('editServiceName').value = '';
             document.getElementById('editScenarioID').value = '';
             document.getElementById('editODataVersion').value = 'v4';
-            document.getElementById('editBaseURL').value = 'https://my445160-api.s4hana.cloud.sap';
+            document.getElementById('editBaseURL').value = globalBase;
             document.getElementById('editEndpointPath').value = '';
             document.getElementById('editUsername').value = '';
             
@@ -750,15 +861,22 @@
 
         async function saveEndpoint(e) {
             e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const origHTML = submitBtn ? submitBtn.innerHTML : '';
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Menyimpan...`;
+            }
+
             const payload = {
-                service_code: document.getElementById('editServiceCode').value,
-                service_name: document.getElementById('editServiceName').value,
-                scenario_id: document.getElementById('editScenarioID').value,
-                odata_version: document.getElementById('editODataVersion').value,
-                base_url: document.getElementById('editBaseURL').value,
-                endpoint_path: document.getElementById('editEndpointPath').value,
-                username: document.getElementById('editUsername').value,
-                password: document.getElementById('editPassword').value,
+                service_code: (document.getElementById('editServiceCode')?.value || '').trim(),
+                service_name: (document.getElementById('editServiceName')?.value || '').trim(),
+                scenario_id: (document.getElementById('editScenarioID')?.value || '').trim(),
+                odata_version: (document.getElementById('editODataVersion')?.value || '').trim(),
+                base_url: (document.getElementById('editBaseURL')?.value || '').trim(),
+                endpoint_path: (document.getElementById('editEndpointPath')?.value || '').trim(),
+                username: (document.getElementById('editUsername')?.value || '').trim(),
+                password: document.getElementById('editPassword')?.value || '',
                 is_active: true
             };
 
@@ -771,12 +889,23 @@
                 const res = await resp.json();
                 if (res.status === 'success') {
                     showToast(res.message, true);
-                    setTimeout(() => location.reload(), 1000);
+                    const modalEl = document.getElementById('editEndpointModal');
+                    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                    if (modalInstance) modalInstance.hide();
+                    setTimeout(() => location.reload(), 700);
                 } else {
                     showToast(res.message || 'Gagal menyimpan', false);
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = origHTML;
+                    }
                 }
             } catch (err) {
                 showToast(`Error: ${err.message}`, false);
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = origHTML;
+                }
             }
         }
 

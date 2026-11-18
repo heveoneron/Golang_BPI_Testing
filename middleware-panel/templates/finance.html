@@ -185,16 +185,16 @@
             <!-- RICEF 7 -->
             <div class="tab-pane fade" id="tab-invoice">
                 <div class="main-card">
-                    <div class="section-title">Upload Excel Talenta / Mekari</div>
-                    <div class="section-hint">File .xlsx (sheet pertama) atau .csv. Kolom wajib: InvoiceRef, DocumentDate, PostingDate, InvoicingParty, GrossAmount, Amount, dan <strong>PolicyName</strong> (GL &amp; budget code ditentukan dari mapping di bawah) atau GLAccount. Opsional: CIP (CIP / Non CIP; kosong = dari mapping vendor karyawan), CompanyCode, Currency, HeaderText, DocType, PaymentTerms, CostCenter, TaxCode (default V0), ItemText, AssignmentRef. Satu baris salah = seluruh file ditolak. File ekspor mentah Talenta (<em>Reimbursement</em> dengan Transaction ID &amp; Reimbursement Policy Name, atau <em>Business Trip</em> dengan Trip ID) otomatis dinormalisasi ke template; InvoicingParty = prefix vendor + Employee ID, hanya transaksi Approved.</div>
+                    <div class="section-title">Upload Excel Talenta / Mekari (Reimbursement &amp; Business Trip)</div>
+                    <div class="section-hint">Unggah file ekspor Talenta <strong>Reimbursement</strong> (contoh: <code>Form_Template_Reimbursement_1008.xlsx</code>) atau <strong>Business Trip</strong> (contoh: <code>Form_Template_Bussiness_Trip_BT1008.xlsx</code>) maupun template CSV/Excel standar. Sistem otomatis membaca kolom transaksi, mengekstrak Vendor/Employee ID, dan mencocokkan Policy Name / Trip Type ke tabel mapping GL &amp; Cost Center untuk dikirimkan ke SAP S/4HANA via OData v2 <code>A_SupplierInvoice</code>.</div>
                     <form id="formUpload" class="d-flex gap-2 mb-2">
                         <input class="form-control form-control-sm" type="file" name="file" accept=".xlsx,.xls,.csv" required style="max-width:360px">
-                        <button class="btn btn-primary btn-sm">Upload</button>
+                        <button class="btn btn-primary btn-sm"><i class="bi bi-cloud-arrow-up me-1"></i>Upload &amp; Proses</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="btnTemplate"><i class="bi bi-download"></i> Template CSV</button>
                     </form>
                     <div id="uploadErrors"></div>
                 </div>
-                <div class="main-card"><div class="section-title mb-2">Supplier invoice</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblInvoice"></table></div></div>
+                <div class="main-card"><div class="section-title mb-2">Daftar Pengajuan Supplier Invoice (Reimbursement &amp; Business Trip)</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblInvoice"></table></div></div>
                 <div class="main-card"><div class="section-title mb-2">Riwayat upload</div><div class="table-wrap"><table class="table table-custom mb-0" id="tblBatches"></table></div></div>
                 <div class="row g-3">
                     <div class="col-12"><div class="main-card">
@@ -273,6 +273,70 @@
         <div class="modal-header"><h6 class="modal-title" id="jsonModalTitle">Detail</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body"><pre class="json" id="jsonModalBody"></pre></div>
     </div></div></div>
+
+    <!-- Modal Detail SAP GL Line Items (Gambar 4 - 30 Kolom) -->
+    <div class="modal fade" id="modalGLDetail" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width: 96vw;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom px-4 py-3 bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="modal-title fw-bold fs-6 mb-0 text-dark" id="glDetailModalTitle">
+                            <i class="bi bi-table text-primary me-2"></i>Detail Line Items SAP (RICEF 3/4)
+                        </h6>
+                        <div class="small text-muted mt-1" id="glDetailModalSubtitle">Menampilkan daftar line items akuntansi</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive" style="max-height: 68vh;">
+                        <table class="table table-sm table-striped table-hover table-bordered mb-0 align-middle" style="font-size: 12px; white-space: nowrap;">
+                            <thead class="table-dark sticky-top small text-uppercase">
+                                <tr>
+                                    <th class="px-2 py-2">Company Code</th>
+                                    <th class="px-2 py-2">Fiscal Year</th>
+                                    <th class="px-2 py-2">Document Number</th>
+                                    <th class="px-2 py-2">Line Item</th>
+                                    <th class="px-2 py-2">Company Code Currency</th>
+                                    <th class="px-2 py-2">Global Currency</th>
+                                    <th class="px-2 py-2">UOM</th>
+                                    <th class="px-2 py-2">Quantity</th>
+                                    <th class="px-2 py-2">Product</th>
+                                    <th class="px-2 py-2">G/L Account</th>
+                                    <th class="px-2 py-2">Cost Center</th>
+                                    <th class="px-2 py-2">Profit Center</th>
+                                    <th class="px-2 py-2">Functional Area</th>
+                                    <th class="px-2 py-2 text-end">Amount in Transaction Currency</th>
+                                    <th class="px-2 py-2 text-end">Amount in Company Code Currency</th>
+                                    <th class="px-2 py-2 text-end">Amount in Global Currency</th>
+                                    <th class="px-2 py-2 text-center">Debit/Credit Ind.</th>
+                                    <th class="px-2 py-2">Assignment</th>
+                                    <th class="px-2 py-2">Reversing Document</th>
+                                    <th class="px-2 py-2">Reversing Document Item</th>
+                                    <th class="px-2 py-2">Text</th>
+                                    <th class="px-2 py-2">Supplier</th>
+                                    <th class="px-2 py-2">Customer</th>
+                                    <th class="px-2 py-2">Financial Account Type</th>
+                                    <th class="px-2 py-2">Special G/L Code</th>
+                                    <th class="px-2 py-2">House Bank</th>
+                                    <th class="px-2 py-2">Bank Account ID</th>
+                                    <th class="px-2 py-2">Asset</th>
+                                    <th class="px-2 py-2">Sub-number</th>
+                                    <th class="px-2 py-2">WHT Code</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tblGLDetailBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer border-top px-4 py-2 bg-light d-flex justify-content-between align-items-center">
+                    <span class="small text-muted fw-bold" id="glDetailCountInfo">0 item ditemukan</span>
+                    <button type="button" class="btn btn-secondary btn-sm px-3" data-bs-dismiss="modal">Tutup</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script>
@@ -427,24 +491,108 @@
         }
 
         // ---------- RICEF 3/4 ----------
+        async function openGLDetailModal(doc, comp, year, key) {
+            const titleEl = document.getElementById('glDetailModalTitle');
+            const subEl = document.getElementById('glDetailModalSubtitle');
+            const tbody = document.getElementById('tblGLDetailBody');
+            const infoEl = document.getElementById('glDetailCountInfo');
+
+            titleEl.innerHTML = `<i class="bi bi-table text-primary me-2"></i>Detail Line Items SAP — Dokumen <span class="font-monospace text-primary">${esc(doc)}</span> (${esc(year)})`;
+            subEl.innerText = `Company Code: ${comp || '-'} | Fiscal Year: ${year || '-'} | Nomor Dokumen SAP: ${doc}`;
+            tbody.innerHTML = `<tr><td colspan="30" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Memuat rincian 30 kolom line items dari database/SAP...</td></tr>`;
+            infoEl.innerText = 'Memuat...';
+
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGLDetail')).show();
+
+            try {
+                const url = `/gl-line-items/detail?doc=${encodeURIComponent(doc)}&company_code=${encodeURIComponent(comp)}&fiscal_year=${encodeURIComponent(year)}&key=${encodeURIComponent(key || '')}`;
+                const res = await api('GET', url);
+                const items = res.data || [];
+                
+                if (!Array.isArray(items) || items.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="30" class="text-center py-4 text-muted">Tidak ada rincian line item untuk dokumen ini.</td></tr>`;
+                    infoEl.innerText = '0 baris ditemukan';
+                    return;
+                }
+
+                infoEl.innerText = `${items.length} baris line item ditemukan`;
+                tbody.innerHTML = items.map(it => {
+                    const dkBadge = it.debit_credit_code === 'S'
+                        ? '<span class="badge bg-success-subtle text-success border border-success-subtle fw-bold">Debit (S)</span>'
+                        : (it.debit_credit_code === 'H' ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold">Kredit (H)</span>' : esc(it.debit_credit_code || '-'));
+
+                    return `<tr>
+                        <td class="font-monospace">${esc(it.company_code || '')}</td>
+                        <td class="font-monospace">${esc(it.fiscal_year || '')}</td>
+                        <td class="font-monospace fw-bold text-primary">${esc(it.accounting_document || '')}</td>
+                        <td class="font-monospace text-center fw-bold">${esc(it.accounting_document_item || '')}</td>
+                        <td class="text-center">${esc(it.company_code_currency || '')}</td>
+                        <td class="text-center">${esc(it.global_currency || '')}</td>
+                        <td class="text-center">${esc(it.base_unit || '-')}</td>
+                        <td class="text-end">${it.quantity ? num(it.quantity) : '-'}</td>
+                        <td>${esc(it.product || '-')}</td>
+                        <td class="font-monospace fw-bold text-dark">${esc(it.gl_account || '')}</td>
+                        <td class="font-monospace">${esc(it.cost_center || '-')}</td>
+                        <td class="font-monospace">${esc(it.profit_center || '-')}</td>
+                        <td>${esc(it.functional_area || '-')}</td>
+                        <td class="text-end font-monospace">${num(it.amount_in_transaction_currency)}</td>
+                        <td class="text-end font-monospace fw-bold">${num(it.amount_in_company_code_currency)}</td>
+                        <td class="text-end font-monospace">${num(it.amount_in_global_currency)}</td>
+                        <td class="text-center">${dkBadge}</td>
+                        <td>${esc(it.assignment_reference || '-')}</td>
+                        <td>${esc(it.reversal_reference_document || '-')}</td>
+                        <td>${esc(it.reversal_reference_document_item || '-')}</td>
+                        <td>${esc(it.document_item_text || '-')}</td>
+                        <td>${esc(it.supplier || '-')}</td>
+                        <td>${esc(it.customer || '-')}</td>
+                        <td class="text-center font-monospace">${esc(it.financial_account_type || '-')}</td>
+                        <td class="text-center">${esc(it.special_gl_code || '-')}</td>
+                        <td>${esc(it.house_bank || '-')}</td>
+                        <td>${esc(it.house_bank_account || '-')}</td>
+                        <td>${esc(it.master_fixed_asset || '-')}</td>
+                        <td>${esc(it.fixed_asset || '-')}</td>
+                        <td class="text-center">${esc(it.withholding_tax_code || '-')}</td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="30" class="text-center py-4 text-danger">Gagal memuat line items: ${esc(err.message)}</td></tr>`;
+                infoEl.innerText = 'Error';
+            }
+        }
+
         async function loadGL(ev) {
             if (ev) ev.preventDefault();
             const p = new URLSearchParams(new FormData(document.getElementById('formGL')));
             try {
                 const d = await api('GET', '/gl-line-items?' + p.toString());
                 table('tblGL', [
-                    ['Posting', r => esc(r.posting_date || '')], ['Dokumen', r => esc(r.accounting_document + '/' + r.fiscal_year)],
-                    ['Item', r => esc(r.ledger_gl_line_item)], ['Tipe', r => esc(r.accounting_document_type)], ['GL', r => esc(r.gl_account)],
-                    ['Cost center', r => esc(r.cost_center)], ['D/K', r => esc(r.debit_credit_code)],
-                    ['Jumlah', r => num(r.amount_in_company_code_currency)], ['Teks', r => esc(r.document_item_text)],
-                    ['', r => `<button class="btn btn-link btn-sm p-0" data-glkey="${esc(r.gl_line_item_key)}">Detail SAP</button>`]
-                ], d.data, 'Belum ada data. Klik "Tarik dari SAP".');
+                    ['Company Code', r => esc(r.company_code || '')],
+                    ['Fiscal Year', r => esc(r.fiscal_year || '')],
+                    ['Document Number', r => `<span class="font-monospace fw-bold text-primary">${esc(r.accounting_document || '')}</span>`],
+                    ['Transaction Currency', r => esc(r.transaction_currency || 'IDR')],
+                    ['Fiscal Period', r => esc(r.fiscal_period || '-')],
+                    ['Posting Date', r => esc(r.posting_date || '')],
+                    ['Document Date', r => esc(r.document_date || '')],
+                    ['Document Type', r => `<span class="badge bg-light text-dark border font-monospace">${esc(r.accounting_document_type || '')}</span>`],
+                    ['Document Header Text', r => esc(r.accounting_document_header_text || '-')],
+                    ['Reference', r => esc(r.reference || '-')],
+                    ['Created By', r => esc(r.accounting_doc_created_by_user || '-')],
+                    ['Time Stamp SAP', r => esc(r.creation_date_time || '-')],
+                    ['Time Stamp Get in SAP', r => esc(r.synced_at ? r.synced_at.substring(0, 19).replace('T', ' ') : '-')],
+                    ['Flagging Send to Maximo', r => `<span class="badge bg-success-subtle text-success border border-success-subtle fw-bold">${esc(r.flagging_send_to_maximo || 'X')}</span>`],
+                    ['Time Stamp Send to Maximo', r => esc(r.time_stamp_send_to_maximo || '-')],
+                    ['', r => `<button class="btn btn-primary btn-sm py-0 px-2 fw-semibold d-inline-flex align-items-center gap-1 shadow-sm btn-gl-detail" data-doc="${esc(r.accounting_document)}" data-comp="${esc(r.company_code)}" data-year="${esc(r.fiscal_year)}"><i class="bi bi-table"></i> Detail SAP</button>`]
+                ], d.data, 'Belum ada data dokumen. Klik "Tarik dari SAP".');
             } catch (e) { toast(e.message, false); }
         }
         document.getElementById('formGL').addEventListener('submit', loadGL);
         document.getElementById('tblGL').addEventListener('click', async ev => {
-            const k = ev.target.getAttribute('data-glkey'); if (!k) return;
-            try { showJSON('GL line item ' + k, await api('GET', '/gl-line-items/detail?key=' + encodeURIComponent(k))); } catch (e) { toast(e.message, false); }
+            const btn = ev.target.closest('.btn-gl-detail');
+            if (!btn) return;
+            const doc = btn.getAttribute('data-doc');
+            const comp = btn.getAttribute('data-comp');
+            const year = btn.getAttribute('data-year');
+            openGLDetailModal(doc, comp, year);
         });
 
         // ---------- RICEF 5 ----------
@@ -501,10 +649,18 @@
             try {
                 const d = await api('GET', '/supplier-invoices');
                 table('tblInvoice', [
-                    ['InvoiceRef', r => esc(r.invoice_ref)], ['Invoicing party', r => esc(r.invoicing_party)], ['Tanggal', r => esc(r.document_date)],
-                    ['Gross', r => num(r.gross_amount)], ['Cur', r => esc(r.currency)], ['Status', r => badge(r.status)],
-                    ['No. SAP', r => esc(r.sap_document_no || '')], ['Pesan', r => `<span class="small text-danger">${esc(r.error_message || '')}</span>`]
-                ], d.data);
+                    ['Tipe', r => r.doc_category === 'BUSINESS_TRIP' ? '<span class="badge bg-info text-dark">Business Trip</span>' : '<span class="badge bg-primary">Reimbursement</span>'],
+                    ['Ref / Trans ID', r => `<span class="fw-bold">${esc(r.invoice_ref)}</span>`],
+                    ['Karyawan / Vendor', r => `<span class="fw-semibold">${esc(r.employee_name || r.invoicing_party)}</span><br><span class="text-muted small">ID: ${esc(r.employee_id || r.invoicing_party)}</span>`],
+                    ['Kebijakan / Trip', r => `<span class="badge bg-secondary-subtle text-secondary border">${esc(r.policy_or_trip_type || '-')}</span>`],
+                    ['Keterangan / Tujuan', r => `<span class="text-truncate d-inline-block" style="max-width:180px" title="${esc(r.item_text || r.benefit_or_destination || '')}">${esc(r.item_text || r.benefit_or_destination || '-')}</span>`],
+                    ['Tanggal', r => esc(r.document_date)],
+                    ['GL / Cost Center', r => `<span class="badge bg-light text-dark border">${esc(r.gl_account || '-')}</span> / <span class="badge bg-light text-dark border">${esc(r.cost_center || '-')}</span>`],
+                    ['Gross (IDR)', r => `<span class="fw-bold">${num(r.gross_amount)}</span> <span class="small text-muted">${esc(r.currency || 'IDR')}</span>`],
+                    ['Status', r => badge(r.status)],
+                    ['No. SAP', r => esc(r.sap_document_no || '-')],
+                    ['Pesan / Info', r => `<span class="small text-danger">${esc(r.error_message || '')}</span>`]
+                ], d.data, 'Belum ada data supplier invoice yang diunggah');
                 table('tblBatches', [
                     ['Waktu', r => dt(r.created_at)], ['File', r => esc(r.file_name)], ['Oleh', r => esc(r.uploaded_by)],
                     ['Baris', r => esc(r.total_rows)], ['Invoice', r => esc(r.total_invoices)], ['Status', r => badge(r.status)]

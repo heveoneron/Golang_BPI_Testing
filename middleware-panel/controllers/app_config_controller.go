@@ -4,6 +4,7 @@ import (
 	"middleware-panel/models"
 	"middleware-panel/services"
 	"net/http"
+	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -11,10 +12,11 @@ import (
 
 type AppConfigController struct {
 	service services.AppConfigService
+	sapSvc  services.SAPEndpointService
 }
 
-func NewAppConfigController(s services.AppConfigService) *AppConfigController {
-	return &AppConfigController{service: s}
+func NewAppConfigController(s services.AppConfigService, sapSvc services.SAPEndpointService) *AppConfigController {
+	return &AppConfigController{service: s, sapSvc: sapSvc}
 }
 
 // Page Config
@@ -51,6 +53,10 @@ func (c *AppConfigController) SaveConfig(ctx *gin.Context) {
 	if err := c.service.SaveConfig(req); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
 		return
+	}
+
+	if req.Key == "sap_base_url" && strings.TrimSpace(req.Value) != "" && c.sapSvc != nil {
+		_, _ = c.sapSvc.UpdateGlobalBaseURL(req.Value)
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "success", "message": "Konfigurasi berhasil disimpan"})

@@ -193,30 +193,30 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		}
 	}
 
-	// 1. Tentukan PurchaseOrderType berdasarkan awalan PONUM
-	// "If Prefix PO 45 = ZPRC, Else If Prefix PO 47 = ZCTR, Else fallback ZBPI atau NB"
+	// 1. Tentukan PurchaseOrderType: hardcode ZBPI
 	cleanPO := strings.TrimSpace(maxPO.PONum)
 	sapPONum := ConvertMaximoPOToSAP(cleanPO)
-	poType := s.dv(ctx, "PO_TYPE_DEFAULT")
-	if strings.HasPrefix(cleanPO, "45") {
-		poType = s.dv(ctx, "PO_TYPE_PREFIX_45")
-	} else if strings.HasPrefix(cleanPO, "47") {
-		poType = s.dv(ctx, "PO_TYPE_PREFIX_47")
+	poType := "ZBPI"
+	if custom := s.dv(ctx, "PO_TYPE_DEFAULT"); custom != "" && custom != "ZPRC" && custom != "ZCTR" {
+		poType = custom
 	}
 
 	// 2. Nomor PO asli Maximo selalu ditaruh di field SupplierRespSalesPersonName
-
 	salesPerson := cleanPO
-
-
 
 	docCurrency := strings.TrimSpace(maxPO.CurrencyCode)
 	if docCurrency == "" {
 		docCurrency = s.dv(ctx, "PO_DEFAULT_CURRENCY")
 	}
 	defMaterial, defUOM, defPlant, defCostCenter := s.dv(ctx, "PO_DEFAULT_MATERIAL"), s.dv(ctx, "PO_DEFAULT_UOM"), s.dv(ctx, "PO_DEFAULT_PLANT"), s.dv(ctx, "PO_DEFAULT_COST_CENTER")
-	acctCat, noTaxCode, taxCond, priceCond := s.dv(ctx, "PO_ACCOUNT_ASSIGNMENT_CATEGORY"), s.dv(ctx, "PO_NO_TAX_CODE"), s.dv(ctx, "PO_TAX_CONDITION_TYPE"), s.dv(ctx, "PO_PRICE_CONDITION_TYPE")
+	acctCat, noTaxCode, taxCond := s.dv(ctx, "PO_ACCOUNT_ASSIGNMENT_CATEGORY"), s.dv(ctx, "PO_NO_TAX_CODE"), s.dv(ctx, "PO_TAX_CONDITION_TYPE")
 	noteType, noteLang := s.dv(ctx, "PO_ITEM_NOTE_TEXT_TYPE"), s.dv(ctx, "PO_LANGUAGE")
+	if noteType == "" {
+		noteType = "F01"
+	}
+	if noteLang == "" {
+		noteLang = "EN"
+	}
 	defTaxRate, _ := strconv.ParseFloat(s.dv(ctx, "PO_DEFAULT_TAX_RATE"), 64)
 
 	orderDate := strings.TrimSpace(maxPO.OrderDate)
@@ -246,12 +246,16 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 	var sapItems []model.SAPGrowPOItem
 
 	for idx, line := range maxPO.Lines {
-		if strings.TrimSpace(line.MainAccount) != "" && strings.TrimSpace(line.BudgetCode) != "" {
+		bCode := strings.TrimSpace(line.BPIBudgetCode)
+		if bCode == "" {
+			bCode = strings.TrimSpace(line.BudgetCode)
+		}
+		if strings.TrimSpace(line.MainAccount) != "" && bCode != "" {
 			year := time.Now().Year()
 			if y, err := strconv.Atoi(strings.TrimSpace(line.BudgetYear)); err == nil && y > 2000 {
 				year = y
 			}
-			budgetLines[budgetKey{BudgetCombination(line.MainAccount, line.BudgetCode), year}] += line.OrderQty * line.UnitCost
+			budgetLines[budgetKey{BudgetCombination(line.MainAccount, bCode), year}] += line.OrderQty * line.UnitCost
 		}
 
 		itemNum := strings.TrimSpace(line.ItemNum)
@@ -268,13 +272,18 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			lineNumStr = fmt.Sprintf("%d", idx+1)
 		}
 
-		// Deskripsi Item:
-		// PurchaseOrderItemText maksimal 40 karakter
-		desc := strings.TrimSpace(line.Description)
-		if desc == "" {
-			desc = itemNum
+		// 6. Deskripsi Item:
+		// Prioritaskan pol_desc_ld (line.POLDescLD). Fallback ke line.Description, lalu itemNum.
+		// PurchaseOrderItemText maksimal 40 karakter (dipotong middleware).
+		// _PurchaseOrderItem._PurchaseOrderItemNote.PlainLongText diisi deskripsi lengkap (full desc).
+		fullDesc := strings.TrimSpace(line.POLDescLD)
+		if fullDesc == "" {
+			fullDesc = strings.TrimSpace(line.Description)
 		}
-		itemText := truncateRunes(desc, 40)
+		if fullDesc == "" {
+			fullDesc = itemNum
+		}
+		itemText := truncateRunes(fullDesc, 40)
 
 		// UOM conversion
 		orderUnit := strings.TrimSpace(line.OrderUnit)
@@ -287,36 +296,60 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 			}
 		}
 
-		// Plant
-		plant := strings.TrimSpace(line.SiteID)
-		if plant == "" {
-			plant = strings.TrimSpace(maxPO.SiteID)
+		// 5. Plant: jika JKT 1000 jika BTNG 2000
+		rawPlant := strings.TrimSpace(line.SiteID)
+		if rawPlant == "" {
+			rawPlant = strings.TrimSpace(maxPO.SiteID)
 		}
-		if plant == "" {
-			plant = defPlant
+		var plant string
+		switch strings.ToUpper(rawPlant) {
+		case "JKT":
+			plant = "1000"
+		case "BTNG":
+			plant = "2000"
+		case "1000":
+			plant = "1000"
+		case "2000":
+			plant = "2000"
+		default:
+			if rawPlant != "" {
+				plant = convertSiteIDToPlant(rawPlant, defPlant)
+			} else {
+				if defPlant != "" && defPlant != "5110" {
+					plant = defPlant
+				} else {
+					plant = "1000"
+				}
+			}
 		}
 
-		// Cost center untuk AccountAssignment
-		lineCostCenter := strings.TrimSpace(line.CostCenter)
+		// 8. Cost center untuk AccountAssignment: ambil dari BPIBUDGETCODE
+		lineCostCenter := strings.TrimSpace(line.BPIBudgetCode)
+		if lineCostCenter == "" {
+			lineCostCenter = strings.TrimSpace(line.BudgetCode)
+		}
+		if lineCostCenter == "" {
+			lineCostCenter = strings.TrimSpace(line.CostCenter)
+		}
 		if lineCostCenter == "" {
 			lineCostCenter = defCostCenter
 		}
 		if lineCostCenter == "" {
-			return nil, fmt.Errorf("baris PO %s: COSTCENTER kosong dan PO_DEFAULT_COST_CENTER tidak diisi", lineNumStr)
+			return nil, fmt.Errorf("baris PO %s: BPIBUDGETCODE / COSTCENTER kosong dan PO_DEFAULT_COST_CENTER tidak diisi", lineNumStr)
 		}
 
 		itemObj := model.SAPGrowPOItem{
-			PurchaseOrderItem:         lineNumStr,
-			Material:                  itemNum,
-			Plant:                     plant,
-			AccountAssignmentCategory: acctCat,
-			PurchaseOrderItemText:     itemText,
-			PurchaseOrderQuantityUnit: orderUnit,
-			OrderPriceUnit:            orderUnit,
-			NetPriceAmount:            line.UnitCost,
-			DocumentCurrency:          docCurrency,
-			OrderQuantity:             line.OrderQty,
-			NetPriceQuantity:          1,
+			PurchaseOrderItem:          lineNumStr,
+			Material:                   itemNum,
+			Plant:                      plant,
+			AccountAssignmentCategory:  acctCat,
+			PurchaseOrderItemText:      itemText,
+			PurchaseOrderQuantityUnit:  orderUnit,
+			OrderPriceUnit:             orderUnit,
+			NetPriceAmount:             line.UnitCost,
+			DocumentCurrency:           docCurrency,
+			OrderQuantity:              line.OrderQty,
+			NetPriceQuantity:           1,
 			InvoiceIsGoodsReceiptBased: true,
 			PurOrdAccountAssignment: []model.SAPGrowPurOrdAccountAssignment{
 				{
@@ -332,15 +365,16 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 					PurchaseOrderItem: lineNumStr,
 					TextObjectType:    noteType,
 					Language:          noteLang,
-					PlainLongText:     desc,
+					PlainLongText:     fullDesc,
 				},
 			},
 		}
 
-		// 5. Logika Pajak (_PurOrdPricingElement vs TaxCode V0)
+		// 7. Logika Pajak (_PurOrdPricingElement vs TaxCode V0)
 		// Ketentuan:
-		// Jika TaxCode1 terisi maka ConditionType dan ConditionRatioUnit terisi hardcode,
-		// Lalu ConditionRateAmount diisi dari UnitCost (PMP0) dan tax rate (DRG1), NetPriceAmount diisi dari UnitCost.
+		// Jika TaxCode1 terisi maka ConditionType DRG1 dan ConditionRatioUnit % terisi,
+		// ConditionRateAmount diisi dari tax rate (DRG1), NetPriceAmount diisi dari UnitCost.
+		// Catatan: PMP0 di-take out dari _PurOrdPricingElement.
 		// Jika tidak ada Tax maka _PurOrdPricingElement tidak usah diisi (hanya TaxCode: "V0" dan NetPriceAmount: UnitCost).
 		tax1 := strings.TrimSpace(line.TaxCodePPN)
 		if tax1 != "" {
@@ -352,11 +386,6 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 					ConditionType:          taxCond,
 					ConditionRateAmount:    taxRate,
 					ConditionRateRatioUnit: "%",
-				},
-				{
-					PurchaseOrderItem:   lineNumStr,
-					ConditionType:       priceCond,
-					ConditionRateAmount: line.UnitCost,
 				},
 			}
 		} else {
@@ -378,13 +407,26 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		}
 	}
 
+	// 2. CompanyCode hardcode 1000
+	companyCode := s.dv(ctx, "PO_COMPANY_CODE")
+	if companyCode == "" || companyCode == "5110" {
+		companyCode = "1000"
+	}
+
+	// 3. PurchasingOrganization BPI
+	purchasingOrg := s.dv(ctx, "PO_PURCHASING_ORG")
+	if purchasingOrg == "" || purchasingOrg == "5110" {
+		purchasingOrg = "BPI"
+	}
+
 	// Bentuk struktur OData v4 SAP Grow
+	// 4. Header: Language di-take out (tidak diisi, omitempty di struct)
 	sapPO := model.SAPGrowPOPayload{
 		PurchaseOrder:                 sapPONum,
 		PurchaseOrderType:             poType,
 		PurchaseOrderDate:             orderDate,
-		CompanyCode:                   s.dv(ctx, "PO_COMPANY_CODE"),
-		PurchasingOrganization:        s.dv(ctx, "PO_PURCHASING_ORG"),
+		CompanyCode:                   companyCode,
+		PurchasingOrganization:        purchasingOrg,
 		PurchasingGroup:               s.dv(ctx, "PO_PURCHASING_GROUP"),
 		Supplier:                      strings.TrimSpace(maxPO.Vendor),
 		SupplierRespSalesPersonName:   salesPerson,
@@ -914,7 +956,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 		}
 	}
 
-	// 6. Truncate Description to 40 chars (sesuai spesifikasi skema OData v2 A_ProductDescription MaxLength: 40)
+	// 6. Truncate Description to 40 chars (sesuai batasan field SAP S/4HANA MAKTX / ProductDescription max 40 karakter)
 	desc := truncateRunes(description, 40)
 
 	// 7. Plant & Valuation Areas: menu Default Value PRODUCT_PLANTS (seed awal dari SAP_PRODUCT_PLANTS bila diisi)
@@ -923,13 +965,18 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 		return nil, fmt.Errorf("PRODUCT_PLANTS di menu Default Value kosong")
 	}
 	valProc := s.dv(ctx, "PRODUCT_VALUATION_PROCEDURE")
+	purchGroup := s.dv(ctx, "PRODUCT_PURCHASING_GROUP")
+	if purchGroup == "" {
+		purchGroup = "001"
+	}
 
 	var plantItems []model.SAPProductPlant
 	var valuationItems []model.SAPProductValuation
 	for _, pl := range plants {
 		plantItems = append(plantItems, model.SAPProductPlant{
-			Product: itemNum,
-			Plant:   pl,
+			Product:         itemNum,
+			Plant:           pl,
+			PurchasingGroup: purchGroup,
 		})
 		valuationItems = append(valuationItems, model.SAPProductValuation{
 			Product:                     itemNum,
@@ -939,12 +986,19 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 		})
 	}
 
-	// 8. Aturan SAP OData v2 M3/332: Alternative Unit dan PurchaseOrderQuantityUnit hanya dikirim jika BERBEDA dari BaseUnit.
-	// Jika sama, SAP mengembalikan error 'The alternative unit of measure is the same as the base unit of measure'.
+	// 8. PurchaseOrderQuantityUnit & to_ProductUnitsOfMeasure:
+	// Sesuai aturan pemetaan SAP OData v2 A_Product:
+	// - Jika IssueUnit == OrderUnit (satuan sama):
+	//     PurchaseOrderQuantityUnit = "" (BLANK)
+	//     to_ProductUnitsOfMeasure = nil (dikosongkan untuk mencegah SAP error M3/332 "The alternative unit of measure is the same as the base unit of measure")
+	// - Jika IssueUnit != OrderUnit (satuan berbeda):
+	//     PurchaseOrderQuantityUnit = poUnit (dari ORDERUNIT)
+	//     to_ProductUnitsOfMeasure = 1 entri konversi 1:1 (AlternativeUnit = poUnit, BaseUnit = baseUnit)
+	poUnitHeader := ""
 	var uomWrapper *model.SAPProductUOMWrapper
-	poUnitToSend := ""
+
 	if poUnit != "" && !strings.EqualFold(poUnit, baseUnit) {
-		poUnitToSend = poUnit
+		poUnitHeader = poUnit
 		uomWrapper = &model.SAPProductUOMWrapper{
 			Results: []model.SAPProductUOM{
 				{
@@ -965,7 +1019,7 @@ func (s *SyncService) transformItem(ctx context.Context, raw json.RawMessage) ([
 		CrossPlantStatus:          "",
 		CrossPlantStatusValidity:  nil,
 		IsMarkedForDeletion:       false,
-		PurchaseOrderQuantityUnit: poUnitToSend,
+		PurchaseOrderQuantityUnit: poUnitHeader,
 		ProductGroup:              productGroup,
 		BaseUnit:                  baseUnit,
 		ToDescription: model.SAPProductDescriptionWrapper{
@@ -1398,7 +1452,7 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 			pushedCount++
 			log.Printf("[INFO] Push to SAP Success: %s -> %s [Target API: %s]", doc.DocumentNo, sapDocNo, targetURL)
 
-			// Second Post: Khusus Item Master (A_Product), trigger A_ProductProcurement jika ada PurchaseOrderQuantityUnit
+			// Second Post: Khusus Item Master (A_Product), selalu trigger A_ProductProcurement untuk Variable PO Unit ("1")
 			if strings.EqualFold(targetService, "PRODUCT") || strings.EqualFold(doc.DocType, "ITEM") || strings.EqualFold(doc.DocType, "PRODUCT") {
 				var prodMap map[string]interface{}
 				if err := json.Unmarshal(doc.SAPPayload, &prodMap); err == nil {
@@ -1411,23 +1465,27 @@ func (s *SyncService) PushDocumentsToSAP(ctx context.Context) int {
 					csrfPath, cErr := client.ServicePath(ep, "A_Product")
 					if pErr != nil || cErr != nil {
 						log.Printf("[WARN] Sub-request A_ProductProcurement dilewati untuk Product %s: %v", prodID, firstErr(pErr, cErr))
-					} else if poUnit != "" && prodID != "" {
+					} else if prodID != "" {
 						// Root layanan Product diambil dari endpoint_path endpoint PRODUCT.
 						procEP := *ep
 						procEP.EndpointPath = procPath
 						procEP.CSRFPath = csrfPath
 						procPayload := model.SAPProductProcurementPayload{
 							Product:                   prodID,
-							PurchaseOrderQuantityUnit: poUnit,
-							VarblPurOrdUnitStatus:     "1",
+							PurchaseOrderQuantityUnit: poUnit, // Blank ("") jika satuan sama, atau nilai PO unit jika berbeda
+							VarblPurOrdUnitStatus:     "1",    // Wajib bernilai "1" di SAP
 						}
 						if procBytes, procJsonErr := json.Marshal(procPayload); procJsonErr == nil {
 							_, _, procRespBody, procErr := s.SAPClient.ExecuteOData(&procEP, "POST", procBytes)
 							if procErr != nil {
 								log.Printf("[WARN] Sub-request A_ProductProcurement gagal untuk Product %s: %v (Response: %s)", prodID, procErr, procRespBody)
 							} else {
-								log.Printf("[INFO] Variable PO unit successfully configured for Product %s: Unit %s", prodID, poUnit)
-								_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", "PRODUCT_PROCUREMENT", doc.DocumentNo, "SUCCESS", "", fmt.Sprintf("Variable PO Unit '%s' activated via A_ProductProcurement", poUnit))
+								unitLabel := poUnit
+								if unitLabel == "" {
+									unitLabel = "BLANK"
+								}
+								log.Printf("[INFO] Variable PO unit successfully configured for Product %s: Unit %s", prodID, unitLabel)
+								_ = s.PGRepo.InsertIntegrationLog(ctx, doc.GroupID, "MIDDLEWARE", "SAP GROW", "PRODUCT_PROCUREMENT", doc.DocumentNo, "SUCCESS", "", fmt.Sprintf("Variable PO Unit '%s' activated via A_ProductProcurement", unitLabel))
 							}
 						}
 					}

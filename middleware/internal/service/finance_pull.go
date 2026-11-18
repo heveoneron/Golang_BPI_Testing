@@ -514,12 +514,59 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 			{
 				VendorCode:    "VND-0009",
 				CIPFlag:       "CIP",
-				Email:         "account.payable01@supplier.com",
-				BankKey:       "Mandiri",
-				BankAccount:   "140001928374",
-				AccountHolder: "PT Dwijaya Perkasa",
-				Description:   "Outbound SAP Vendor (Sample)",
+				Email:         "mrauff341@gmail.com",
+				BankKey:       "bank key1",
+				BankAccount:   "1010101",
+				AccountHolder: "Mandiri",
+				Description:   "Outbound SAP Vendor (Sample Multi-Bank)",
 				IsActive:      true,
+				BankAccounts: []model.VendorBankAccount{
+					{
+						VendorCode:               "VND-0009",
+						BankIdentification:       "0001",
+						BankCountryKey:           "ID",
+						BankNumber:               "bank key1",
+						BankAccount:              "1010101",
+						SWIFTCode:                "BMRIIDJASTL",
+						BankName:                 "Bank 2 - SAMPLE BANK",
+						BankControlKey:           "CO",
+						IBAN:                     "",
+						BankAccountReferenceText: "Reference",
+						BankAccountHolderName:    "Mandiri",
+						BankAccountName:          "PT. Chevron",
+						IsDefault:                true,
+					},
+					{
+						VendorCode:               "VND-0009",
+						BankIdentification:       "0002",
+						BankCountryKey:           "ID",
+						BankNumber:               "BK2",
+						BankAccount:              "20202020",
+						SWIFTCode:                "BMRIIDJASTL",
+						BankName:                 "Bank 2 - SAMPLE BANK",
+						BankControlKey:           "CO",
+						IBAN:                     "",
+						BankAccountReferenceText: "Reference 2",
+						BankAccountHolderName:    "BNI",
+						BankAccountName:          "PT. Bhimasena",
+						IsDefault:                false,
+					},
+					{
+						VendorCode:               "VND-0009",
+						BankIdentification:       "0003",
+						BankCountryKey:           "ID",
+						BankNumber:               "BK3",
+						BankAccount:              "3030303",
+						SWIFTCode:                "BMRIIDJASTL",
+						BankName:                 "Bank 2 - SAMPLE BANK",
+						BankControlKey:           "CO",
+						IBAN:                     "",
+						BankAccountReferenceText: "Reference 3",
+						BankAccountHolderName:    "Muamalat",
+						BankAccountName:          "PT. Oligarki",
+						IsDefault:                false,
+					},
+				},
 			},
 			{
 				VendorCode:    "VND-0035",
@@ -530,16 +577,47 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 				AccountHolder: "PT Megatech Solusindo",
 				Description:   "Outbound SAP Vendor (Sample)",
 				IsActive:      true,
+				BankAccounts: []model.VendorBankAccount{
+					{
+						VendorCode:               "VND-0035",
+						BankIdentification:       "0001",
+						BankCountryKey:           "ID",
+						BankNumber:               "BCA01",
+						BankAccount:              "8830192847",
+						SWIFTCode:                "CENAIDJA",
+						BankName:                 "BCA KCU Sudirman",
+						BankControlKey:           "CO",
+						BankAccountHolderName:    "PT Megatech Solusindo",
+						BankAccountName:          "PT Megatech Solusindo",
+						IsDefault:                true,
+					},
+				},
 			},
 			{
 				VendorCode:    "VND-0061",
 				CIPFlag:       "CIP",
-				Email:         "finance@andalankita.co.id",
-				BankKey:       "BNI",
-				BankAccount:   "0928374615",
-				AccountHolder: "CV Andalan Mandiri",
-				Description:   "Outbound SAP Vendor (Sample)",
+				Email:         "soltius@gmail.com",
+				BankKey:       "MGAJKT001",
+				BankAccount:   "1202228837",
+				AccountHolder: "PT.BANK MUAMALAT INDONESIA TBK",
+				Description:   "Outbound SAP Vendor (PT Chevron Indonesia)",
 				IsActive:      true,
+				BankAccounts: []model.VendorBankAccount{
+					{
+						VendorCode:               "VND-0061",
+						BankIdentification:       "0001",
+						BankCountryKey:           "ID",
+						BankNumber:               "MGAJKT001",
+						BankAccount:              "1202228837",
+						SWIFTCode:                "MEGAIDJA",
+						BankName:                 "PT.BANK MUAMALAT INDONESIA TBK",
+						BankControlKey:           "CO",
+						BankAccountReferenceText: "Ref Chevron",
+						BankAccountHolderName:    "PT.BANK MUAMALAT INDONESIA TBK",
+						BankAccountName:          "PT Chevron Indonesia",
+						IsDefault:                true,
+					},
+				},
 			},
 			{
 				VendorCode:    "VND-0063",
@@ -570,7 +648,6 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 		res.Error = err.Error()
 		return res
 	}
-	bankKeyFields, bankAccFields, holderFields := sapFieldKeys("VENDOR", "BANK_KEY"), sapFieldKeys("VENDOR", "BANK_ACCOUNT"), sapFieldKeys("VENDOR", "ACCOUNT_HOLDER")
 	_, body, err := f.SAPClient.GetOData(ep, addrPath)
 	if err != nil {
 		res.Error = fmt.Sprintf("gagal mengambil A_BusinessPartnerAddress dari SAP: %v", err)
@@ -607,17 +684,56 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 			}
 		}
 
-		// Tarik data Bank dari A_BusinessPartner('{Vendor}')/to_BusinessPartnerBank?$format=json (Link 3 di Excel)
+		// Tarik seluruh data Bank dari A_BusinessPartner('{Vendor}')/to_BusinessPartnerBank?$format=json (11 Field OData)
+		var bankAccounts []model.VendorBankAccount
 		bankKey := ""
 		bankAccount := ""
 		accHolder := ""
+
 		bankPath, _ := client.ServicePath(ep, fmt.Sprintf("A_BusinessPartner('%s')/to_BusinessPartnerBank?$format=json", odataLiteral(vendorCode)))
 		if _, bankBody, bErr := f.SAPClient.GetOData(ep, bankPath); bErr == nil {
 			if bRecs, bParseErr := odataRecords(bankBody); bParseErr == nil && len(bRecs) > 0 {
-				bm := bRecs[0]
-				bankKey = str(bm, bankKeyFields...)
-				bankAccount = str(bm, bankAccFields...)
-				accHolder = str(bm, holderFields...)
+				for i, bm := range bRecs {
+					bId := str(bm, "BankIdentification")
+					if bId == "" {
+						bId = fmt.Sprintf("%04d", i+1)
+					}
+					bAcc := str(bm, "BankAccount", "BankNumber")
+					bNum := str(bm, "BankNumber")
+					bHolder := str(bm, "BankAccountHolderName", "AccountHolder")
+					bName := str(bm, "BankName")
+					bCountry := str(bm, "BankCountryKey")
+					bSwift := str(bm, "SWIFTCode")
+					bControl := str(bm, "BankControlKey")
+					bIban := str(bm, "IBAN")
+					bRef := str(bm, "BankAccountReferenceText")
+					bAccName := str(bm, "BankAccountName")
+
+					if i == 0 {
+						bankKey = bName
+						if bankKey == "" {
+							bankKey = bNum
+						}
+						bankAccount = bAcc
+						accHolder = bHolder
+					}
+
+					bankAccounts = append(bankAccounts, model.VendorBankAccount{
+						VendorCode:               vendorCode,
+						BankIdentification:       bId,
+						BankCountryKey:           bCountry,
+						BankNumber:               bNum,
+						BankAccount:              bAcc,
+						SWIFTCode:                bSwift,
+						BankName:                 bName,
+						BankControlKey:           bControl,
+						IBAN:                     bIban,
+						BankAccountReferenceText: bRef,
+						BankAccountHolderName:    bHolder,
+						BankAccountName:          bAccName,
+						IsDefault:                (i == 0),
+					})
+				}
 			}
 		}
 
@@ -630,6 +746,7 @@ func (f *FinanceService) SyncVendorMasterFromSAP(ctx context.Context) model.Sync
 			AccountHolder: accHolder,
 			Description:   "Tersinkronisasi dari SAP OData",
 			IsActive:      true,
+			BankAccounts:  bankAccounts,
 		})
 	}
 

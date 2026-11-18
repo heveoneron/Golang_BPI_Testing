@@ -25,13 +25,17 @@ func NewVendorMasterRepository(db *gorm.DB) VendorMasterRepository {
 
 func (r *vendorMasterRepository) GetAll() ([]models.VendorMaster, error) {
 	var list []models.VendorMaster
-	err := r.db.Order("vendor_code ASC").Find(&list).Error
+	err := r.db.Preload("BankAccounts", func(db *gorm.DB) *gorm.DB {
+		return db.Order("bank_identification ASC")
+	}).Order("vendor_code ASC").Find(&list).Error
 	return list, err
 }
 
 func (r *vendorMasterRepository) GetByCode(code string) (*models.VendorMaster, error) {
 	var vm models.VendorMaster
-	err := r.db.Where("vendor_code = ?", code).First(&vm).Error
+	err := r.db.Preload("BankAccounts", func(db *gorm.DB) *gorm.DB {
+		return db.Order("bank_identification ASC")
+	}).Where("vendor_code = ?", code).First(&vm).Error
 	if err != nil {
 		return nil, err
 	}
@@ -39,12 +43,31 @@ func (r *vendorMasterRepository) GetByCode(code string) (*models.VendorMaster, e
 }
 
 func (r *vendorMasterRepository) Save(vm *models.VendorMaster) error {
-	return r.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "vendor_code"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"cip_flag", "email", "bank_key", "bank_account", "account_holder", "description", "is_active", "updated_at",
-		}),
-	}).Create(vm).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Simpan header vendor
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "vendor_code"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"cip_flag", "email", "bank_key", "bank_account", "account_holder", "description", "is_active", "updated_at",
+			}),
+		}).Create(vm).Error; err != nil {
+			return err
+		}
+
+		// Jika ada daftar bank accounts yang dikirim, replace detail rekening bank
+		if len(vm.BankAccounts) > 0 {
+			if err := tx.Where("vendor_code = ?", vm.VendorCode).Delete(&models.VendorBankAccount{}).Error; err != nil {
+				return err
+			}
+			for i := range vm.BankAccounts {
+				vm.BankAccounts[i].VendorCode = vm.VendorCode
+				if err := tx.Create(&vm.BankAccounts[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func (r *vendorMasterRepository) Delete(code string) error {

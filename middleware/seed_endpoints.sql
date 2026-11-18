@@ -69,6 +69,16 @@ VALUES
 	'/sap/opu/odata/sap/API_GLACCOUNTLINEITEM/GLAccountLineItem',
 	'Y_BPI_CU_SAP_COM_0303',
 	'PowerofOne@123456789'
+),
+(
+	'SUPPLIER_INVOICE',
+	'Supplier Invoice Reimbursement & Business Trip (OData v2)',
+	'SAP_COM_0057',
+	'v2',
+	'https://my446666-api.s4hana.cloud.sap',
+	'/sap/opu/odata/sap/API_SUPPLIERINVOICE_PROCESS_SRV/A_SupplierInvoice',
+	'Y_BPI_CU_SAP_COM_0057',
+	'PowerofOne@123456789'
 )
 ON CONFLICT (service_code) DO UPDATE 
 SET username = EXCLUDED.username, 

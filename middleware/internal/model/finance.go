@@ -165,6 +165,61 @@ type GLLineItem struct {
 	SyncedAt                    time.Time       `json:"synced_at"`
 }
 
+// GLDocumentHeader merepresentasikan ringkasan Header Dokumen Akuntansi (Gambar 3)
+type GLDocumentHeader struct {
+	CompanyCode                string    `json:"company_code"`
+	FiscalYear                 string    `json:"fiscal_year"`
+	AccountingDocument         string    `json:"accounting_document"`
+	TransactionCurrency        string    `json:"transaction_currency"`
+	FiscalPeriod               string    `json:"fiscal_period"`
+	PostingDate                string    `json:"posting_date"`
+	DocumentDate               string    `json:"document_date"`
+	AccountingDocumentType     string    `json:"accounting_document_type"`
+	AccountingDocumentHeaderText string  `json:"accounting_document_header_text"`
+	Reference                  string    `json:"reference"`
+	AccountingDocCreatedByUser string    `json:"accounting_doc_created_by_user"`
+	CreationDateTime           string    `json:"creation_date_time"`
+	SyncedAt                   time.Time `json:"synced_at"`
+	FlaggingSendToMaximo       string    `json:"flagging_send_to_maximo"`
+	TimeStampSendToMaximo      string    `json:"time_stamp_send_to_maximo"`
+	ItemCount                  int       `json:"item_count"`
+	TotalAmount                float64   `json:"total_amount"`
+}
+
+// GLDocumentLineItemDetail merepresentasikan 30 kolom Line Item Akuntansi (Gambar 4)
+type GLDocumentLineItemDetail struct {
+	CompanyCode                 string  `json:"company_code"`
+	FiscalYear                  string  `json:"fiscal_year"`
+	AccountingDocument          string  `json:"accounting_document"`
+	AccountingDocumentItem      string  `json:"accounting_document_item"`
+	CompanyCodeCurrency         string  `json:"company_code_currency"`
+	GlobalCurrency              string  `json:"global_currency"`
+	BaseUnit                    string  `json:"base_unit"`
+	Quantity                    float64 `json:"quantity"`
+	Product                     string  `json:"product"`
+	GLAccount                   string  `json:"gl_account"`
+	CostCenter                  string  `json:"cost_center"`
+	ProfitCenter                string  `json:"profit_center"`
+	FunctionalArea              string  `json:"functional_area"`
+	AmountInTransactionCurrency float64 `json:"amount_in_transaction_currency"`
+	AmountInCompanyCodeCurrency float64 `json:"amount_in_company_code_currency"`
+	AmountInGlobalCurrency      float64 `json:"amount_in_global_currency"`
+	DebitCreditCode             string  `json:"debit_credit_code"`
+	AssignmentReference         string  `json:"assignment_reference"`
+	ReversalReferenceDocument   string  `json:"reversal_reference_document"`
+	ReversalReferenceDocumentItem string `json:"reversal_reference_document_item"`
+	DocumentItemText            string  `json:"document_item_text"`
+	Supplier                    string  `json:"supplier"`
+	Customer                    string  `json:"customer"`
+	FinancialAccountType        string  `json:"financial_account_type"`
+	SpecialGLCode               string  `json:"special_gl_code"`
+	HouseBank                   string  `json:"house_bank"`
+	HouseBankAccount            string  `json:"house_bank_account"`
+	MasterFixedAsset            string  `json:"master_fixed_asset"`
+	FixedAsset                  string  `json:"fixed_asset"`
+	WithholdingTaxCode          string  `json:"withholding_tax_code"`
+}
+
 type PaymentProposal struct {
 	RecordKey       string          `json:"record_key"`
 	PaymentRunID    string          `json:"payment_run_id"`
@@ -235,6 +290,37 @@ type SupplierInvoiceRow struct {
 	PolicyName     string  `json:"PolicyName,omitempty"` // nama kebijakan reimbursement (penentu GL)
 	CIPFlag        string  `json:"CIP,omitempty"`        // override CIP / NON_CIP; kosong = dari mapping vendor karyawan
 	BudgetCode     string  `json:"BudgetCode,omitempty"` // hasil mapping kebijakan
+	DocCategory    string  `json:"DocCategory,omitempty"` // REIMBURSEMENT atau BUSINESS_TRIP
+	EmployeeID     string  `json:"EmployeeID,omitempty"`
+	EmployeeName   string  `json:"EmployeeName,omitempty"`
+	BenefitOrDest  string  `json:"BenefitOrDest,omitempty"`
+}
+
+// ReimbursementRequest merepresentasikan data staging pengajuan Reimbursement & Business Trip di PostgreSQL.
+type ReimbursementRequest struct {
+	ID                   int64     `json:"id"`
+	BatchID              *int64    `json:"batch_id,omitempty"`
+	DocType              string    `json:"doc_type"` // REIMBURSEMENT / BUSINESS_TRIP
+	TransactionID        string    `json:"transaction_id"` // Transaction Id / Trip ID
+	EmployeeID           string    `json:"employee_id"`
+	EmployeeName         string    `json:"employee_name"`
+	PolicyOrTripType     string    `json:"policy_or_trip_type"`
+	BenefitOrDestination string    `json:"benefit_or_destination"`
+	DescriptionOrNotes   string    `json:"description_or_notes"`
+	EffectiveDate        string    `json:"effective_date"`
+	PostingDate          string    `json:"posting_date"`
+	Currency             string    `json:"currency"`
+	GrossAmount          float64   `json:"gross_amount"`
+	PaidAmount           float64   `json:"paid_amount"`
+	CIPFlag              string    `json:"cip_flag"`
+	GLAccount            string    `json:"gl_account"`
+	CostCenter           string    `json:"cost_center"`
+	Status               string    `json:"status"`
+	SAPDocumentNo        *string   `json:"sap_document_no,omitempty"`
+	ErrorMessage         *string   `json:"error_message,omitempty"`
+	RawData              string    `json:"raw_data,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // SAPSupplierInvoicePayload mengikuti template "BPI - Payload API BT & Reimbursement.txt"
@@ -298,17 +384,38 @@ type ReimbursementGLMapping struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// EmployeeVendorMapping menyatakan vendor karyawan termasuk CIP atau Non CIP.
+// VendorBankAccount merepresentasikan rekening bank vendor (11 field dari OData SAP to_BusinessPartnerBank)
+type VendorBankAccount struct {
+	ID                       int64     `json:"id,omitempty"`
+	VendorCode               string    `json:"vendor_code"`
+	BankIdentification       string    `json:"bank_identification"`                   // 4. <d:BankIdentification>
+	BankCountryKey           string    `json:"bank_country_key,omitempty"`            // 5. <d:BankCountryKey>
+	BankNumber               string    `json:"bank_number,omitempty"`                 // 1. d:BankNumber (Bank Key)
+	BankAccount              string    `json:"bank_account"`                          // 2. d:BankAccount (Bank Account)
+	SWIFTCode                string    `json:"swift_code,omitempty"`                  // 6. <d:SWIFTCode>
+	BankName                 string    `json:"bank_name,omitempty"`                   // 7. <d:BankName>
+	BankControlKey           string    `json:"bank_control_key,omitempty"`            // 8. <d:BankControlKey>
+	IBAN                     string    `json:"iban,omitempty"`                        // 9. <d:IBAN>
+	BankAccountReferenceText string    `json:"bank_account_reference_text,omitempty"` // 10. <d:BankAccountReferenceText>
+	BankAccountHolderName    string    `json:"bank_account_holder_name,omitempty"`    // 3. d:BankAccountHolderName
+	BankAccountName          string    `json:"bank_account_name,omitempty"`           // 11. <d:BankAccountName>
+	IsDefault                bool      `json:"is_default"`
+	CreatedAt                time.Time `json:"created_at,omitempty"`
+	UpdatedAt                time.Time `json:"updated_at,omitempty"`
+}
+
+// EmployeeVendorMapping menyatakan vendor karyawan termasuk CIP atau Non CIP & data rekening bank.
 type EmployeeVendorMapping struct {
-	VendorCode    string    `json:"vendor_code" example:"VND-5072"`
-	CIPFlag       string    `json:"cip_flag" example:"NON_CIP"`
-	Email         string    `json:"email,omitempty" example:"vendor@company.com"`
-	BankKey       string    `json:"bank_key,omitempty" example:"Mandiri"`
-	BankAccount   string    `json:"bank_account,omitempty" example:"1010101"`
-	AccountHolder string    `json:"account_holder,omitempty" example:"PT Vendor"`
-	Description   string    `json:"description,omitempty"`
-	IsActive      bool      `json:"is_active"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	VendorCode    string              `json:"vendor_code" example:"VND-5072"`
+	CIPFlag       string              `json:"cip_flag" example:"NON_CIP"`
+	Email         string              `json:"email,omitempty" example:"vendor@company.com"`
+	BankKey       string              `json:"bank_key,omitempty" example:"Mandiri"`
+	BankAccount   string              `json:"bank_account,omitempty" example:"1010101"`
+	AccountHolder string              `json:"account_holder,omitempty" example:"PT Vendor"`
+	Description   string              `json:"description,omitempty"`
+	IsActive      bool                `json:"is_active"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	BankAccounts  []VendorBankAccount `json:"bank_accounts,omitempty"`
 }
 
 // NormalizePolicyName menyamakan penulisan nama kebijakan: huruf kecil, semua jenis tanda pisah

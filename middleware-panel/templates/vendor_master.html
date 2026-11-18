@@ -128,7 +128,7 @@
             <div class="p-4 border-bottom bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div class="input-group" style="max-width: 380px;">
                     <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
-                    <input type="text" id="searchVendor" class="form-control border-start-0 ps-0" placeholder="Cari Kode Vendor, Email, Bank, Nama Rekening...">
+                    <input type="text" id="searchVendor" class="form-control border-start-0 ps-0" placeholder="Cari Kode Vendor, Email, Bank, No Rekening, Account Holder...">
                 </div>
                 <div class="d-flex gap-2 align-items-center">
                     <select id="filterCIP" class="form-select form-select-sm" style="width: 140px;" onchange="applyFilters()">
@@ -143,22 +143,20 @@
                 <table class="table table-custom mb-0" id="tableVendor">
                     <thead>
                         <tr>
-                            <th style="width: 60px;">No</th>
+                            <th style="width: 50px;">No</th>
                             <th style="width: 160px;">Vendor Code</th>
                             <th style="width: 120px;">CIP / Non CIP</th>
                             <th>Email</th>
-                            <th style="width: 140px;">Bank Key</th>
-                            <th style="width: 160px;">Bank Account</th>
-                            <th style="width: 180px;">Account Holder</th>
+                            <th style="min-width: 220px;">Rekening Bank</th>
                             <th>Keterangan</th>
                             <th style="width: 90px;" class="text-center">Status</th>
-                            <th style="width: 110px;" class="text-end">Aksi</th>
+                            <th style="width: 140px;" class="text-end">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
                         {{ range $index, $v := .Vendors }}
-                        <tr data-cip="{{ $v.CIPFlag }}">
-                            <td class="text-muted">{{ add $index 1 }}</td>
+                        <tr data-cip="{{ $v.CIPFlag }}" data-vendor="{{ $v.VendorCode }}">
+                            <td class="text-muted fw-bold">{{ add $index 1 }}</td>
                             <td><span class="vendor-code-badge"><i class="bi bi-building me-1"></i>{{ $v.VendorCode }}</span></td>
                             <td>
                                 {{ if eq $v.CIPFlag "CIP" }}
@@ -174,27 +172,48 @@
                                     <span class="text-muted">-</span>
                                 {{ end }}
                             </td>
-                            <td><span class="badge bg-light text-dark border">{{ if $v.BankKey }}{{ $v.BankKey }}{{ else }}-{{ end }}</span></td>
-                            <td><span class="font-monospace fw-bold">{{ if $v.BankAccount }}{{ $v.BankAccount }}{{ else }}-{{ end }}</span></td>
-                            <td>{{ if $v.AccountHolder }}{{ $v.AccountHolder }}{{ else }}<span class="text-muted">-</span>{{ end }}</td>
-                            <td class="text-muted">{{ if $v.Description }}{{ $v.Description }}{{ else }}-{{ end }}</td>
+                            <td>
+                                {{ $bCount := len $v.BankAccounts }}
+                                {{ if gt $bCount 1 }}
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                        <i class="bi bi-bank me-1"></i>{{ $bCount }} Rekening
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-link text-primary text-decoration-none p-0 ms-1 fw-bold" onclick="showBankDetail('{{ $v.VendorCode }}')">
+                                        Lihat
+                                    </button>
+                                {{ else if eq $bCount 1 }}
+                                    {{ $b := index $v.BankAccounts 0 }}
+                                    <span class="fw-semibold text-dark">{{ if $b.BankName }}{{ $b.BankName }}{{ else }}{{ $b.BankNumber }}{{ end }}</span>
+                                    <span class="font-monospace text-primary small ms-1">{{ $b.BankAccount }}</span>
+                                {{ else if $v.BankAccount }}
+                                    <span class="fw-semibold text-dark">{{ if $v.BankKey }}{{ $v.BankKey }}{{ else }}Bank{{ end }}</span>
+                                    <span class="font-monospace text-primary small ms-1">{{ $v.BankAccount }}</span>
+                                {{ else }}
+                                    <span class="text-muted small">-</span>
+                                {{ end }}
+                                <span class="d-none">{{ range $b := $v.BankAccounts }} {{ $b.BankAccount }} {{ $b.BankName }} {{ $b.BankAccountHolderName }} {{ $b.BankNumber }} {{ $b.SWIFTCode }} {{ end }}</span>
+                            </td>
+                            <td><span class="text-muted small">{{ if $v.Description }}{{ $v.Description }}{{ else }}-{{ end }}</span></td>
                             <td class="text-center">
                                 <div class="form-check form-switch d-inline-block">
                                     <input class="form-check-input cursor-pointer" type="checkbox" role="switch" {{ if $v.IsActive }}checked{{ end }} onchange="toggleActive('{{ $v.VendorCode }}')">
                                 </div>
                             </td>
                             <td class="text-end">
-                                <button class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="openEditModal('{{ $v.VendorCode }}', '{{ $v.CIPFlag }}', '{{ $v.Email }}', '{{ $v.BankKey }}', '{{ $v.BankAccount }}', '{{ $v.AccountHolder }}', '{{ $v.Description }}', {{ $v.IsActive }})">
+                                <button class="btn btn-sm btn-outline-primary py-1 px-2" onclick="showBankDetail('{{ $v.VendorCode }}')" title="Lihat Detail Rekening Bank">
+                                    <i class="bi bi-eye"></i> Detail
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary py-1 px-2 ms-1" onclick="openEditModal('{{ $v.VendorCode }}')" title="Edit Vendor">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteVendor('{{ $v.VendorCode }}')">
+                                <button class="btn btn-sm btn-outline-danger py-1 px-2 ms-1" onclick="deleteVendor('{{ $v.VendorCode }}')" title="Hapus">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
                         </tr>
                         {{ else }}
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-4">Belum ada data Vendor Master</td>
+                            <td colspan="8" class="text-center text-muted py-4">Belum ada data Vendor Master</td>
                         </tr>
                         {{ end }}
                     </tbody>
@@ -210,9 +229,80 @@
         </div>
     </div>
 
-    <!-- Modal Form Add / Edit Vendor -->
+    <!-- Modal Detail Rekening Bank (11 Field OData to_BusinessPartnerBank) -->
+    <div class="modal fade" id="modalBankDetail" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+                <div class="modal-header border-bottom px-4 py-3 bg-light">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-bank2 text-primary fs-5"></i>
+                        <div>
+                            <h5 class="modal-title fw-bold fs-6 mb-0">Detail Rekening Bank Vendor</h5>
+                            <div class="text-muted small">Informasi rekening bank SAP OData (to_BusinessPartnerBank)</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Vendor Summary Header Card -->
+                    <div class="p-3 bg-light rounded border mb-3 d-flex flex-wrap gap-4 align-items-center">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold d-block">Vendor Code:</span>
+                            <span class="vendor-code-badge mt-1" id="detailVendorCode"><i class="bi bi-building me-1"></i>-</span>
+                        </div>
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold d-block">Status CIP:</span>
+                            <span id="detailVendorCIP" class="mt-1 d-inline-block">-</span>
+                        </div>
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold d-block">Email Vendor:</span>
+                            <span id="detailVendorEmail" class="fw-semibold text-primary mt-1 d-inline-block">-</span>
+                        </div>
+                        <div class="ms-auto">
+                            <span class="text-muted small text-uppercase fw-bold d-block">Total Rekening:</span>
+                            <span id="detailVendorBankCount" class="badge bg-primary fs-6 mt-1">0 Rekening</span>
+                        </div>
+                    </div>
+
+                    <!-- 11 Kolom Table Rekening Bank -->
+                    <div class="table-responsive border rounded" style="max-height: 420px; overflow-y: auto;">
+                        <table class="table table-hover table-striped align-middle mb-0" style="font-size: 13px;">
+                            <thead class="table-light text-muted small text-uppercase sticky-top">
+                                <tr>
+                                    <th style="width: 45px;" class="text-center">No</th>
+                                    <th style="min-width: 90px;">BANK ID</th>
+                                    <th style="min-width: 90px;">Bank Country</th>
+                                    <th style="min-width: 110px;">Bank Key</th>
+                                    <th style="min-width: 140px;">Bank Account</th>
+                                    <th style="min-width: 120px;">SWIFT Code</th>
+                                    <th style="min-width: 170px;">Bank Name</th>
+                                    <th style="min-width: 90px;">Control Key</th>
+                                    <th style="min-width: 100px;">IBAN</th>
+                                    <th style="min-width: 140px;">Reference Details</th>
+                                    <th style="min-width: 140px;">Account Holder</th>
+                                    <th style="min-width: 150px;">Account Name</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detailBankTableBody">
+                                <!-- Dynamic rows via JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer border-top px-4 py-3 bg-light d-flex justify-content-between">
+                    <span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Data ditarik dari sinkronisasi OData SAP Business Partner</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+                        <button type="button" class="btn btn-primary fw-bold" onclick="editCurrentVendor()"><i class="bi bi-pencil me-1"></i>Edit Data Vendor</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Form Add / Edit Vendor (Multiple Bank Accounts) -->
     <div class="modal fade" id="vendorModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-dialog modal-dialog-centered modal-xl">
             <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
                 <div class="modal-header border-bottom px-4 py-3">
                     <h5 class="modal-title fw-bold fs-6" id="modalTitle">Tambah Vendor Master</h5>
@@ -221,56 +311,77 @@
                 <div class="modal-body px-4 py-3">
                     <form id="vendorForm">
                         <div class="row g-3 mb-3">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <label class="form-label fw-bold small text-muted">Vendor Code (BusinessPartner) <span class="text-danger">*</span></label>
                                 <input type="text" id="vendorCode" class="form-control font-monospace" placeholder="Contoh: VND-0009" required>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <label class="form-label fw-bold small text-muted">Status CIP / Non CIP <span class="text-danger">*</span></label>
                                 <select id="cipFlag" class="form-select" required>
                                     <option value="NON_CIP">Non CIP (Operasional Standard)</option>
                                     <option value="CIP">CIP (Capital in Progress)</option>
                                 </select>
                             </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-muted">Email Vendor</label>
+                                <input type="email" id="email" class="form-control" placeholder="Contoh: vendor@company.com">
+                            </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small text-muted">Email Vendor</label>
-                            <input type="email" id="email" class="form-control" placeholder="Contoh: vendor@company.com">
-                        </div>
-
-                        <div class="p-3 mb-3 rounded-2" style="background-color: #F8FAFC; border: 1px dashed #CBD5E1;">
-                            <div class="fw-bold small text-primary mb-2"><i class="bi bi-bank me-1"></i>Informasi Rekening Bank (to_BusinessPartnerBank)</div>
-                            <div class="row g-2">
-                                <div class="col-md-4">
-                                    <label class="form-label small text-muted fw-bold mb-1">Bank Key / Bank Name</label>
-                                    <input type="text" id="bankKey" class="form-control form-control-sm" placeholder="Contoh: Mandiri, BNI, BCA">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label small text-muted fw-bold mb-1">Bank Account (No. Rekening)</label>
-                                    <input type="text" id="bankAccount" class="form-control form-control-sm font-monospace" placeholder="Contoh: 1010101010">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label small text-muted fw-bold mb-1">Account Holder Name</label>
-                                    <input type="text" id="accountHolder" class="form-control form-control-sm" placeholder="Contoh: PT NAMA PERUSAHAAN">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold small text-muted">Keterangan / Deskripsi</label>
+                                <input type="text" id="description" class="form-control" placeholder="Catatan tambahan untuk vendor">
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="isActive" checked>
+                                    <label class="form-check-label small fw-bold" for="isActive">Status Aktif</label>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small text-muted">Keterangan / Deskripsi</label>
-                            <input type="text" id="description" class="form-control" placeholder="Catatan tambahan untuk vendor">
-                        </div>
-
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="isActive" checked>
-                            <label class="form-check-label small fw-bold" for="isActive">Status Aktif</label>
+                        <!-- Card Rekening Bank Multiple (to_BusinessPartnerBank) -->
+                        <div class="card border border-primary-subtle shadow-none mb-2">
+                            <div class="card-header bg-light d-flex justify-content-between align-items-center py-2 px-3">
+                                <span class="fw-bold small text-primary">
+                                    <i class="bi bi-bank me-1"></i>Daftar Rekening Bank Vendor (to_BusinessPartnerBank - 11 Kolom OData)
+                                </span>
+                                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="addBankRow()">
+                                    <i class="bi bi-plus-circle me-1"></i>Tambah Rekening Bank
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+                                    <table class="table table-sm table-bordered mb-0 align-middle" id="tableBankAccounts" style="font-size: 12.5px;">
+                                        <thead class="table-light text-muted small text-uppercase">
+                                            <tr>
+                                                <th style="min-width: 90px;">Bank ID *</th>
+                                                <th style="min-width: 80px;">Country</th>
+                                                <th style="min-width: 100px;">Bank Key</th>
+                                                <th style="min-width: 120px;">Bank Account *</th>
+                                                <th style="min-width: 100px;">SWIFT Code</th>
+                                                <th style="min-width: 140px;">Bank Name</th>
+                                                <th style="min-width: 80px;">Control Key</th>
+                                                <th style="min-width: 90px;">IBAN</th>
+                                                <th style="min-width: 110px;">Reference</th>
+                                                <th style="min-width: 120px;">Account Holder</th>
+                                                <th style="min-width: 120px;">Account Name</th>
+                                                <th style="width: 50px;" class="text-center">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="bankAccountsBody">
+                                            <!-- Dynamic Bank Rows -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer border-top px-4 py-3">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                    <button type="button" class="btn btn-primary fw-bold px-4" onclick="saveVendor()">Simpan</button>
+                    <button type="button" class="btn btn-primary fw-bold px-4" onclick="saveVendor()">Simpan Vendor</button>
                 </div>
             </div>
         </div>
@@ -379,6 +490,135 @@
             applyFilters();
         });
 
+        let currentDetailVendorCode = '';
+
+        function showBankDetail(code) {
+            currentDetailVendorCode = code;
+            const tbody = document.getElementById('detailBankTableBody');
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Memuat rincian rekening...</td></tr>';
+
+            document.getElementById('detailVendorCode').innerHTML = `<i class="bi bi-building me-1"></i>${code}`;
+            document.getElementById('detailVendorCIP').innerHTML = '-';
+            document.getElementById('detailVendorEmail').innerText = '-';
+            document.getElementById('detailVendorBankCount').innerText = '...';
+
+            new bootstrap.Modal(document.getElementById('modalBankDetail')).show();
+
+            fetch('/api/vendor-master/' + encodeURIComponent(code))
+                .then(res => res.json())
+                .then(res => {
+                    const v = res.data;
+                    if (!v) {
+                        tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-danger">Data vendor tidak ditemukan</td></tr>';
+                        return;
+                    }
+
+                    document.getElementById('detailVendorCIP').innerHTML = (v.cip_flag === 'CIP') 
+                        ? '<span class="cip-badge"><i class="bi bi-check-circle me-1"></i>CIP</span>' 
+                        : '<span class="non-cip-badge">Non CIP</span>';
+                    document.getElementById('detailVendorEmail').innerText = v.email || '-';
+
+                    let banks = v.bank_accounts || [];
+                    if (banks.length === 0 && v.bank_account) {
+                        banks = [{
+                            bank_identification: '0001',
+                            bank_country_key: 'ID',
+                            bank_number: v.bank_key || '',
+                            bank_account: v.bank_account,
+                            bank_name: v.bank_key || '',
+                            bank_account_holder_name: v.account_holder || ''
+                        }];
+                    }
+
+                    document.getElementById('detailVendorBankCount').innerText = `${banks.length} Rekening`;
+
+                    if (banks.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted">Belum ada rekening bank yang tersimpan untuk vendor ini</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = '';
+                    banks.forEach((b, idx) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="text-muted fw-bold text-center">${idx + 1}</td>
+                            <td><span class="badge bg-secondary-subtle text-dark border font-monospace">${b.bank_identification || '-'}</span></td>
+                            <td><span class="badge bg-light text-dark border">${b.bank_country_key || '-'}</span></td>
+                            <td><span class="badge bg-light text-dark border font-monospace">${b.bank_number || '-'}</span></td>
+                            <td><span class="font-monospace fw-bold text-primary">${b.bank_account || '-'}</span></td>
+                            <td><span class="font-monospace small text-muted">${b.swift_code || '-'}</span></td>
+                            <td><span class="fw-semibold">${b.bank_name || '-'}</span></td>
+                            <td>${b.bank_control_key || '-'}</td>
+                            <td><span class="font-monospace small">${b.iban || '-'}</span></td>
+                            <td><span class="small text-muted">${b.bank_account_reference_text || '-'}</span></td>
+                            <td><span class="fw-semibold text-dark">${b.bank_account_holder_name || '-'}</span></td>
+                            <td>${b.bank_account_name || '-'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(err => {
+                    tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-danger">Gagal memuat rincian rekening dari server</td></tr>';
+                });
+        }
+
+        function editCurrentVendor() {
+            const modalEl = document.getElementById('modalBankDetail');
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            if (currentDetailVendorCode) {
+                setTimeout(() => openEditModal(currentDetailVendorCode), 300);
+            }
+        }
+
+        function addBankRow(data = {}) {
+            const tbody = document.getElementById('bankAccountsBody');
+            const rowCount = tbody.querySelectorAll('tr').length;
+            const rowId = 'bankRow_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            
+            const bId = data.bank_identification || (String(rowCount + 1).padStart(4, '0'));
+            const bCountry = data.bank_country_key || 'ID';
+            const bNum = data.bank_number || '';
+            const bAcc = data.bank_account || '';
+            const bSwift = data.swift_code || '';
+            const bName = data.bank_name || '';
+            const bControl = data.bank_control_key || '';
+            const bIban = data.iban || '';
+            const bRef = data.bank_account_reference_text || '';
+            const bHolder = data.bank_account_holder_name || '';
+            const bAccName = data.bank_account_name || '';
+            const isDef = data.is_default || (rowCount === 0);
+
+            const tr = document.createElement('tr');
+            tr.id = rowId;
+            tr.innerHTML = `
+                <td><input type="text" class="form-control form-control-sm font-monospace bank-id" value="${bId}" required></td>
+                <td><input type="text" class="form-control form-control-sm bank-country" value="${bCountry}"></td>
+                <td><input type="text" class="form-control form-control-sm bank-num" value="${bNum}" placeholder="Bank Key"></td>
+                <td><input type="text" class="form-control form-control-sm font-monospace fw-bold bank-acc" value="${bAcc}" placeholder="No Rek" required></td>
+                <td><input type="text" class="form-control form-control-sm font-monospace bank-swift" value="${bSwift}" placeholder="SWIFT"></td>
+                <td><input type="text" class="form-control form-control-sm bank-name" value="${bName}" placeholder="Nama Bank"></td>
+                <td><input type="text" class="form-control form-control-sm bank-control" value="${bControl}" placeholder="Control"></td>
+                <td><input type="text" class="form-control form-control-sm font-monospace bank-iban" value="${bIban}" placeholder="IBAN"></td>
+                <td><input type="text" class="form-control form-control-sm bank-ref" value="${bRef}" placeholder="Reference"></td>
+                <td><input type="text" class="form-control form-control-sm bank-holder" value="${bHolder}" placeholder="Holder"></td>
+                <td><input type="text" class="form-control form-control-sm bank-accname" value="${bAccName}" placeholder="Acc Name"></td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" onclick="removeBankRow('${rowId}')">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        function removeBankRow(rowId) {
+            const tr = document.getElementById(rowId);
+            if (tr) tr.remove();
+        }
+
         function openAddModal() {
             isEditing = false;
             document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle text-primary me-2"></i>Tambah Vendor Master';
@@ -387,37 +627,64 @@
             codeInput.disabled = false;
             document.getElementById('cipFlag').value = 'NON_CIP';
             document.getElementById('email').value = '';
-            document.getElementById('bankKey').value = '';
-            document.getElementById('bankAccount').value = '';
-            document.getElementById('accountHolder').value = '';
             document.getElementById('description').value = '';
             document.getElementById('isActive').checked = true;
+            
+            // Bersihkan dan tambah 1 baris rekening default
+            document.getElementById('bankAccountsBody').innerHTML = '';
+            addBankRow({ bank_identification: '0001', bank_country_key: 'ID' });
+            
             new bootstrap.Modal(document.getElementById('vendorModal')).show();
         }
 
-        function openEditModal(code, cip, email, bankKey, bankAccount, accountHolder, desc, isActive) {
+        function openEditModal(code) {
             isEditing = true;
             document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>Edit Vendor Master';
             const codeInput = document.getElementById('vendorCode');
             codeInput.value = code;
             codeInput.disabled = true;
-            document.getElementById('cipFlag').value = (cip === 'CIP' ? 'CIP' : 'NON_CIP');
-            document.getElementById('email').value = email;
-            document.getElementById('bankKey').value = bankKey;
-            document.getElementById('bankAccount').value = bankAccount;
-            document.getElementById('accountHolder').value = accountHolder;
-            document.getElementById('description').value = desc;
-            document.getElementById('isActive').checked = isActive;
-            new bootstrap.Modal(document.getElementById('vendorModal')).show();
+
+            // Fetch detail vendor beserta seluruh rekening bank
+            fetch('/api/vendor-master/' + encodeURIComponent(code))
+                .then(res => res.json())
+                .then(res => {
+                    const v = res.data;
+                    if (!v) {
+                        showToast('Gagal memuat data vendor', false);
+                        return;
+                    }
+                    document.getElementById('cipFlag').value = (v.cip_flag === 'CIP' ? 'CIP' : 'NON_CIP');
+                    document.getElementById('email').value = v.email || '';
+                    document.getElementById('description').value = v.description || '';
+                    document.getElementById('isActive').checked = v.is_active;
+
+                    const tbody = document.getElementById('bankAccountsBody');
+                    tbody.innerHTML = '';
+                    if (v.bank_accounts && v.bank_accounts.length > 0) {
+                        v.bank_accounts.forEach(b => addBankRow(b));
+                    } else if (v.bank_account) {
+                        addBankRow({
+                            bank_identification: '0001',
+                            bank_country_key: 'ID',
+                            bank_number: v.bank_key,
+                            bank_account: v.bank_account,
+                            bank_name: v.bank_key,
+                            bank_account_holder_name: v.account_holder
+                        });
+                    } else {
+                        addBankRow({ bank_identification: '0001', bank_country_key: 'ID' });
+                    }
+                    new bootstrap.Modal(document.getElementById('vendorModal')).show();
+                })
+                .catch(err => {
+                    showToast('Gagal memuat detail vendor', false);
+                });
         }
 
         function saveVendor() {
             const vendorCode = document.getElementById('vendorCode').value.trim();
             const cipFlag = document.getElementById('cipFlag').value;
             const email = document.getElementById('email').value.trim();
-            const bankKey = document.getElementById('bankKey').value.trim();
-            const bankAccount = document.getElementById('bankAccount').value.trim();
-            const accountHolder = document.getElementById('accountHolder').value.trim();
             const description = document.getElementById('description').value.trim();
             const isActive = document.getElementById('isActive').checked;
 
@@ -426,6 +693,31 @@
                 return;
             }
 
+            // Kumpulkan seluruh baris rekening bank
+            const bankRows = document.querySelectorAll('#bankAccountsBody tr');
+            const bankAccounts = [];
+            bankRows.forEach((r, idx) => {
+                const bId = r.querySelector('.bank-id')?.value.trim() || '';
+                const bAcc = r.querySelector('.bank-acc')?.value.trim() || '';
+                if (bId && bAcc) {
+                    bankAccounts.push({
+                        vendor_code: vendorCode,
+                        bank_identification: bId,
+                        bank_country_key: r.querySelector('.bank-country')?.value.trim() || '',
+                        bank_number: r.querySelector('.bank-num')?.value.trim() || '',
+                        bank_account: bAcc,
+                        swift_code: r.querySelector('.bank-swift')?.value.trim() || '',
+                        bank_name: r.querySelector('.bank-name')?.value.trim() || '',
+                        bank_control_key: r.querySelector('.bank-control')?.value.trim() || '',
+                        iban: r.querySelector('.bank-iban')?.value.trim() || '',
+                        bank_account_reference_text: r.querySelector('.bank-ref')?.value.trim() || '',
+                        bank_account_holder_name: r.querySelector('.bank-holder')?.value.trim() || '',
+                        bank_account_name: r.querySelector('.bank-accname')?.value.trim() || '',
+                        is_default: (idx === 0)
+                    });
+                }
+            });
+
             fetch('/api/vendor-master', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -433,11 +725,9 @@
                     vendor_code: vendorCode,
                     cip_flag: cipFlag,
                     email: email,
-                    bank_key: bankKey,
-                    bank_account: bankAccount,
-                    account_holder: accountHolder,
                     description: description,
-                    is_active: isActive
+                    is_active: isActive,
+                    bank_accounts: bankAccounts
                 })
             })
             .then(res => res.json())

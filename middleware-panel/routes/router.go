@@ -155,10 +155,15 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	syncService := services.NewSyncService(dashRepo)
 	dashController := controllers.NewDashboardController(dashService, syncService)
 
-	// 3. App Config Domain (.env)
+	// 7. SAP Integration Endpoints & Sandbox Domain
+	sapEndpointRepo := repository.NewSAPEndpointRepository(db)
+	sapEndpointService := services.NewSAPEndpointService(sapEndpointRepo)
+	sapEndpointController := controllers.NewSAPEndpointController(sapEndpointService)
+
+	// 3. App Config Domain (.env / runtime configs)
 	appConfigRepo := repository.NewAppConfigRepository(db)
 	appConfigService := services.NewAppConfigService(appConfigRepo)
-	appConfigController := controllers.NewAppConfigController(appConfigService)
+	appConfigController := controllers.NewAppConfigController(appConfigService, sapEndpointService)
 
 	// 4. Scheduler Automasi Domain
 	schedRepo := repository.NewSchedulerRepository(db)
@@ -174,11 +179,6 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	glMappingRepo := repository.NewGLMappingRepository(db)
 	glMappingService := services.NewGLMappingService(glMappingRepo)
 	glMappingController := controllers.NewGLMappingController(glMappingService)
-
-	// 7. SAP Integration Endpoints & Sandbox Domain
-	sapEndpointRepo := repository.NewSAPEndpointRepository(db)
-	sapEndpointService := services.NewSAPEndpointService(sapEndpointRepo)
-	sapEndpointController := controllers.NewSAPEndpointController(sapEndpointService)
 
 	// 8. Table-to-API Mapping Domain
 	tableMappingRepo := repository.NewTableAPIMappingRepository(db)
@@ -250,6 +250,7 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 	// SAP Integration Endpoints & Sandbox (menu: sap_endpoints)
 	r.GET("/sap-endpoints", requireMenuGuard("sap_endpoints"), sapEndpointController.ShowEndpoints)
 	r.POST("/api/sap-endpoints", requireMenuGuard("sap_endpoints"), sapEndpointController.HandleSaveEndpoint)
+	r.POST("/api/sap-endpoints/global-base-url", requireMenuGuard("sap_endpoints"), sapEndpointController.HandleUpdateGlobalBaseURL)
 	r.POST("/api/sap-endpoints/test", requireMenuGuard("sap_endpoints"), sapEndpointController.HandleTestHandshake)
 	r.POST("/api/sap-endpoints/execute-sandbox", requireMenuGuard("sap_endpoints"), sapEndpointController.HandleExecuteSandbox)
 	r.GET("/api/sap/material-document/:doc_no", requireMenuGuard("sap_endpoints"), sapEndpointController.HandleGetMaterialDocument)
@@ -285,6 +286,7 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
 	// Vendor Master Data (menu: vendor_master)
 	r.GET("/vendor-master", requireMenuGuard("vendor_master"), vendorMasterController.ShowVendorMaster)
+	r.GET("/api/vendor-master/:code", requireMenuGuard("vendor_master"), vendorMasterController.HandleGetByCode)
 	r.POST("/api/vendor-master", requireMenuGuard("vendor_master"), vendorMasterController.HandleSave)
 	r.POST("/api/vendor-master/toggle/:code", requireMenuGuard("vendor_master"), vendorMasterController.HandleToggleActive)
 	r.DELETE("/api/vendor-master/:code", requireMenuGuard("vendor_master"), vendorMasterController.HandleDelete)

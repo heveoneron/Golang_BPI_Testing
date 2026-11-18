@@ -645,6 +645,131 @@ func (r *PostgresRepository) ListGLLineItems(ctx context.Context, f GLLineItemFi
 	return out, rows.Err()
 }
 
+// ListGLDocumentHeaders mengambil ringkasan Header Dokumen Akuntansi (Gambar 3 - 15 Kolom)
+func (r *PostgresRepository) ListGLDocumentHeaders(ctx context.Context, f GLLineItemFilter) ([]model.GLDocumentHeader, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	if f.Limit <= 0 || f.Limit > 2000 {
+		f.Limit = 500
+	}
+	rows, err := r.Pool.Query(ctx, `
+		SELECT 
+			COALESCE(company_code, ''),
+			COALESCE(fiscal_year, ''),
+			COALESCE(accounting_document, ''),
+			COALESCE(MAX(transaction_currency), 'IDR'),
+			COALESCE(MAX(raw->>'FiscalPeriod'), ''),
+			COALESCE(TO_CHAR(MAX(posting_date), 'DD/MM/YYYY'), ''),
+			COALESCE(TO_CHAR(MAX(document_date), 'DD/MM/YYYY'), ''),
+			COALESCE(MAX(accounting_document_type), ''),
+			COALESCE(MAX(COALESCE(raw->>'AccountingDocumentHeaderText', '')), ''),
+			COALESCE(MAX(COALESCE(raw->>'Reference', raw->>'DocumentReferenceID', '')), ''),
+			COALESCE(MAX(COALESCE(raw->>'AccountingDocCreatedByUser', raw->>'CreatedByUser', '')), ''),
+			COALESCE(MAX(COALESCE(raw->>'CreationDateTime', '')), ''),
+			MAX(synced_at) AS synced_at,
+			COALESCE(MAX(COALESCE(raw->>'FlaggingSendToMaximo', 'X')), 'X') AS flagging_send_to_maximo,
+			COALESCE(MAX(COALESCE(raw->>'TimeStampSendToMaximo', '')), '') AS time_stamp_send_to_maximo,
+			COUNT(*)::int AS item_count,
+			COALESCE(SUM(amount_in_company_code_currency), 0)::float8 AS total_amount
+		FROM sap_gl_line_items
+		WHERE ($1 = '' OR company_code = $1)
+		  AND ($2 = '' OR posting_date >= NULLIF($2, '')::date)
+		  AND ($3 = '' OR posting_date <= NULLIF($3, '')::date)
+		  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR accounting_document_type = ANY($4))
+		  AND ($5 = '' OR accounting_document ILIKE '%' || $5 || '%' OR gl_account ILIKE '%' || $5 || '%' OR document_item_text ILIKE '%' || $5 || '%')
+		GROUP BY company_code, fiscal_year, accounting_document
+		ORDER BY MAX(posting_date) DESC NULLS LAST, accounting_document DESC
+		LIMIT $6
+	`, f.CompanyCode, f.FromDate, f.ToDate, f.DocTypes, f.Search, f.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.GLDocumentHeader
+	for rows.Next() {
+		var h model.GLDocumentHeader
+		if err := rows.Scan(
+			&h.CompanyCode, &h.FiscalYear, &h.AccountingDocument, &h.TransactionCurrency,
+			&h.FiscalPeriod, &h.PostingDate, &h.DocumentDate, &h.AccountingDocumentType,
+			&h.AccountingDocumentHeaderText, &h.Reference, &h.AccountingDocCreatedByUser,
+			&h.CreationDateTime, &h.SyncedAt, &h.FlaggingSendToMaximo, &h.TimeStampSendToMaximo,
+			&h.ItemCount, &h.TotalAmount,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// GetGLDocumentLineItems mengambil seluruh 30 kolom Line Item Akuntansi (Gambar 4) untuk satu dokumen
+func (r *PostgresRepository) GetGLDocumentLineItems(ctx context.Context, companyCode, fiscalYear, docNo string) ([]model.GLDocumentLineItemDetail, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	rows, err := r.Pool.Query(ctx, `
+		SELECT 
+			COALESCE(company_code, ''),
+			COALESCE(fiscal_year, ''),
+			COALESCE(accounting_document, ''),
+			COALESCE(ledger_gl_line_item, raw->>'AccountingDocumentItem', ''),
+			COALESCE(company_code_currency, ''),
+			COALESCE(raw->>'GlobalCurrency', company_code_currency, ''),
+			COALESCE(raw->>'BaseUnit', ''),
+			COALESCE((raw->>'Quantity')::float8, 0),
+			COALESCE(raw->>'Product', ''),
+			COALESCE(gl_account, ''),
+			COALESCE(cost_center, ''),
+			COALESCE(profit_center, ''),
+			COALESCE(raw->>'FunctionalArea', ''),
+			COALESCE(amount_in_transaction_currency, 0)::float8,
+			COALESCE(amount_in_company_code_currency, 0)::float8,
+			COALESCE((raw->>'AmountInGlobalCurrency')::float8, amount_in_company_code_currency, 0)::float8,
+			COALESCE(debit_credit_code, ''),
+			COALESCE(raw->>'AssignmentReference', ''),
+			COALESCE(raw->>'ReversalReferenceDocument', ''),
+			COALESCE(raw->>'ReversalReferenceDocumentItem', ''),
+			COALESCE(document_item_text, ''),
+			COALESCE(supplier, ''),
+			COALESCE(raw->>'Customer', ''),
+			COALESCE(raw->>'FinancialAccountType', ''),
+			COALESCE(raw->>'SpecialGLCode', ''),
+			COALESCE(raw->>'HouseBank', ''),
+			COALESCE(raw->>'HouseBankAccount', ''),
+			COALESCE(raw->>'MasterFixedAsset', ''),
+			COALESCE(raw->>'FixedAsset', ''),
+			COALESCE(raw->>'WithholdingTaxCode', '')
+		FROM sap_gl_line_items
+		WHERE ($1 = '' OR company_code = $1)
+		  AND ($2 = '' OR fiscal_year = $2)
+		  AND (accounting_document = $3 OR gl_line_item_key ILIKE '%' || $3 || '%')
+		ORDER BY ledger_gl_line_item ASC
+	`, companyCode, fiscalYear, docNo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.GLDocumentLineItemDetail
+	for rows.Next() {
+		var it model.GLDocumentLineItemDetail
+		if err := rows.Scan(
+			&it.CompanyCode, &it.FiscalYear, &it.AccountingDocument, &it.AccountingDocumentItem,
+			&it.CompanyCodeCurrency, &it.GlobalCurrency, &it.BaseUnit, &it.Quantity, &it.Product,
+			&it.GLAccount, &it.CostCenter, &it.ProfitCenter, &it.FunctionalArea,
+			&it.AmountInTransactionCurrency, &it.AmountInCompanyCodeCurrency, &it.AmountInGlobalCurrency,
+			&it.DebitCreditCode, &it.AssignmentReference, &it.ReversalReferenceDocument, &it.ReversalReferenceDocumentItem,
+			&it.DocumentItemText, &it.Supplier, &it.Customer, &it.FinancialAccountType,
+			&it.SpecialGLCode, &it.HouseBank, &it.HouseBankAccount, &it.MasterFixedAsset,
+			&it.FixedAsset, &it.WithholdingTaxCode,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
 // ===================== RICEF 5: Payment Proposal =====================
 
 func (r *PostgresRepository) UpsertPaymentProposals(ctx context.Context, items []model.PaymentProposal) (int, error) {
@@ -1033,3 +1158,82 @@ func (r *PostgresRepository) SyncWindowStart(ctx context.Context, interfaceID st
 	}
 	return last.Add(-overlap)
 }
+
+// SaveReimbursementRequests menyimpan baris pengajuan reimbursement & business trip ke tabel reimbursement_requests.
+func (r *PostgresRepository) SaveReimbursementRequests(ctx context.Context, reqs []model.ReimbursementRequest) error {
+	if r.Pool == nil || len(reqs) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for _, req := range reqs {
+		batch.Queue(`
+			INSERT INTO reimbursement_requests (
+				batch_id, doc_type, transaction_id, employee_id, employee_name,
+				policy_or_trip_type, benefit_or_destination, description_or_notes,
+				effective_date, posting_date, currency, gross_amount, paid_amount,
+				cip_flag, gl_account, cost_center, status, sap_document_no, error_message, raw_data,
+				created_at, updated_at
+			) VALUES (
+				$1, $2, $3, $4, $5,
+				$6, $7, $8,
+				$9, $10, $11, $12, $13,
+				$14, $15, $16, $17, $18, $19, $20,
+				NOW(), NOW()
+			)
+		`, req.BatchID, req.DocType, req.TransactionID, req.EmployeeID, req.EmployeeName,
+			req.PolicyOrTripType, req.BenefitOrDestination, req.DescriptionOrNotes,
+			nullIfEmpty(req.EffectiveDate), nullIfEmpty(req.PostingDate), req.Currency, req.GrossAmount, req.PaidAmount,
+			req.CIPFlag, req.GLAccount, req.CostCenter, req.Status, req.SAPDocumentNo, req.ErrorMessage, nullIfEmpty(req.RawData))
+	}
+	br := r.Pool.SendBatch(ctx, batch)
+	defer br.Close()
+	for i := 0; i < len(reqs); i++ {
+		if _, err := br.Exec(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListReimbursementRequests mengambil daftar baris reimbursement & business trip dari tabel reimbursement_requests.
+func (r *PostgresRepository) ListReimbursementRequests(ctx context.Context, limit int) ([]model.ReimbursementRequest, error) {
+	if r.Pool == nil {
+		return nil, fmt.Errorf("postgres pool not available")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, batch_id, doc_type, transaction_id, employee_id, employee_name,
+		       policy_or_trip_type, benefit_or_destination, description_or_notes,
+		       COALESCE(to_char(effective_date, 'YYYY-MM-DD'), ''),
+		       COALESCE(to_char(posting_date, 'YYYY-MM-DD'), ''),
+		       currency, gross_amount::float8, paid_amount::float8,
+		       COALESCE(cip_flag, ''), COALESCE(gl_account, ''), COALESCE(cost_center, ''),
+		       status, sap_document_no, error_message,
+		       created_at, updated_at
+		FROM reimbursement_requests
+		ORDER BY id DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.ReimbursementRequest
+	for rows.Next() {
+		var req model.ReimbursementRequest
+		if err := rows.Scan(
+			&req.ID, &req.BatchID, &req.DocType, &req.TransactionID, &req.EmployeeID, &req.EmployeeName,
+			&req.PolicyOrTripType, &req.BenefitOrDestination, &req.DescriptionOrNotes,
+			&req.EffectiveDate, &req.PostingDate, &req.Currency, &req.GrossAmount, &req.PaidAmount,
+			&req.CIPFlag, &req.GLAccount, &req.CostCenter, &req.Status, &req.SAPDocumentNo, &req.ErrorMessage,
+			&req.CreatedAt, &req.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, req)
+	}
+	return out, rows.Err()
+}
+

@@ -833,3 +833,65 @@ func TestDetermineJournalEntry_AllValuationClasses_Invariant(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncVendorMaster_MultiBankModel(t *testing.T) {
+	v := model.EmployeeVendorMapping{
+		VendorCode: "VND-0009",
+		CIPFlag:    "CIP",
+		Email:      "mrauff341@gmail.com",
+		BankAccounts: []model.VendorBankAccount{
+			{
+				BankIdentification:       "0001",
+				BankCountryKey:           "ID",
+				BankNumber:               "bank key1",
+				BankAccount:              "1010101",
+				SWIFTCode:                "BMRIIDJASTL",
+				BankName:                 "Bank 2 - SAMPLE BANK",
+				BankControlKey:           "CO",
+				BankAccountReferenceText: "Reference",
+				BankAccountHolderName:    "Mandiri",
+				BankAccountName:          "PT. Chevron",
+				IsDefault:                true,
+			},
+			{
+				BankIdentification:       "0002",
+				BankCountryKey:           "ID",
+				BankNumber:               "BK2",
+				BankAccount:              "20202020",
+				SWIFTCode:                "BMRIIDJASTL",
+				BankName:                 "Bank 2 - SAMPLE BANK",
+				BankControlKey:           "CO",
+				BankAccountReferenceText: "Reference 2",
+				BankAccountHolderName:    "BNI",
+				BankAccountName:          "PT. Bhimasena",
+				IsDefault:                false,
+			},
+			{
+				BankIdentification:       "0003",
+				BankCountryKey:           "ID",
+				BankNumber:               "BK3",
+				BankAccount:              "3030303",
+				SWIFTCode:                "BMRIIDJASTL",
+				BankName:                 "Bank 2 - SAMPLE BANK",
+				BankControlKey:           "CO",
+				BankAccountReferenceText: "Reference 3",
+				BankAccountHolderName:    "Muamalat",
+				BankAccountName:          "PT. Oligarki",
+				IsDefault:                false,
+			},
+		},
+	}
+
+	if len(v.BankAccounts) != 3 {
+		t.Fatalf("expected 3 bank accounts, got %d", len(v.BankAccounts))
+	}
+	if v.BankAccounts[0].BankAccountHolderName != "Mandiri" || v.BankAccounts[0].BankAccountName != "PT. Chevron" {
+		t.Errorf("unexpected bank account 1: %+v", v.BankAccounts[0])
+	}
+	if v.BankAccounts[1].BankNumber != "BK2" || v.BankAccounts[1].BankAccount != "20202020" {
+		t.Errorf("unexpected bank account 2: %+v", v.BankAccounts[1])
+	}
+	if v.BankAccounts[2].BankAccountHolderName != "Muamalat" || v.BankAccounts[2].BankAccountName != "PT. Oligarki" {
+		t.Errorf("unexpected bank account 3: %+v", v.BankAccounts[2])
+	}
+}

@@ -61,8 +61,8 @@ func TestSyncService_TransformPO_Structure(t *testing.T) {
 	if item.Material != "BEARING-TURBINE-6204" {
 		t.Errorf("expected material BEARING-TURBINE-6204, got %q", item.Material)
 	}
-	if item.Plant != "5110" {
-		t.Errorf("expected Plant '5110', got %q", item.Plant)
+	if item.Plant != "1000" {
+		t.Errorf("expected Plant '1000', got %q", item.Plant)
 	}
 	if item.NetPriceAmount != 250000 {
 		t.Errorf("expected NetPriceAmount 250000, got %f", item.NetPriceAmount)
@@ -102,8 +102,14 @@ func TestSyncService_TransformPO_Type1_Normal(t *testing.T) {
 	var po model.SAPGrowPOPayload
 	_ = json.Unmarshal(bytes, &po)
 
-	if po.PurchaseOrderType != "ZCTR" {
-		t.Errorf("expected prefix 47 to map to ZCTR, got %s", po.PurchaseOrderType)
+	if po.PurchaseOrderType != "ZBPI" {
+		t.Errorf("expected PO Type ZBPI, got %s", po.PurchaseOrderType)
+	}
+	if po.CompanyCode != "1000" {
+		t.Errorf("expected CompanyCode 1000, got %s", po.CompanyCode)
+	}
+	if po.PurchasingOrganization != "BPI" {
+		t.Errorf("expected PurchasingOrganization BPI, got %s", po.PurchasingOrganization)
 	}
 	if po.DownPaymentType != "" {
 		t.Errorf("expected empty DownPaymentType for normal PO, got %s", po.DownPaymentType)
@@ -149,26 +155,21 @@ func TestSyncService_TransformPO_Type2_WithTax(t *testing.T) {
 	var po model.SAPGrowPOPayload
 	_ = json.Unmarshal(bytes, &po)
 
-	if po.PurchaseOrderType != "ZPRC" {
-		t.Errorf("expected prefix 45 to map to ZPRC, got %s", po.PurchaseOrderType)
+	if po.PurchaseOrderType != "ZBPI" {
+		t.Errorf("expected PO Type ZBPI, got %s", po.PurchaseOrderType)
 	}
 
 	item := po.PurchaseOrderItem[0]
 	if item.TaxCode != "" {
 		t.Errorf("expected empty TaxCode when tax element is used, got %s", item.TaxCode)
 	}
-	if len(item.PurOrdPricingElement) != 2 {
-		t.Fatalf("expected 2 PurOrdPricingElement (DRG1 & PMP0), got %d", len(item.PurOrdPricingElement))
+	if len(item.PurOrdPricingElement) != 1 {
+		t.Fatalf("expected 1 PurOrdPricingElement (only DRG1, PMP0 removed), got %d", len(item.PurOrdPricingElement))
 	}
 
 	drg1 := item.PurOrdPricingElement[0]
 	if drg1.ConditionType != "DRG1" || drg1.ConditionRateAmount != 11 || drg1.ConditionRateRatioUnit != "%" {
 		t.Errorf("DRG1 mismatch: %+v", drg1)
-	}
-
-	pmp0 := item.PurOrdPricingElement[1]
-	if pmp0.ConditionType != "PMP0" || pmp0.ConditionRateAmount != 1235678 {
-		t.Errorf("PMP0 mismatch: %+v", pmp0)
 	}
 
 	if item.NetPriceAmount != 1235678 {
@@ -273,15 +274,12 @@ func TestSyncService_TransformPO_Type4_Tax_And_DP(t *testing.T) {
 		t.Errorf("expected empty TaxCode when tax element is used, got %s", item.TaxCode)
 	}
 
-	// Verifikasi Item Tax Pricing Elements
-	if len(item.PurOrdPricingElement) != 2 {
-		t.Fatalf("expected 2 PurOrdPricingElement, got %d", len(item.PurOrdPricingElement))
+	// Verifikasi Item Tax Pricing Elements (PMP0 di take out)
+	if len(item.PurOrdPricingElement) != 1 {
+		t.Fatalf("expected 1 PurOrdPricingElement (only DRG1, PMP0 removed), got %d", len(item.PurOrdPricingElement))
 	}
 	if item.PurOrdPricingElement[0].ConditionType != "DRG1" || item.PurOrdPricingElement[0].ConditionRateAmount != 11 {
 		t.Errorf("DRG1 mismatch: %+v", item.PurOrdPricingElement[0])
-	}
-	if item.PurOrdPricingElement[1].ConditionType != "PMP0" || item.PurOrdPricingElement[1].ConditionRateAmount != 1235678 {
-		t.Errorf("PMP0 mismatch: %+v", item.PurOrdPricingElement[1])
 	}
 
 	// Verifikasi Note & Account Assignment
@@ -290,6 +288,122 @@ func TestSyncService_TransformPO_Type4_Tax_And_DP(t *testing.T) {
 	}
 	if len(item.PurOrdAccountAssignment) != 1 || item.PurOrdAccountAssignment[0].CostCenter != "51101101" {
 		t.Errorf("AccountAssignment mismatch: %+v", item.PurOrdAccountAssignment)
+	}
+}
+
+// TestSyncService_TransformPO_CatatanPO_Requirements menguji ke-8 butir catatan perubahan PO
+func TestSyncService_TransformPO_CatatanPO_Requirements(t *testing.T) {
+	svc := &SyncService{}
+	longDesc := "CLUTCH; TYPE: SELF CONTAINED FREEWHEELS; PART NUMBER: FSO 600-35-GR; MANUFACTURE: STIEBER GERMANY"
+
+	raw := []byte(`{
+		"PONUM": "4500005678",
+		"VENDOR": "51300082",
+		"ORDERDATE": "2026-11-18",
+		"CURRENCYCODE": "IDR",
+		"LINES": [
+			{
+				"POLINENUM": 1,
+				"ITEMNUM": "SP006",
+				"ORDERUNIT": "EA",
+				"QTY": 10,
+				"UNITCOST": 16000000,
+				"SITEID": "JKT",
+				"TAXCODE1": "PPN11",
+				"pol_desc_ld": "` + longDesc + `",
+				"BPIBUDGETCODE": "51101101"
+			},
+			{
+				"POLINENUM": 2,
+				"ITEMNUM": "SP007",
+				"ORDERUNIT": "EA",
+				"QTY": 5,
+				"UNITCOST": 500000,
+				"SITEID": "BTNG",
+				"TAXCODE1": "",
+				"DESCRIPTION": "Short item description only",
+				"BUDGETCODE": "20002202"
+			}
+		]
+	}`)
+
+	bytes, err := svc.TransformPO(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("TransformPO failed: %v", err)
+	}
+
+	jsonStr := string(bytes)
+
+	var po model.SAPGrowPOPayload
+	if err := json.Unmarshal(bytes, &po); err != nil {
+		t.Fatalf("failed unmarshal PO: %v", err)
+	}
+
+	// 1. PurchaseOrderType itu hardcode ZBPI
+	if po.PurchaseOrderType != "ZBPI" {
+		t.Errorf("Req 1: expected PurchaseOrderType 'ZBPI', got %q", po.PurchaseOrderType)
+	}
+
+	// 2. CompanyCode hardcode 1000
+	if po.CompanyCode != "1000" {
+		t.Errorf("Req 2: expected CompanyCode '1000', got %q", po.CompanyCode)
+	}
+
+	// 3. PurchasingOrganization BPI
+	if po.PurchasingOrganization != "BPI" {
+		t.Errorf("Req 3: expected PurchasingOrganization 'BPI', got %q", po.PurchasingOrganization)
+	}
+
+	// 4. di header Language di take out
+	var headerMap map[string]interface{}
+	if err := json.Unmarshal(bytes, &headerMap); err != nil {
+		t.Fatalf("failed unmarshal raw headerMap: %v", err)
+	}
+	if _, exists := headerMap["Language"]; exists {
+		t.Errorf("Req 4: expected Language to be taken out from header, but found in JSON: %s", jsonStr)
+	}
+
+	if len(po.PurchaseOrderItem) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(po.PurchaseOrderItem))
+	}
+
+	item1 := po.PurchaseOrderItem[0]
+	item2 := po.PurchaseOrderItem[1]
+
+	// 5. _PurchaseOrderItem.Plant jika JKT 1000 jika BTNG 2000
+	if item1.Plant != "1000" {
+		t.Errorf("Req 5 (JKT): expected Plant '1000', got %q", item1.Plant)
+	}
+	if item2.Plant != "2000" {
+		t.Errorf("Req 5 (BTNG): expected Plant '2000', got %q", item2.Plant)
+	}
+
+	// 6. _PurchaseOrderItem.PurchaseOrderItemText ambil dari pol_desc_ld (maks 40 char),
+	// PlainLongText taruh full desc nya
+	if len(item1.PurchaseOrderItemText) > 40 {
+		t.Errorf("Req 6: PurchaseOrderItemText exceeded 40 chars: len=%d text=%q", len(item1.PurchaseOrderItemText), item1.PurchaseOrderItemText)
+	}
+	if item1.PurchaseOrderItemText != longDesc[:40] {
+		t.Errorf("Req 6: expected truncated text %q, got %q", longDesc[:40], item1.PurchaseOrderItemText)
+	}
+	if len(item1.PurchaseOrderItemNote) == 0 || item1.PurchaseOrderItemNote[0].PlainLongText != longDesc {
+		t.Errorf("Req 6: PlainLongText mismatch, expected %q, got %+v", longDesc, item1.PurchaseOrderItemNote)
+	}
+
+	// 7. _PurchaseOrderItem._PurOrdPricingElement di take out PMP0 (hanya DRG1)
+	if len(item1.PurOrdPricingElement) != 1 {
+		t.Fatalf("Req 7: expected 1 PurOrdPricingElement, got %d", len(item1.PurOrdPricingElement))
+	}
+	if item1.PurOrdPricingElement[0].ConditionType != "DRG1" || item1.PurOrdPricingElement[0].ConditionRateAmount != 11 {
+		t.Errorf("Req 7: expected DRG1 rate 11, got %+v", item1.PurOrdPricingElement[0])
+	}
+
+	// 8. di _PurchaseOrderItem._PurOrdAccountAssignment.CostCenter ambil dari BPIBUDGETCODE
+	if len(item1.PurOrdAccountAssignment) == 0 || item1.PurOrdAccountAssignment[0].CostCenter != "51101101" {
+		t.Errorf("Req 8: expected CostCenter '51101101' from BPIBUDGETCODE, got %+v", item1.PurOrdAccountAssignment)
+	}
+	if len(item2.PurOrdAccountAssignment) == 0 || item2.PurOrdAccountAssignment[0].CostCenter != "20002202" {
+		t.Errorf("Req 8 fallback: expected CostCenter '20002202' from BUDGETCODE, got %+v", item2.PurOrdAccountAssignment)
 	}
 }
 
@@ -637,7 +751,7 @@ func TestSyncService_TransformItem(t *testing.T) {
 		t.Errorf("expected PurchaseOrderQuantityUnit 'BAG', got %q", product.PurchaseOrderQuantityUnit)
 	}
 
-	// Descriptions
+	// Descriptions (Language hardcode EN)
 	if len(product.ToDescription.Results) != 1 {
 		t.Fatalf("expected 1 description, got %d", len(product.ToDescription.Results))
 	}
@@ -648,12 +762,15 @@ func TestSyncService_TransformItem(t *testing.T) {
 		t.Errorf("expected ProductDescription 'DANDRUFFFFF', got %q", product.ToDescription.Results[0].ProductDescription)
 	}
 
-	// Plants (configured 1000 and 2000)
+	// Plants (configured 1000 and 2000, PurchasingGroup hardcode 001)
 	if len(product.ToPlant.Results) != 2 {
 		t.Fatalf("expected 2 plants, got %d", len(product.ToPlant.Results))
 	}
 	if product.ToPlant.Results[0].Plant != "1000" || product.ToPlant.Results[1].Plant != "2000" {
 		t.Errorf("expected Plants 1000 and 2000, got %v and %v", product.ToPlant.Results[0].Plant, product.ToPlant.Results[1].Plant)
+	}
+	if product.ToPlant.Results[0].PurchasingGroup != "001" || product.ToPlant.Results[1].PurchasingGroup != "001" {
+		t.Errorf("expected PurchasingGroup '001', got %v and %v", product.ToPlant.Results[0].PurchasingGroup, product.ToPlant.Results[1].PurchasingGroup)
 	}
 
 	// Valuation (configured 1000 and 2000 with Procedure V)
@@ -679,7 +796,7 @@ func TestSyncService_TransformItem(t *testing.T) {
 		t.Errorf("expected 1:1 ratio, got %s:%s", uom.QuantityNumerator, uom.QuantityDenominator)
 	}
 
-	// Test case: when ORDERUNIT == ISSUEUNIT, to_ProductUnitsOfMeasure should be omitted to prevent SAP error M3/332
+	// Test case: when ORDERUNIT == ISSUEUNIT, to_ProductUnitsOfMeasure dikosongkan dan PurchaseOrderQuantityUnit = BLANK ("")
 	sameUOMJSON := []byte(`{
 		"ITEMNUM": "ITEM-SAME-UOM",
 		"ISSUEUNIT": "PC",
@@ -697,7 +814,7 @@ func TestSyncService_TransformItem(t *testing.T) {
 		t.Errorf("expected to_ProductUnitsOfMeasure to be nil when units match, got %+v", sameProduct.ToProductUnitsOfMeasure)
 	}
 	if sameProduct.PurchaseOrderQuantityUnit != "" {
-		t.Errorf("expected empty PurchaseOrderQuantityUnit when units match, got %q", sameProduct.PurchaseOrderQuantityUnit)
+		t.Errorf("expected empty PurchaseOrderQuantityUnit (BLANK) when units match, got %q", sameProduct.PurchaseOrderQuantityUnit)
 	}
 }
 
@@ -787,7 +904,7 @@ func TestSyncService_ItemMaster_AmpersandToN(t *testing.T) {
 	svc := &SyncService{}
 	raw := []byte(`{
 		"ITEMNUM": "SP&001-TURBINE",
-		"DESCRIPTION": "Turbine spare part & filter",
+		"DESCRIPTION": "Turbine spare part & filter with extended technical description for testing length limit",
 		"ITEMTYPE": "ITEM",
 		"STOCKTYPE": "Stock",
 		"ISSUEUNIT": "PCS",
@@ -810,6 +927,126 @@ func TestSyncService_ItemMaster_AmpersandToN(t *testing.T) {
 	}
 	if strings.Contains(prod.Product, "&") {
 		t.Errorf("Product code must not contain '&', got %q", prod.Product)
+	}
+
+	// Verify PurchaseOrderQuantityUnit di Header ada dan bernilai "BOX"
+	if prod.PurchaseOrderQuantityUnit != "BOX" {
+		t.Errorf("expected PurchaseOrderQuantityUnit 'BOX', got %q", prod.PurchaseOrderQuantityUnit)
+	}
+
+	// Verify Description terpotong maksimal 40 karakter sesuai batasan SAP S/4HANA MAKTX
+	if len(prod.ToDescription.Results) == 0 {
+		t.Fatalf("expected description in to_Description.results")
+	}
+	descLen := len([]rune(prod.ToDescription.Results[0].ProductDescription))
+	if descLen > 40 {
+		t.Errorf("expected ProductDescription length <= 40, got %d (%q)", descLen, prod.ToDescription.Results[0].ProductDescription)
+	}
+
+	// Verify to_ProductUnitsOfMeasure (Alternative Unit)
+	if prod.ToProductUnitsOfMeasure == nil || len(prod.ToProductUnitsOfMeasure.Results) != 1 {
+		t.Fatalf("expected 1 AlternativeUnit entry in to_ProductUnitsOfMeasure, got %+v", prod.ToProductUnitsOfMeasure)
+	}
+	uom := prod.ToProductUnitsOfMeasure.Results[0]
+	if uom.AlternativeUnit != "BOX" || uom.BaseUnit != "PCS" || uom.QuantityNumerator != "1" || uom.QuantityDenominator != "1" {
+		t.Errorf("unexpected to_ProductUnitsOfMeasure content: %+v", uom)
+	}
+
+	// Verify Plants (Default 1000, 2000 & PurchasingGroup 001)
+	if len(prod.ToPlant.Results) != 2 || prod.ToPlant.Results[0].Plant != "1000" || prod.ToPlant.Results[1].Plant != "2000" {
+		t.Errorf("expected plants [1000, 2000], got %+v", prod.ToPlant.Results)
+	}
+	if prod.ToPlant.Results[0].PurchasingGroup != "001" || prod.ToPlant.Results[1].PurchasingGroup != "001" {
+		t.Errorf("expected PurchasingGroup '001', got %+v", prod.ToPlant.Results)
+	}
+
+	// Verify Valuations (Default 1000, 2000)
+	if len(prod.ToValuation.Results) != 2 || prod.ToValuation.Results[0].ValuationArea != "1000" || prod.ToValuation.Results[1].ValuationArea != "2000" {
+		t.Errorf("expected valuation areas [1000, 2000], got %+v", prod.ToValuation.Results)
+	}
+}
+
+func TestSyncService_ItemMaster_SameUnit_PurchaseOrderQuantityUnit(t *testing.T) {
+	svc := &SyncService{}
+	raw := []byte(`{
+		"ITEMNUM": "SP003",
+		"DESCRIPTION": "Standard Single Unit Item",
+		"ISSUEUNIT": "EA",
+		"ORDERUNIT": "EA"
+	}`)
+
+	payloadBytes, err := svc.transformItem(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("transformItem error: %v", err)
+	}
+
+	var prod model.SAPProductPayload
+	if err := json.Unmarshal(payloadBytes, &prod); err != nil {
+		t.Fatalf("failed to unmarshal SAPProductPayload: %v", err)
+	}
+
+	// Header PurchaseOrderQuantityUnit wajib bernilai "" (BLANK) saat unit sama
+	if prod.PurchaseOrderQuantityUnit != "" {
+		t.Errorf("expected empty PurchaseOrderQuantityUnit (BLANK), got %q", prod.PurchaseOrderQuantityUnit)
+	}
+
+	// to_ProductUnitsOfMeasure dikosongkan (nil) saat unit sama untuk mencegah error M3/332
+	if prod.ToProductUnitsOfMeasure != nil {
+		t.Errorf("expected to_ProductUnitsOfMeasure to be nil when units match, got %+v", prod.ToProductUnitsOfMeasure)
+	}
+
+	// Verify Language tetap ada dan bernilai "EN"
+	if len(prod.ToDescription.Results) == 0 || prod.ToDescription.Results[0].Language != "EN" {
+		t.Errorf("expected Language 'EN', got %+v", prod.ToDescription.Results)
+	}
+
+	// JSON payload harus memuat "Language": "EN" dan "PurchaseOrderQuantityUnit": "" serta tidak memuat "to_ProductUnitsOfMeasure"
+	jsonStr := string(payloadBytes)
+	if !strings.Contains(jsonStr, `"Language":"EN"`) && !strings.Contains(jsonStr, `"Language": "EN"`) {
+		t.Errorf("expected 'Language: EN' in payload, got: %s", jsonStr)
+	}
+	if !strings.Contains(jsonStr, `"PurchaseOrderQuantityUnit":""`) && !strings.Contains(jsonStr, `"PurchaseOrderQuantityUnit": ""`) {
+		t.Errorf("expected 'PurchaseOrderQuantityUnit: \"\"' in payload, got: %s", jsonStr)
+	}
+	if strings.Contains(jsonStr, `"to_ProductUnitsOfMeasure"`) {
+		t.Errorf("expected 'to_ProductUnitsOfMeasure' to be omitted when units match, got: %s", jsonStr)
+	}
+
+	// Verify A_ProductProcurement payload generation for matching units
+	procPayload := model.SAPProductProcurementPayload{
+		Product:                   prod.Product,
+		PurchaseOrderQuantityUnit: prod.PurchaseOrderQuantityUnit, // ""
+		VarblPurOrdUnitStatus:     "1",
+	}
+	procBytes, err := json.Marshal(procPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal procurement payload: %v", err)
+	}
+	procStr := string(procBytes)
+	if !strings.Contains(procStr, `"PurchaseOrderQuantityUnit":""`) && !strings.Contains(procStr, `"PurchaseOrderQuantityUnit": ""`) {
+		t.Errorf("expected blank PurchaseOrderQuantityUnit in procurement payload, got: %s", procStr)
+	}
+	if !strings.Contains(procStr, `"VarblPurOrdUnitStatus":"1"`) && !strings.Contains(procStr, `"VarblPurOrdUnitStatus": "1"`) {
+		t.Errorf("expected VarblPurOrdUnitStatus '1' in procurement payload, got: %s", procStr)
+	}
+}
+
+func TestSyncService_ProductProcurement_DifferentUnits_Payload(t *testing.T) {
+	procPayload := model.SAPProductProcurementPayload{
+		Product:                   "SP003",
+		PurchaseOrderQuantityUnit: "EA",
+		VarblPurOrdUnitStatus:     "1",
+	}
+	procBytes, err := json.Marshal(procPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal procurement payload: %v", err)
+	}
+	procStr := string(procBytes)
+	if !strings.Contains(procStr, `"PurchaseOrderQuantityUnit":"EA"`) && !strings.Contains(procStr, `"PurchaseOrderQuantityUnit": "EA"`) {
+		t.Errorf("expected 'PurchaseOrderQuantityUnit: EA' in procurement payload, got: %s", procStr)
+	}
+	if !strings.Contains(procStr, `"VarblPurOrdUnitStatus":"1"`) && !strings.Contains(procStr, `"VarblPurOrdUnitStatus": "1"`) {
+		t.Errorf("expected VarblPurOrdUnitStatus '1' in procurement payload, got: %s", procStr)
 	}
 }
 

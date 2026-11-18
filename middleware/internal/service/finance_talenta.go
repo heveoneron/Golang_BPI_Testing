@@ -12,8 +12,11 @@ import (
 
 // RICEF 7: normalisasi file ekspor Mekari Talenta (Reimbursement & Business Trip) ke format template_reimbursement.csv.
 
-var templateReimbursementHeader = []string{"InvoiceRef", "CompanyCode", "DocumentDate", "PostingDate", "InvoicingParty", "Currency",
-	"GrossAmount", "HeaderText", "PaymentTerms", "PolicyName", "CIP", "CostCenter", "Amount", "TaxCode", "ItemText", "AssignmentRef"}
+var templateReimbursementHeader = []string{
+	"InvoiceRef", "CompanyCode", "DocumentDate", "PostingDate", "InvoicingParty", "Currency",
+	"GrossAmount", "HeaderText", "PaymentTerms", "PolicyName", "CIP", "CostCenter", "Amount", "TaxCode", "ItemText", "AssignmentRef",
+	"DocType", "DocCategory", "EmployeeID", "EmployeeName",
+}
 
 var (
 	htmlRowRe  = regexp.MustCompile(`(?is)<tr[^>]*>(.*?)</tr>`)
@@ -121,12 +124,11 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 		}
 		return ""
 	}
-	company := DefaultCompanyCode()
-	terms := envOr("FIN_INVOICE_PAYMENT_TERMS", "NT15")
+	company := envOr("FIN_COMPANY_CODE", "1000")
+	terms := envOr("FIN_INVOICE_PAYMENT_TERMS", "Z014")
 	tax := envOr("FIN_INVOICE_DEFAULT_TAX_CODE", "V0")
-	// Employee ID tidak dikirim ke SAP; semua klaim memakai satu vendor penampung yang dikonfigurasi.
-	vendor := envOr("FIN_TALENTA_INVOICING_PARTY", "")
 	posting := today.Format("2006-01-02")
+	docType := "ZB"
 
 	out := [][]string{templateReimbursementHeader}
 	for i := headerRow + 1; i < len(table); i++ {
@@ -134,21 +136,37 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 		if strings.TrimSpace(strings.Join(r, "")) == "" {
 			continue
 		}
-		status := get(r, "finalstatus", "finalstatustransaksi", "tripstatus", "status", "transactionstatus")
-		if status != "" && !strings.EqualFold(status, "approved") {
+		// Berhenti jika sampai pada tabel referensi mapping / penjelasan di bagian bawah file.
+		if get(r, "bpicip") != "" || strings.EqualFold(get(r, "bpireimbursement"), "reimbursement") || strings.EqualFold(get(r, "bpireimbursement"), "businesstrip") {
+			break
+		}
+		status := get(r, "reimbursementstatus", "finalstatus", "finalstatustransaksi", "tripstatus", "status", "transactionstatus")
+		if status != "" && !strings.EqualFold(status, "approved") && !strings.EqualFold(status, "awaiting disbursement") {
 			continue
 		}
 		// Kosong = Cost Center diisi Budget Code dari mapping reimbursement saat resolusi GL.
 		cc := get(r, "costcenter")
-		line := func(ref, docDate, gross, header, policy, amount, text string) []string {
-			return []string{ref, company, docDate, posting, vendor, "IDR", gross, truncate(header, 50), terms, policy, "", cc, amount, tax, truncate(text, 50), ref}
+		line := func(ref, docDate, gross, header, policy, amount, text, assignRef, cat, eID, eName, vendor string) []string {
+			return []string{
+				ref, company, docDate, posting, vendor, "IDR", gross, truncate(header, 50),
+				terms, policy, "", cc, amount, tax, truncate(text, 50), truncate(assignRef, 50),
+				docType, cat, eID, eName,
+			}
 		}
 
 		if kind == "REIMB" {
 			ref := get(r, "transactionid")
+			if ref == "" || strings.EqualFold(ref, "BPI_CIP") {
+				continue
+			}
+			empID := get(r, "employeeid", "employee_id", "empid")
+			empName := get(r, "fullname", "full_name", "employeename", "name")
+			vendor := firstNonEmpty(empID, envOr("FIN_TALENTA_INVOICING_PARTY", ""))
 			policy := get(r, "reimbursementpolicyname")
 			docDate := talentaDate(get(r, "reimbursementeffectivedate", "effectivedate", "date"))
 			notes := firstNonEmpty(get(r, "reimbursementnotes", "notes"), policy)
+			benefit1 := get(r, "reimbursementbenefitname1", "benefitname1")
+			assignmentRef := firstNonEmpty(benefit1, policy)
 			var lines [][2]string
 			sum := 0.0
 			for n := 1; n <= 7; n++ {
@@ -158,7 +176,8 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 					continue
 				}
 				sum += amt
-				lines = append(lines, [2]string{fmtAmount(amt), firstNonEmpty(get(r, "description"+s, "reimbursementdescription"+s), get(r, "benefitname"+s), policy)})
+				bName := get(r, "benefitname"+s, "reimbursementbenefitname"+s)
+				lines = append(lines, [2]string{fmtAmount(amt), firstNonEmpty(get(r, "description"+s, "reimbursementdescription"+s), bName, notes)})
 			}
 			gross := talentaAmount(get(r, "totalreimbursementpaidamount", "totalpaidamount"))
 			if gross <= 0 {
@@ -168,20 +187,37 @@ func NormalizeTalentaTable(table [][]string, today time.Time) ([][]string, bool)
 				lines = append(lines, [2]string{fmtAmount(gross), notes})
 			}
 			for _, l := range lines {
-				out = append(out, line(ref, docDate, fmtAmount(gross), notes, policy, l[0], l[1]))
+				out = append(out, line(ref, docDate, fmtAmount(gross), ref, policy, l[0], l[1], assignmentRef, "REIMBURSEMENT", empID, empName, vendor))
 			}
 			continue
 		}
 
 		ref := get(r, "tripid")
-		amount := talentaAmount(get(r, "approvedexpenseamount"))
+		if ref == "" || strings.EqualFold(ref, "BPI_CIP") {
+			continue
+		}
+		reqBy := get(r, "requestedby", "requested_by", "employeeid")
+		empName := reqBy
+		empID := reqBy
+		if idx := strings.Index(reqBy, " - "); idx >= 0 {
+			empName = strings.TrimSpace(reqBy[:idx])
+			empID = strings.TrimSpace(reqBy[idx+3:])
+		} else if idx := strings.Index(reqBy, "-"); idx >= 0 {
+			empName = strings.TrimSpace(reqBy[:idx])
+			empID = strings.TrimSpace(reqBy[idx+1:])
+		}
+		vendor := firstNonEmpty(empID, envOr("FIN_TALENTA_INVOICING_PARTY", ""))
+		amount := talentaAmount(firstNonEmpty(get(r, "approvedexpenseamount"), get(r, "requestedexpenseamount")))
 		if amount <= 0 {
 			continue
 		}
-		docDate := talentaDate(firstNonEmpty(get(r, "approvalreportdate"), get(r, "requestdate")))
-		header := strings.TrimSpace(get(r, "destination") + " " + get(r, "departuredate"))
-		out = append(out, line(ref, docDate, fmtAmount(amount), firstNonEmpty(header, "Perjalanan dinas"),
-			get(r, "triptype"), fmtAmount(amount), firstNonEmpty(get(r, "trippurpose"), "Perjalanan dinas")))
+		tripType := get(r, "triptype")
+		dest := get(r, "destination")
+		reqType := get(r, "requesttype")
+		itemText := strings.TrimSpace(firstNonEmpty(reqType, "Reimbursement") + " " + dest)
+		assignmentRef := dest
+		docDate := talentaDate(firstNonEmpty(get(r, "approvalrequestdate"), get(r, "approvalreportdate"), get(r, "requestdate")))
+		out = append(out, line(ref, docDate, fmtAmount(amount), ref, tripType, fmtAmount(amount), itemText, assignmentRef, "BUSINESS_TRIP", empID, empName, vendor))
 	}
 	return out, true
 }

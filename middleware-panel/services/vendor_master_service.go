@@ -7,6 +7,7 @@ import (
 
 type VendorMasterService interface {
 	GetVendors() ([]models.VendorMaster, error)
+	GetVendorByCode(code string) (*models.VendorMaster, error)
 	SaveVendor(vm *models.VendorMaster) error
 	DeleteVendor(code string) error
 	ToggleActive(code string) error
@@ -22,6 +23,10 @@ func NewVendorMasterService(repo repository.VendorMasterRepository) VendorMaster
 
 func (s *vendorMasterService) GetVendors() ([]models.VendorMaster, error) {
 	return s.repo.GetAll()
+}
+
+func (s *vendorMasterService) GetVendorByCode(code string) (*models.VendorMaster, error) {
+	return s.repo.GetByCode(code)
 }
 
 func (s *vendorMasterService) SaveVendor(vm *models.VendorMaster) error {
