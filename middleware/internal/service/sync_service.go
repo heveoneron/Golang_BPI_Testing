@@ -283,7 +283,10 @@ func (s *SyncService) transformPO(ctx context.Context, raw json.RawMessage) ([]b
 		if fullDesc == "" {
 			fullDesc = itemNum
 		}
-		itemText := truncateRunes(fullDesc, 40)
+
+		// Untuk PurchaseOrderItemText (CHAR 40 SAP): ganti newline/tab jadi spasi tunggal lalu potong 40 karakter
+		singleLineDesc := strings.Join(strings.Fields(fullDesc), " ")
+		itemText := truncateRunes(singleLineDesc, 40)
 
 		// UOM conversion
 		orderUnit := strings.TrimSpace(line.OrderUnit)

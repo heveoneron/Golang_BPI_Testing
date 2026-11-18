@@ -128,36 +128,29 @@ func (l *MaximoPOLine) UnmarshalJSON(data []byte) error {
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err == nil {
-		if l.POLDescLD == "" {
-			for k, v := range raw {
-				if s, ok := v.(string); ok && s != "" {
-					kl := strings.ToLower(k)
-					if kl == "pol_desc_ld" || kl == "pol_desc" || kl == "poldescld" || kl == "longdescription" || kl == "description_longdescription" {
-						l.POLDescLD = s
-						break
-					}
-				}
+		for k, v := range raw {
+			s, ok := v.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				continue
 			}
-		}
-		if l.BPIBudgetCode == "" {
-			for k, v := range raw {
-				if s, ok := v.(string); ok && s != "" {
-					kl := strings.ToLower(k)
-					if kl == "bpibudgetcode" || kl == "bpi_budgetcode" || kl == "bpi_budget_code" {
-						l.BPIBudgetCode = s
-						break
-					}
+			kl := strings.ToLower(strings.TrimSpace(k))
+
+			switch kl {
+			case "pol_desc_ld", "pol_desc", "poldescld", "longdescription", "description_longdescription", "long_description":
+				if strings.TrimSpace(l.POLDescLD) == "" {
+					l.POLDescLD = s
 				}
-			}
-		}
-		if l.SiteID == "" {
-			for k, v := range raw {
-				if s, ok := v.(string); ok && s != "" {
-					kl := strings.ToLower(k)
-					if kl == "siteid" || kl == "site_id" || kl == "plant" {
-						l.SiteID = s
-						break
-					}
+			case "description", "desc", "itemdesc", "item_desc", "shortdescription":
+				if strings.TrimSpace(l.Description) == "" {
+					l.Description = s
+				}
+			case "bpibudgetcode", "bpi_budgetcode", "bpi_budget_code":
+				if strings.TrimSpace(l.BPIBudgetCode) == "" {
+					l.BPIBudgetCode = s
+				}
+			case "siteid", "site_id", "plant":
+				if strings.TrimSpace(l.SiteID) == "" {
+					l.SiteID = s
 				}
 			}
 		}

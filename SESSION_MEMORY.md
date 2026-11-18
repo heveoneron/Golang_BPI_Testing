@@ -279,7 +279,8 @@ Dokumen ini adalah ringkasan status, arsitektur, progres implementasi terakhir, 
      - Jika `SITEID` = `"BTNG"` $\rightarrow$ `"2000"`
      - Fallback default value `PO_DEFAULT_PLANT` diselaraskan ke `"1000"`.
 6. **Deskripsi Item & Note (Catatan 6)**:
-   - Membaca deskripsi dari `pol_desc_ld` (atau `DESCRIPTION` bila kosong).
+   - Membaca deskripsi dari `pol_desc_ld` (atau `DESCRIPTION` bila kosong, fallback `remark_ld`).
+   - Perbaikan ekstraksi SQL Server (`extractPO` di `sqlserver.go`): Menambahkan kolom `pol_desc_ld` dan `remark_ld` ke dalam query `SELECT` dari tabel `axmxpo` dengan proteksi `COL_LENGTH`. Sebelumnya kolom ini belum disertakan dalam SELECT query sehingga pembacaan `pol_desc_ld` kosong dan jatuh ke fallback `itemnum`.
    - `_PurchaseOrderItem.PurchaseOrderItemText`: dipotong maksimal 40 karakter menggunakan `truncateRunes(fullDesc, 40)`.
    - `_PurchaseOrderItem._PurchaseOrderItemNote.PlainLongText`: menampung deskripsi lengkap (full desc) tanpa dipotong.
 7. **Pricing Elements (Catatan 7)**:

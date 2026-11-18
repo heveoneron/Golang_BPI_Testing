@@ -220,18 +220,31 @@ func (r *SQLServerRepository) InsertInboundControl(ctx context.Context, rec Inbo
 
 // Ekstraksi data PO Maximo (Header + Lines) dari tabel axmxpo
 func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, action string) (*ExtractedRecord, error) {
-	query := `
+	colDesc := "''"
+	var hasPolDesc, hasRemark int
+	_ = r.DB.QueryRowContext(ctx, "SELECT CASE WHEN COL_LENGTH('axmxpo', 'pol_desc_ld') IS NOT NULL THEN 1 ELSE 0 END").Scan(&hasPolDesc)
+	_ = r.DB.QueryRowContext(ctx, "SELECT CASE WHEN COL_LENGTH('axmxpo', 'remark_ld') IS NOT NULL THEN 1 ELSE 0 END").Scan(&hasRemark)
+	if hasPolDesc == 1 && hasRemark == 1 {
+		colDesc = "ISNULL(NULLIF(pol_desc_ld, ''), ISNULL(remark_ld, ''))"
+	} else if hasPolDesc == 1 {
+		colDesc = "ISNULL(pol_desc_ld, '')"
+	} else if hasRemark == 1 {
+		colDesc = "ISNULL(remark_ld, '')"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT 
 			ISNULL(ponum, ''), ISNULL(vendor, ''), orderdate, ISNULL(currencycode, 'IDR'),
 			ISNULL(status, 'APPR'), ISNULL(revisionnum, 0), ISNULL(siteid, ''),
 			ISNULL(polinenum, 0), ISNULL(prnum, ''), ISNULL(prlinenum, 0), ISNULL(linetype, 'ITEM'),
 			ISNULL(itemnum, ''), ISNULL(orderqty, 0), ISNULL(orderunit, 'PCS'), ISNULL(unitcost, 0),
 			ISNULL(bpibudgetcode, ''), ISNULL(bpidepartment, ''), ISNULL(bpicoa, ''),
-			ISNULL(taxcode1, ''), ISNULL(storeloc, ''), ISNULL(budgetyear, ''), transseq
+			ISNULL(taxcode1, ''), ISNULL(storeloc, ''), ISNULL(budgetyear, ''),
+			%s, transseq
 		FROM axmxpo
 		WHERE transid = @p1
 		ORDER BY transseq ASC
-	`
+	`, colDesc)
 	rows, err := r.DB.QueryContext(ctx, query, transID)
 	if err != nil {
 		return nil, err
@@ -245,7 +258,7 @@ func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, acti
 	isFirst := true
 
 	for rows.Next() {
-		var pNum, vnd, cCode, st, sID, prNum, lType, itm, unit, bCode, dept, coa, tax1, sLoc, bYear string
+		var pNum, vnd, cCode, st, sID, prNum, lType, itm, unit, bCode, dept, coa, tax1, sLoc, bYear, polDesc string
 		var oDate sql.NullTime
 		var rev, pLine, prLine, seq int
 		var qty, cost float64
@@ -253,7 +266,7 @@ func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, acti
 		if err := rows.Scan(
 			&pNum, &vnd, &oDate, &cCode, &st, &rev, &sID,
 			&pLine, &prNum, &prLine, &lType, &itm, &qty, &unit, &cost,
-			&bCode, &dept, &coa, &tax1, &sLoc, &bYear, &seq,
+			&bCode, &dept, &coa, &tax1, &sLoc, &bYear, &polDesc, &seq,
 		); err != nil {
 			continue
 		}
@@ -275,6 +288,8 @@ func (r *SQLServerRepository) extractPO(ctx context.Context, transID int64, acti
 			"PRLINENUM":   prLine,
 			"LINETYPE":    lType,
 			"ITEMNUM":     itm,
+			"DESCRIPTION": polDesc,
+			"POL_DESC_LD": polDesc,
 			"ORDERUNIT":   unit,
 			"QTY":         qty,
 			"UNITCOST":    cost,
